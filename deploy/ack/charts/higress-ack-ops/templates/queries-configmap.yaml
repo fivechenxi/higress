@@ -8,7 +8,51 @@ metadata:
 data:
   gateway-active-streams: 'sum by (namespace,pod) (envoy_http_downstream_rq_active{http_conn_manager_prefix="outbound_0.0.0.0_80"})'
   prometheus-adapter-down: 'absent(up{job="prometheus-adapter"} == 1)'
-  ai-average-ttft-ms: 'sum(rate(route_upstream_model_consumer_metric_llm_first_token_duration[2m])) by (ai_cluster,ai_model) / sum(rate(route_upstream_model_consumer_metric_llm_stream_duration_count[2m])) by (ai_cluster,ai_model)'
-  ai-failure-rate: 'sum(rate(route_upstream_model_consumer_metric_llm_failure_count[2m])) by (ai_cluster,ai_model)'
+
+  # Latency percentiles. ai_provider is copied from the resolved ai_cluster by
+  # the collector, so it represents the actual selected upstream/provider.
+  ai-ttft-p50-overall-ms: 'histogram_quantile(0.50, sum(rate(higress_ai_ttft_milliseconds_bucket[5m])) by (le))'
+  ai-ttft-p90-overall-ms: 'histogram_quantile(0.90, sum(rate(higress_ai_ttft_milliseconds_bucket[5m])) by (le))'
+  ai-ttft-p50-by-model-ms: 'histogram_quantile(0.50, sum(rate(higress_ai_ttft_milliseconds_bucket[5m])) by (le,ai_model))'
+  ai-ttft-p90-by-model-ms: 'histogram_quantile(0.90, sum(rate(higress_ai_ttft_milliseconds_bucket[5m])) by (le,ai_model))'
+  ai-ttft-p50-by-model-provider-ms: 'histogram_quantile(0.50, sum(rate(higress_ai_ttft_milliseconds_bucket[5m])) by (le,ai_model,ai_provider))'
+  ai-ttft-p90-by-model-provider-ms: 'histogram_quantile(0.90, sum(rate(higress_ai_ttft_milliseconds_bucket[5m])) by (le,ai_model,ai_provider))'
+  ai-tpot-p50-overall-ms: 'histogram_quantile(0.50, sum(rate(higress_ai_tpot_milliseconds_bucket[5m])) by (le))'
+  ai-tpot-p90-overall-ms: 'histogram_quantile(0.90, sum(rate(higress_ai_tpot_milliseconds_bucket[5m])) by (le))'
+  ai-tpot-p50-by-model-ms: 'histogram_quantile(0.50, sum(rate(higress_ai_tpot_milliseconds_bucket[5m])) by (le,ai_model))'
+  ai-tpot-p90-by-model-ms: 'histogram_quantile(0.90, sum(rate(higress_ai_tpot_milliseconds_bucket[5m])) by (le,ai_model))'
+  ai-tpot-p50-by-model-provider-ms: 'histogram_quantile(0.50, sum(rate(higress_ai_tpot_milliseconds_bucket[5m])) by (le,ai_model,ai_provider))'
+  ai-tpot-p90-by-model-provider-ms: 'histogram_quantile(0.90, sum(rate(higress_ai_tpot_milliseconds_bucket[5m])) by (le,ai_model,ai_provider))'
+
+  # Token cache hit ratio uses normalized prompt tokens: total-output includes
+  # Anthropic cache-read/cache-create tokens while OpenAI/Gemini total already
+  # contains their complete prompt token count.
+  ai-cache-token-hit-ratio-overall: 'sum(rate(route_upstream_model_consumer_metric_cache_hit_token[5m])) / clamp_min(sum(rate(route_upstream_model_consumer_metric_total_token[5m])) - sum(rate(route_upstream_model_consumer_metric_output_token[5m])), 1)'
+  ai-cache-token-hit-ratio-by-model: 'sum by (ai_model) (rate(route_upstream_model_consumer_metric_cache_hit_token[5m])) / clamp_min(sum by (ai_model) (rate(route_upstream_model_consumer_metric_total_token[5m])) - sum by (ai_model) (rate(route_upstream_model_consumer_metric_output_token[5m])), 1)'
+  ai-cache-token-hit-ratio-by-model-provider: 'sum by (ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_cache_hit_token[5m])) / clamp_min(sum by (ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_total_token[5m])) - sum by (ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_output_token[5m])), 1)'
+  ai-cache-request-hit-ratio-overall: 'sum(rate(route_upstream_model_consumer_metric_cache_hit_request_count[5m])) / clamp_min(sum(rate(route_upstream_model_consumer_metric_cache_reported_request_count[5m])), 1)'
+  ai-cache-request-hit-ratio-by-model: 'sum by (ai_model) (rate(route_upstream_model_consumer_metric_cache_hit_request_count[5m])) / clamp_min(sum by (ai_model) (rate(route_upstream_model_consumer_metric_cache_reported_request_count[5m])), 1)'
+  ai-cache-request-hit-ratio-by-model-provider: 'sum by (ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_cache_hit_request_count[5m])) / clamp_min(sum by (ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_cache_reported_request_count[5m])), 1)'
+
+  ai-error-ratio-overall: 'sum(rate(route_upstream_model_consumer_metric_llm_failure_count[5m])) / clamp_min(sum(rate(route_upstream_model_consumer_metric_llm_request_count[5m])), 1)'
+  ai-error-ratio-by-model: 'sum by (ai_model) (rate(route_upstream_model_consumer_metric_llm_failure_count[5m])) / clamp_min(sum by (ai_model) (rate(route_upstream_model_consumer_metric_llm_request_count[5m])), 1)'
+  ai-error-ratio-by-model-provider: 'sum by (ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_llm_failure_count[5m])) / clamp_min(sum by (ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_llm_request_count[5m])), 1)'
+
+  ai-rpm-overall: 'sum(rate(route_upstream_model_consumer_metric_llm_request_count[5m])) * 60'
+  ai-rpm-by-model: 'sum by (ai_model) (rate(route_upstream_model_consumer_metric_llm_request_count[5m])) * 60'
+  ai-rpm-by-model-provider: 'sum by (ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_llm_request_count[5m])) * 60'
+  ai-input-tpm-overall: 'sum(rate(route_upstream_model_consumer_metric_input_token[5m])) * 60'
+  ai-input-tpm-by-model: 'sum by (ai_model) (rate(route_upstream_model_consumer_metric_input_token[5m])) * 60'
+  ai-input-tpm-by-model-provider: 'sum by (ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_input_token[5m])) * 60'
+  ai-output-tpm-overall: 'sum(rate(route_upstream_model_consumer_metric_output_token[5m])) * 60'
+  ai-output-tpm-by-model: 'sum by (ai_model) (rate(route_upstream_model_consumer_metric_output_token[5m])) * 60'
+  ai-output-tpm-by-model-provider: 'sum by (ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_output_token[5m])) * 60'
+  ai-cache-hit-tpm-overall: 'sum(rate(route_upstream_model_consumer_metric_cache_hit_token[5m])) * 60'
+  ai-cache-hit-tpm-by-model: 'sum by (ai_model) (rate(route_upstream_model_consumer_metric_cache_hit_token[5m])) * 60'
+  ai-cache-hit-tpm-by-model-provider: 'sum by (ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_cache_hit_token[5m])) * 60'
+  ai-inflight-overall: 'sum(route_upstream_model_consumer_metric_llm_inflight_request)'
+  ai-inflight-by-model: 'sum by (ai_model) (route_upstream_model_consumer_metric_llm_inflight_request)'
+  ai-inflight-by-model-provider: 'sum by (ai_model,ai_provider) (route_upstream_model_consumer_metric_llm_inflight_request)'
+
   terway-ct-pressure: 'max by (instance,map_name) (cilium_bpf_map_pressure{map_name=~"ct(4|6|_any4|_any6)_global"})'
   terway-map-update-failures: 'sum by (instance,map_name) (rate(cilium_bpf_map_ops_total{operation="update",outcome="fail"}[1m]))'

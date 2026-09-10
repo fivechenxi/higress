@@ -761,7 +761,7 @@ func TestMetrics(t *testing.T) {
 			// 3. 处理响应体
 			responseBody := []byte(`{
 				"choices": [{"message": {"content": "Hello, how can I help you?"}}],
-				"usage": {"prompt_tokens": 5, "completion_tokens": 8, "total_tokens": 13},
+				"usage": {"prompt_tokens": 5, "completion_tokens": 8, "total_tokens": 13, "prompt_tokens_details": {"cached_tokens": 3}},
 				"model": "gpt-3.5-turbo"
 			}`)
 			host.CallOnHttpResponseBody(responseBody)
@@ -799,6 +799,26 @@ func TestMetrics(t *testing.T) {
 			durationCountValue, err := host.GetCounterMetric(durationCountMetric)
 			require.NoError(t, err)
 			require.Equal(t, uint64(1), durationCountValue)
+
+			requestCountMetric := "route.api-v1.upstream.cluster-1.model.gpt-3.5-turbo.consumer.user1.metric.llm_request_count"
+			requestCountValue, err := host.GetCounterMetric(requestCountMetric)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), requestCountValue)
+
+			cacheHitMetric := "route.api-v1.upstream.cluster-1.model.gpt-3.5-turbo.consumer.user1.metric.cache_hit_token"
+			cacheHitValue, err := host.GetCounterMetric(cacheHitMetric)
+			require.NoError(t, err)
+			require.Equal(t, uint64(3), cacheHitValue)
+
+			cacheReportedMetric := "route.api-v1.upstream.cluster-1.model.gpt-3.5-turbo.consumer.user1.metric.cache_reported_request_count"
+			cacheReportedValue, err := host.GetCounterMetric(cacheReportedMetric)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), cacheReportedValue)
+
+			inflightMetric := "route.api-v1.upstream.cluster-1.model.gpt-3.5-turbo.consumer.user1.metric.llm_inflight_request"
+			inflightValue, err := host.GetGaugeMetric(inflightMetric)
+			require.NoError(t, err)
+			require.Equal(t, uint64(0), inflightValue)
 		})
 
 		// 测试流式响应指标
@@ -852,6 +872,7 @@ func TestMetrics(t *testing.T) {
 
 			result := host.GetResponseBody()
 			require.Equal(t, firstChunk, result)
+			time.Sleep(10 * time.Millisecond)
 
 			// 5. 处理最后一个流式块 - 添加 usage 信息（SSE 事件以 \n\n 结尾）
 			lastChunk := []byte("data: {\"choices\":[{\"message\":{\"content\":\"How can I help you?\"}}],\"model\":\"gpt-4\",\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":8,\"total_tokens\":13}}\n\n")
@@ -903,7 +924,69 @@ func TestMetrics(t *testing.T) {
 			totalTokenValue, err := host.GetCounterMetric(totalTokenMetric)
 			require.NoError(t, err)
 			require.Equal(t, uint64(13), totalTokenValue)
+
+			tpotCountMetric := "route.api-v1.upstream.cluster-1.model.gpt-4.consumer.user2.metric.llm_tpot_count"
+			tpotCountValue, err := host.GetCounterMetric(tpotCountMetric)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), tpotCountValue)
+
+			ttftInfBucket := "route.api-v1.upstream.cluster-1.model.gpt-4.consumer.user2.metric.llm_first_token_duration_bucket_le_inf"
+			ttftInfValue, err := host.GetCounterMetric(ttftInfBucket)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), ttftInfValue)
+
+			tpotInfBucket := "route.api-v1.upstream.cluster-1.model.gpt-4.consumer.user2.metric.llm_tpot_duration_bucket_le_inf"
+			tpotInfValue, err := host.GetCounterMetric(tpotInfBucket)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), tpotInfValue)
 		})
+	})
+}
+
+func TestCalculateTPOT(t *testing.T) {
+	tests := []struct {
+		name                  string
+		service, ttft, output uint64
+		want                  uint64
+		valid                 bool
+	}{
+		{name: "normal", service: 1100, ttft: 300, output: 9, want: 100, valid: true},
+		{name: "single output token", service: 500, ttft: 300, output: 1, valid: false},
+		{name: "invalid duration order", service: 200, ttft: 300, output: 9, valid: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, valid := calculateTPOT(tc.service, tc.ttft, tc.output)
+			require.Equal(t, tc.valid, valid)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestAbortedStreamMetrics(t *testing.T) {
+	test.RunTest(t, func(t *testing.T) {
+		host, status := test.NewTestHost(basicConfig)
+		defer host.Reset()
+		require.Equal(t, types.OnPluginStartStatusOK, status)
+		host.SetRouteName("api-v1")
+		host.SetClusterName("provider-a")
+		host.CallOnHttpRequestHeaders([][2]string{
+			{":authority", "example.com"},
+			{":path", "/v1/chat/completions"},
+			{":method", "POST"},
+		})
+		host.CallOnHttpRequestBody([]byte(`{"model":"glm-5","stream":true}`))
+		host.CompleteHttp()
+
+		prefix := "route.api-v1.upstream.provider-a.model.glm-5.consumer.none.metric."
+		for _, name := range []string{LLMRequestCount, LLMFailureCount, LLMAbortedCount} {
+			value, err := host.GetCounterMetric(prefix + name)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), value)
+		}
+		inflight, err := host.GetGaugeMetric(prefix + LLMInflightRequest)
+		require.NoError(t, err)
+		require.Equal(t, uint64(0), inflight)
 	})
 }
 
@@ -2299,10 +2382,12 @@ func TestFailureCountMetric(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, uint64(1), failureValue)
 
-			// Verify success metrics are NOT present (usage info unavailable in error response)
+			// Duration/request metrics remain observable even when an error response
+			// has no provider usage payload; only token/cache/TPOT are conditional.
 			durationCountMetric := "route.api-v1.upstream.cluster-1.model.gpt-3.5-turbo.consumer.user1.metric.llm_duration_count"
-			_, err = host.GetCounterMetric(durationCountMetric)
-			require.Error(t, err, "llm_duration_count should not exist for error response without usage")
+			durationCountValue, err := host.GetCounterMetric(durationCountMetric)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), durationCountValue)
 		})
 
 		t.Run("success response does not increment failure count", func(t *testing.T) {
@@ -2338,10 +2423,12 @@ func TestFailureCountMetric(t *testing.T) {
 
 			host.CompleteHttp()
 
-			// Verify llm_failure_count is NOT present
+			// A zero-valued series is kept so the error-ratio query returns 0
+			// before the first failure instead of disappearing from dashboards.
 			failureMetric := "route.api-v1.upstream.cluster-1.model.gpt-4.consumer.user1.metric.llm_failure_count"
-			_, err := host.GetCounterMetric(failureMetric)
-			require.Error(t, err, "llm_failure_count should not exist for successful response")
+			failureValue, err := host.GetCounterMetric(failureMetric)
+			require.NoError(t, err)
+			require.Equal(t, uint64(0), failureValue)
 
 			// Verify success metrics exist
 			durationCountMetric := "route.api-v1.upstream.cluster-1.model.gpt-4.consumer.user1.metric.llm_duration_count"
@@ -2932,8 +3019,9 @@ func TestStreamingNoUpstreamUsage(t *testing.T) {
 			assertNoTokenAttrs(t, attrs)
 			_, err := host.GetCounterMetric(streamingMetricName("gpt-4", tokenusage.CtxKeyTotalToken))
 			require.Error(t, err, "no token metric may be recorded without upstream usage")
-			_, err = host.GetCounterMetric(streamingMetricName("gpt-4", LLMFailureCount))
-			require.Error(t, err, "no failure may be recorded for a clean stream")
+			failureValue, err := host.GetCounterMetric(streamingMetricName("gpt-4", LLMFailureCount))
+			require.NoError(t, err)
+			require.Equal(t, uint64(0), failureValue, "a clean stream keeps a zero-valued error series")
 		}
 
 		t.Run("no_usage_events", func(t *testing.T) {

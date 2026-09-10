@@ -150,6 +150,26 @@ irate(route_upstream_model_consumer_metric_llm_service_duration[2m])
 irate(route_upstream_model_consumer_metric_llm_duration_count[2m])
 ```
 
+This version also exposes the following metrics, aggregatable by `ai_route`,
+`ai_cluster`, and `ai_model`:
+
+| Metric suffix | Type | Meaning |
+| --- | --- | --- |
+| `llm_request_count` | Counter | Completed or aborted LLM requests; denominator for error rate and RPM |
+| `llm_failure_count` / `llm_aborted_count` | Counter | Failed requests / streams that did not complete normally |
+| `llm_inflight_request` | Gauge | LLM requests currently in progress |
+| `llm_tpot_duration` / `llm_tpot_count` | Counter | Sum and sample count of request-level mean TPOT in milliseconds |
+| `llm_first_token_duration_bucket_le_*` | Counter | Fixed cumulative TTFT buckets |
+| `llm_tpot_duration_bucket_le_*` | Counter | Fixed cumulative TPOT buckets |
+| `cache_hit_token` | Counter | Input tokens read from a provider cache |
+| `cache_reported_request_count` | Counter | Requests for which the provider explicitly reported cache details |
+| `cache_hit_request_count` | Counter | Requests with at least one cache-read token |
+
+TPOT is `(request duration - TTFT) / (output tokens - 1)` and is emitted only
+for streaming requests with at least two output tokens. Cache-hit tokens cover
+OpenAI `cached_tokens`, Anthropic `cache_read_input_tokens`, and Gemini
+`cached_content_token_count`; Anthropic cache creation is not a hit.
+
 #### Log
 
 ```json

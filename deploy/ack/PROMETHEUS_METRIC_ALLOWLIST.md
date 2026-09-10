@@ -32,24 +32,86 @@ measured AI route; without it these series do not exist.
 Keep these metric families:
 
 - `route_upstream_model_consumer_metric_llm_first_token_duration`
+- `higress_ai_ttft_milliseconds_bucket` (10 cumulative buckets after collector relabeling)
 - `route_upstream_model_consumer_metric_llm_stream_duration_count`
 - `route_upstream_model_consumer_metric_llm_service_duration`
 - `route_upstream_model_consumer_metric_llm_duration_count`
+- `route_upstream_model_consumer_metric_llm_tpot_duration`
+- `route_upstream_model_consumer_metric_llm_tpot_count`
+- `higress_ai_tpot_milliseconds_bucket` (10 cumulative buckets after collector relabeling)
+- `route_upstream_model_consumer_metric_llm_request_count`
 - `route_upstream_model_consumer_metric_llm_failure_count`
+- `route_upstream_model_consumer_metric_llm_aborted_count`
+- `route_upstream_model_consumer_metric_llm_inflight_request`
 - `route_upstream_model_consumer_metric_input_token`
 - `route_upstream_model_consumer_metric_output_token`
 - `route_upstream_model_consumer_metric_total_token`
+- `route_upstream_model_consumer_metric_cache_hit_token`
+- `route_upstream_model_consumer_metric_cache_reported_request_count`
+- `route_upstream_model_consumer_metric_cache_hit_request_count`
 
-Keep the bounded `ai_route`, `ai_cluster`, and `ai_model` dimensions. Model and
-provider values must be normalized against the configured catalog (for
-example, the approved GLM/Kimi/DeepSeek aliases). Drop `ai_consumer` from this
-infrastructure-capacity scrape for now; per-customer observability needs its
-own cardinality and cost budget.
+Keep the bounded `ai_route`, `ai_cluster`, and `ai_model` dimensions. The
+collector copies `ai_cluster` to `ai_provider`, giving one reusable raw data
+set for gateway-wide aggregation, model drill-down, and model/provider
+drill-down. It does not emit three duplicate metric sets. Provider values are
+resolved Envoy cluster names and must be normalized against the configured
+catalog (for example, the approved GLM/Kimi/DeepSeek provider aliases). Drop
+`ai_consumer` from this infrastructure-capacity scrape for now; per-customer
+observability needs its own cardinality and cost budget.
 
-The duration metrics are cumulative sums plus counts. They calculate average
-TTFT and average service duration, not p95/p99. The load generator's histogram
-therefore remains the source of truth for p99 TTFT and the one-second
-Gateway-added-latency requirement.
+TTFT buckets are `100,250,500,1000,2000,5000,10000,30000,60000,+Inf` ms. TPOT
+buckets are `5,10,20,30,50,100,250,500,1000,+Inf` ms. The plugin emits fixed
+cumulative counters because the current Proxy-Wasm SDK has counter and gauge
+primitives but no histogram primitive; collector relabeling converts them into
+canonical Prometheus bucket series. The Helm query catalog calculates P50 and
+P90 at all three aggregation levels.
+
+TPOT is the request-level mean inter-token time:
+`(service duration - TTFT) / (output tokens - 1)`. It is emitted only for a
+streaming response with at least two provider-reported output tokens. Using
+the final usage count means multi-token frames and tool-call/function output
+are not mistaken for one token per SSE chunk. It is not a per-token ITL
+histogram. TTFT currently retains Higress 2.0.2 compatibility semantics: time
+to the first upstream response chunk. A provider that emits a role/metadata-only
+first SSE event can therefore report a lower value than time to first semantic
+text/tool token; benchmark-side TTFT remains the acceptance source until that
+protocol-specific distinction is implemented.
+
+`cache_hit_token` includes OpenAI `cached_tokens`, Anthropic
+`cache_read_input_tokens`, and Gemini `cached_content_token_count`. Anthropic
+`cache_creation_input_tokens` is intentionally not a hit. The token hit ratio
+uses `(total_token - output_token)` as normalized prompt tokens because the
+Anthropic total includes cache read/create tokens while OpenAI/Gemini totals
+already include their full prompt. Request hit ratio divides hit requests by
+`cache_reported_request_count`, not all requests, so a provider that does not
+report cache details is not silently treated as 0% hit rate.
+
+This change adds 10 logical raw families. Due to the two fixed histograms, it
+adds 28 concrete exported series names per active
+route/provider/model/consumer/Pod tuple: eight scalar series and twenty bucket
+series. Together with the previous eight series, that tuple has 36. The
+collector drops consumer before remote write. Cardinality must still be
+measured with the real model/provider catalog before production rollout.
+
+### Data availability
+
+| KPI | Plugin can calculate | Required upstream/runtime data |
+| --- | --- | --- |
+| RPM, error ratio, aborted requests | Yes, independent of usage tokens | AI route must be bound to this plugin; response status/body or stream termination |
+| LLM in-flight requests | Yes | Request body must reach the plugin so model can be extracted |
+| Input/output/total TPM | Yes, conditionally | Provider must return final usage fields; streaming APIs must include final usage |
+| TTFT P50/P90 | Yes | Streaming response; current semantic is first upstream chunk |
+| TPOT P50/P90 | Yes, conditionally | Streaming response, final output-token usage, at least two output tokens |
+| Cache-hit tokens and token hit ratio | Yes, conditionally | OpenAI/Anthropic/Gemini cache-detail field returned by provider |
+| Cache request hit ratio | Yes, conditionally | Same as above; coverage denominator prevents unsupported providers being counted as misses |
+| Model dimension | Yes | Request or response model field |
+| Provider dimension | Yes, as selected upstream cluster | One normalized provider per Envoy cluster; shared/opaque cluster names need catalog cleanup |
+
+The stock `ai-statistics:2.0.2` image does not contain these additions. Code,
+collector configuration, and PromQL are ready in this fork, but a custom WASM
+artifact must be published and referenced by the `WasmPlugin` before the new
+families appear in the live ACK Prometheus instance. Also, no series are
+created while the plugin is unbound or its target AI Ingress does not exist.
 
 Feature-specific additions are conditional:
 
