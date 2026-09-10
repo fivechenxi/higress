@@ -7,7 +7,7 @@ resource "alicloud_cs_kubernetes_node_pool" "gateway" {
   instance_charge_type = "PostPaid"
   key_name             = alicloud_key_pair.workers.key_pair_name
 
-  image_type                 = "AliyunLinux3ContainerOptimized"
+  image_type                 = "AliyunLinux4ContainerOptimized"
   runtime_name               = "containerd"
   system_disk_category       = "cloud_essd_entry"
   system_disk_size           = 40

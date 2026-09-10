@@ -1,0 +1,25 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: higress-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: higress-gateway
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: higress-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: higress-controller

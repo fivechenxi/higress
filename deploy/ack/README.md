@@ -32,22 +32,25 @@ There are two lifecycle levels:
 
 ## Test sizing and traffic
 
-- Workers: `ecs.e-c1m2.xlarge`, pay-as-you-go, 1 configured minimum and 3
+- Workers: `ecs.u1-c1m2.xlarge`, pay-as-you-go, 1 configured minimum and 3
   maximum. A running Higress installation requires at least 2 because the two
   controller replicas use required hostname anti-affinity. Controller HPA,
   failover, or a rolling update can temporarily request the third worker.
 - Worker disk: 40 GiB ESSD Entry.
-- Higress gateway: 2 replicas, HPA up to 4 replicas at 65% CPU.
+- Higress gateway: 2 replicas, HPA up to 4 replicas using 65% CPU and 225
+  active streams per Pod; the larger desired replica count wins.
 - Higress controller: 2 replicas on different nodes, HPA up to 3 replicas at
   65% CPU. Controller and gateway each have a PDB with `minAvailable: 1`.
 - Gateway service: `ClusterIP`; there is no Higress public or internal CLB yet.
 - Pod placement: controller replicas use required hostname anti-affinity;
-  gateway replicas use preferred hostname anti-affinity and may share a worker
-  in the low-cost test topology.
-- Network: Flannel; the existing NAT provides image-pull and upstream egress.
-- Observability: no SLS, ARMS, or Nginx Ingress add-on is requested by this
-  stack. ACK 1.36 installs its baseline CSI components even without persistent
-  volumes. `metrics-server` is requested because the HPA needs it.
+  gateway replicas use hard hostname topology spread with `maxSkew: 1`.
+- Network: Terway DataPath V2/eBPF without kube-proxy IPVS/iptables in the Pod
+  Service path.
+- Observability: a narrow collector remote-writes only allowlisted application
+  metrics to ARMS. ACK's full metric-agent/cs-default jobs are not installed.
+  `metrics-server` supplies CPU HPA and a Helm-managed upstream Prometheus
+  Adapter supplies `higress_active_streams`; adapter failure is alerted for
+  manual handling.
 - ACK automatic scale-down is explicitly configured with a 5-minute trigger
   delay. This affects autoscaler decisions, not deletion of an entire node pool.
 
@@ -89,7 +92,7 @@ To use a different cluster name or sizing, create an untracked
 
 ```hcl
 cluster_name          = "higress-ack-test"
-worker_instance_types = ["ecs.e-c1m2.xlarge"]
+worker_instance_types = ["ecs.u1-c1m2.xlarge"]
 node_min_size         = 1
 node_max_size         = 3
 ```

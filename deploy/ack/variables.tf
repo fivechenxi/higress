@@ -45,14 +45,14 @@ variable "cluster_spec" {
   }
 }
 
-variable "pod_cidr" {
-  description = "Flannel pod CIDR; must not overlap the reused VPC or service CIDR."
+variable "kubernetes_version" {
+  description = "ACK version pinned for reproducible Terway DataPath V2 behavior. Kubernetes 1.34+ removes kube-proxy on new DataPath V2 clusters."
   type        = string
-  default     = "172.20.0.0/16"
+  default     = "1.36.2-aliyun.1"
 }
 
 variable "service_cidr" {
-  description = "Kubernetes service CIDR; must not overlap the reused VPC or pod CIDR."
+  description = "Kubernetes service CIDR; must not overlap the reused VPC. Terway Pod IPs come from pod_vswitch_ids."
   type        = string
   default     = "172.21.0.0/20"
 }
@@ -77,7 +77,10 @@ variable "lifecycle_mode" {
 variable "worker_instance_types" {
   description = "Ordered low-cost ECS types for the single-AZ elastic node pool."
   type        = list(string)
-  default     = ["ecs.e-c1m2.xlarge"]
+  # u1 is the lowest-cost checked 4 vCPU/8 GiB option that supports ENI
+  # Trunking. The former e-c1m2.xlarge does not, and only exposes six
+  # secondary IPs per ENI, which is too restrictive for the test topology.
+  default = ["ecs.u1-c1m2.xlarge"]
 
   validation {
     condition     = length(var.worker_instance_types) > 0

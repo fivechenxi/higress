@@ -1,0 +1,93 @@
+{{- if .Values.prometheusAdapter.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: higress-prometheus-adapter
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: higress-prometheus-adapter
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: higress-prometheus-adapter
+  template:
+    metadata:
+      labels:
+        app: higress-prometheus-adapter
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/adapter-configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: higress-prometheus-adapter
+      containers:
+        - name: prometheus-adapter
+          image: {{ .Values.prometheusAdapter.image | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --secure-port=6443
+            - --cert-dir=/var/run/serving-cert
+            - --config=/etc/adapter/config.yaml
+            - --prometheus-url=http://higress-metrics-collector.{{ .Release.Namespace }}.svc:9090
+            - --metrics-relist-interval={{ .Values.prometheusAdapter.metricsRelistInterval }}
+            - --v=2
+          ports:
+            - name: https
+              containerPort: 6443
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /readyz
+              port: https
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /livez
+              port: https
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.prometheusAdapter.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/adapter
+              readOnly: true
+            - name: serving-cert
+              mountPath: /var/run/serving-cert
+      volumes:
+        - name: config
+          configMap:
+            name: higress-prometheus-adapter
+        - name: serving-cert
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: higress-prometheus-adapter
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app: higress-prometheus-adapter
+  ports:
+    - name: https
+      port: 443
+      targetPort: https
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.custom.metrics.k8s.io
+spec:
+  group: custom.metrics.k8s.io
+  groupPriorityMinimum: 100
+  insecureSkipTLSVerify: true
+  service:
+    name: higress-prometheus-adapter
+    namespace: {{ .Release.Namespace }}
+    port: 443
+  version: v1beta1
+  versionPriority: 100
+{{- end }}

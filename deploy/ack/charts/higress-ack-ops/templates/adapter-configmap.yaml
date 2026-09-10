@@ -1,0 +1,23 @@
+{{- if .Values.prometheusAdapter.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: higress-prometheus-adapter
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    rules:
+      - seriesQuery: 'envoy_http_downstream_rq_active{namespace!="",pod!="",http_conn_manager_prefix="outbound_0.0.0.0_80"}'
+        resources:
+          overrides:
+            namespace:
+              resource: namespace
+            pod:
+              resource: pod
+        name:
+          matches: '^envoy_http_downstream_rq_active$'
+          as: higress_active_streams
+        metricsQuery: 'sum(<<.Series>>{<<.LabelMatchers>>,http_conn_manager_prefix="outbound_0.0.0.0_80"}) by (<<.GroupBy>>)'
+{{- end }}

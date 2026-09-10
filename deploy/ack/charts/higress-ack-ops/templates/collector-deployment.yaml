@@ -1,0 +1,63 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: higress-metrics-collector
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: higress-metrics-collector
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: higress-metrics-collector
+  template:
+    metadata:
+      labels:
+        app: higress-metrics-collector
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/collector-configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: higress-metrics-collector
+      containers:
+        - name: prometheus
+          image: {{ .Values.monitoring.collector.image | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=1h
+            - --storage.tsdb.retention.size=384MB
+            - --web.listen-address=:9090
+          ports:
+            - name: http
+              containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.monitoring.collector.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: data
+              mountPath: /prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: higress-metrics-collector
+        - name: data
+          emptyDir:
+            sizeLimit: 512Mi
+{{- end }}

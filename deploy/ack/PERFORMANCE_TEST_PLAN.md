@@ -125,9 +125,7 @@ Initial policy:
 - scale up immediately by up to 100% or two Pods per minute;
 - stabilize scale-down for five minutes and remove at most 25% per minute.
 
-Promote beyond CPU-only HPA when ACK Managed Service for Prometheus and the
-Alibaba Cloud metrics adapter are enabled. The preferred custom signal is the
-maximum of:
+The deployed dual-signal HPA selects the maximum desired replica count from:
 
 1. CPU desired replicas;
 2. active downstream streams divided by the tested safe streams-per-Pod.
@@ -142,25 +140,35 @@ The native Envoy gauges verified in this deployment are
 `envoy_http_downstream_rq_active` and
 `envoy_http_downstream_cx_active`, filtered to
 `http_conn_manager_prefix="outbound_0.0.0.0_80"`. The first is the preferred
-stream signal. Do not configure a numeric target from the current run. The raw
-Envoy test held 250 streams per Pod without errors, but it did not find the
-Gateway saturation knee: the mock/load generator reached its own latency knee
-first. Therefore neither 250 nor a fraction of 250 is a scientifically valid
-production target.
+stream signal.
 
-First measure `C`, the maximum concurrent streams per Pod that still pass
-TTFT, completion, memory, connection-overflow, slow-client, and failover SLOs
-with the production plugin chain. For a minimum replica count `R` and normal
-headroom factor `H` (initially 0.7), set the per-Pod target no higher than:
+The 2026-09-10 clean-cluster run found the first repeatable system knee between
+1,000 and 1,500 concurrent OpenAI streams with four Gateway Pods. At 1,000,
+all requests completed and worst-shard Gateway-added p99 TTFT was about 88 ms.
+At 1,500, throughput was already about 20% below the direct-path capacity and
+Gateway p99 TTFT reached 816 ms. At 2,000 it reached 1,228 ms while throughput
+was about 26% below direct. No reset, overflow, or Cilium map exhaustion was
+observed. This makes 250 concurrent streams per Pod the highest validated point
+below the measured knee for this exact test topology and plugin chain; it is
+not a universal Higress limit.
+
+First measure `C`, the maximum concurrent streams per Pod that still pass the
+production SLOs, then select an explicit operating headroom factor `H`:
 
 ```text
-stream target = C * min(H, (R - 1) / R)
+stream target = C * H
 ```
 
-With two minimum replicas, failover is the stricter term and the target is at
-most `0.5 * C`. This reserves aggregate capacity for new or retried streams
-after one Pod disappears; it cannot preserve streams already terminated with
-the failed Pod.
+Use `H <= (R - 1) / R` only when full N-1 spare capacity is required at the
+minimum replica count. The current test choice is `H=0.9` because long streams
+change slowly and cost efficiency was selected over full N-1 reserve.
+
+The selected test target is 225 streams per Pod, 90% of the measured `C=250`.
+This favors cost efficiency for slow-changing long streams and does not reserve
+full N-1 capacity at the two-Pod minimum. The ACK addon catalog exposes no
+managed custom-metrics adapter, so the ops Chart owns upstream
+`prometheus-adapter` v0.12.0. CPU remains an independent scale-up fallback;
+adapter unavailability raises `HigressPrometheusAdapterDown` for manual repair.
 
 Scale before saturation when any of these holds for two consecutive 30-second
 windows:
@@ -238,17 +246,21 @@ plugin chain are known.
 
 ### Environment and validity
 
-Measured on 2026-09-10 in ACK Basic Kubernetes 1.36.2 with Higress 2.2.4,
-`ecs.e-c1m2.xlarge` workers, two 250m/512Mi gateway replicas, and two
-controller replicas. The gateway used plain HTTP and a raw Ingress route; TLS,
-AI proxy/protocol conversion, authentication, token accounting, rate limiting,
-and provider fallback were not enabled. The deterministic backend used 50 ms
-non-stream latency or 300 ms TTFT plus 32 SSE chunks at 30 ms intervals.
+Measured on 2026-09-10 in a clean ACK Basic Kubernetes 1.36.2 cluster with
+Higress 2.2.4, `ecs.u1-c1m2.xlarge` workers, a 2-4 Pod Gateway CPU HPA, and two
+controller replicas. The gateway used plain HTTP and an Ingress route with the
+`ai-statistics` 2.0.2 plugin. TLS, authentication, AI-proxy protocol conversion,
+rate limiting, and provider fallback were not enabled. The deterministic
+backend used 300 ms TTFT plus 32 SSE chunks at 30 ms intervals and emitted
+OpenAI/Anthropic usage data for model/token metrics.
 
-The load generator and mock shared a worker that was separate from the gateway
-worker. These are single exploratory runs unless stated otherwise; they size
-the next test and validate metrics/HPA behavior, but do not satisfy the
-three-repetition production sign-off rule above.
+Four mock Pods and four load generators were isolated from the Gateway by
+hostname anti-affinity. ACK used three workers: all Gateway replicas were on
+one worker, mocks on another, and generators on the third. The Gateway HPA
+expanded from two to four Pods, but Pod expansion did not add Gateway node CPU
+because all four remained co-located. These are single exploratory runs unless
+stated otherwise; they locate the next test range and validate metrics/HPA
+behavior, but do not satisfy the three-repetition production sign-off rule.
 
 ### Non-stream OpenAI-compatible route
 
@@ -275,28 +287,45 @@ about 125 RPS per Pod, not an additional HPA metric. This is
 deliberately conservative and must be replaced after three repeated runs with
 the production plugins enabled.
 
-### Streaming routes
+### Streaming routes on the clean cluster
 
-| Protocol | Concurrency | Direct p50 TTFT | Gateway p50 TTFT | Direct p99 TTFT | Gateway p99 TTFT | Errors |
+The table sums throughput across four load generators and reports the worst
+p99 shard so tail degradation is not hidden by averaging percentiles.
+
+| Protocol/path | Concurrency | RPS | p99 TTFT | Worst added p99 | Requests | Errors |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| OpenAI | 10 | 301.64 ms | 303.05 ms | 317.21 ms | 342.71 ms | 0 |
-| OpenAI | 50 | 302.32 ms | 304.87 ms | 335.03 ms | 447.00 ms | 0 |
-| OpenAI | 100 | 302.81 ms | 303.41 ms | 351.90 ms | 380.20 ms | 0 |
-| Anthropic | 50 | 302.25 ms | 304.18 ms | 310.69 ms | 356.84 ms | 0 |
-| OpenAI | 500 | 304.12 ms | 304.54 ms | 636.83 ms | 474.49 ms | 0 |
+| OpenAI direct | 100 | 79.6 | 303 ms | - | 1,690 | 0 |
+| OpenAI Gateway | 100 | 77.8 | 315 ms | 12 ms | 1,606 | 0 |
+| OpenAI direct | 250 | 199.2 | 309 ms | - | 4,000 | 0 |
+| OpenAI Gateway | 250 | 196.7 | 356 ms | 47 ms | 4,000 | 0 |
+| OpenAI direct | 500 | 388.6 | 321 ms | - | 8,022 | 0 |
+| OpenAI Gateway | 500 | 378.7 | 419 ms | 98 ms | 8,000 | 0 |
+| OpenAI direct | 1,000 | 787.2 | 333 ms | - | 16,020 | 0 |
+| OpenAI Gateway | 1,000 | 746.0 | 421 ms | 88 ms | 15,855 | 0 |
+| OpenAI Gateway | 1,500 | 942.1 | 816 ms | not paired | 29,313 | 0 |
+| OpenAI direct | 2,000 | 1,593.5 | 348 ms | - | 32,000 | 0 |
+| OpenAI Gateway | 2,000 | 1,186.1 | 1,228 ms | 880 ms | 24,969 | 0 |
+| Anthropic Gateway | 1,000 | 774.7 | 404 ms | not paired | 16,000 | 0 |
 
-Median TTFT overhead stayed near 0.4-2.6 ms, but tail latency was variable and
-breached the provisional 20 ms p99-delta gate. At concurrency 500, direct TTFT
-also degraded sharply, invalidating that row for gateway latency attribution.
-It remains useful as a connection-holding test: all 16,000 Gateway streams
-completed, and each Gateway held 250 active streams.
+The 225-target qualification started with two Gateway Pods and 1,000 OpenAI
+streaming clients. The adapter reported 501 and 499 active streams; HPA first
+scaled 2 to 3 with reason `pods metric higress_active_streams above target`,
+then CPU completed the scale to 4. The run completed 31,943 requests with zero
+errors at 690.5 RPS; worst-shard p99 TTFT was 572 ms.
 
-With 100 active streams, the two Gateway Pods reported 50 active requests each
-but only 3m and 17m CPU; HPA remained at two replicas with 4% average CPU. With
-500 streams, each Pod reported 250 active requests while HPA still saw only 8%
-CPU. This proves that CPU-only HPA cannot protect long-lived MaaS streams. Add
-the active-request custom metric before production traffic, after a dedicated
-stream test establishes `C` without saturating the mock or load generator.
+The clean direct path remained close to the configured 300 ms TTFT through
+2,000 streams, so the high-concurrency Gateway degradation can be attributed
+to the Gateway side of the topology rather than to the mock. At 1,500 active
+streams a scrape observed an uneven per-Pod split of 201, 369, 238, and 362.
+At 2,000, all streams still completed, but throughput and tail TTFT showed a
+clear knee. Listener overflow and downstream reset counters remained zero.
+Terway/Cilium `ct4_global` map pressure peaked at about 10.6%, far below the
+70% warning threshold; connection-map exhaustion was not the cause.
+
+The AI metrics were verified with real samples and bounded labels for route,
+upstream cluster, and model: first-token duration, stream/service duration,
+input/output/total tokens, and request count. Remote write sent more than
+88,000 samples with zero failures during this run.
 
 ### Controller and failover
 
@@ -326,14 +355,13 @@ cluster returned to two workers without manual node or scaling-group changes.
 ### Decision from this baseline
 
 - Keep Gateway HPA at 2-4 replicas and 65% CPU for the current test pool.
-- Before production, expose Envoy metrics through ACK Managed Service for
-  Prometheus/metrics adapter. Run an isolated streaming saturation test to
-  establish `C`, then add the active-request target using the formula above.
-  Do not promote the current CPU-only policy to the stream-heavy production
-  workload.
+- Keep the provisional measured safe point at 250 active streams per Gateway
+  Pod and use the selected economic operating target of 225 per Pod. The
+  committed self-managed adapter and CPU fallback are both active. Reconsider
+  this headroom if production requires N-1 capacity at minimum replicas.
 - Keep Controller at 2-3 replicas with required hostname anti-affinity and PDB
   `minAvailable: 1`. Treat CPU HPA as a safety valve; alert on the busiest Pod,
   RDS push time, convergence, memory, rejects/timeouts, and xDS connections.
-- The current run does not qualify the AI plugin chain or protocol conversion.
-  Repeat D2-D7 with the exact OpenAI/Anthropic AI-proxy configuration before
-  exposing customer traffic.
+- The current run qualifies `ai-statistics` collection and raw OpenAI/Anthropic
+  framing only. Repeat D2-D7 with the exact authentication, AI-proxy conversion,
+  rate-limit, logging, TLS, and provider configuration before customer traffic.

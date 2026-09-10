@@ -21,9 +21,94 @@ import (
 )
 
 type sample struct {
-	total time.Duration
-	ttfb  time.Duration
-	ok    bool
+	total  time.Duration
+	ttfb   time.Duration
+	bytes  int64
+	status int
+	ok     bool
+}
+
+type benchMetrics struct {
+	mu                       sync.Mutex
+	labels                   string
+	concurrency              int
+	startUnix                int64
+	inflight, started        int64
+	completed, failed, bytes int64
+	ttfb, latency            []float64
+	statuses                 map[int]int64
+}
+
+var histogramBounds = []float64{0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 30, 60}
+
+func metricLabels(run, target, protocol string, streaming bool) string {
+	escape := func(value string) string {
+		value = strings.ReplaceAll(value, `\`, `\\`)
+		value = strings.ReplaceAll(value, `"`, `\"`)
+		return strings.ReplaceAll(value, "\n", `\n`)
+	}
+	return fmt.Sprintf(`run="%s",target="%s",protocol="%s",stream="%t"`, escape(run), escape(target), escape(protocol), streaming)
+}
+
+func (m *benchMetrics) begin() {
+	m.mu.Lock()
+	m.inflight++
+	m.started++
+	m.mu.Unlock()
+}
+
+func (m *benchMetrics) finish(result sample) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.inflight--
+	if result.status != 0 {
+		m.statuses[result.status]++
+	}
+	if result.ok {
+		m.completed++
+		m.bytes += result.bytes
+		m.ttfb = append(m.ttfb, result.ttfb.Seconds())
+		m.latency = append(m.latency, result.total.Seconds())
+	} else {
+		m.failed++
+	}
+}
+
+func (m *benchMetrics) serveHTTP(w http.ResponseWriter, _ *http.Request) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	fmt.Fprintf(w, "llm_bench_inflight{%s} %d\n", m.labels, m.inflight)
+	fmt.Fprintf(w, "llm_bench_requests_started_total{%s} %d\n", m.labels, m.started)
+	fmt.Fprintf(w, "llm_bench_requests_completed_total{%s} %d\n", m.labels, m.completed)
+	fmt.Fprintf(w, "llm_bench_requests_failed_total{%s} %d\n", m.labels, m.failed)
+	fmt.Fprintf(w, "llm_bench_response_bytes_total{%s} %d\n", m.labels, m.bytes)
+	fmt.Fprintf(w, "llm_bench_configured_concurrency{%s} %d\n", m.labels, m.concurrency)
+	fmt.Fprintf(w, "llm_bench_run_start_time_seconds{%s} %d\n", m.labels, m.startUnix)
+	for status, count := range m.statuses {
+		fmt.Fprintf(w, "llm_bench_responses_total{%s,code=\"%d\"} %d\n", m.labels, status, count)
+	}
+	writeHistogram(w, "llm_bench_ttfb_seconds", m.labels, m.ttfb)
+	writeHistogram(w, "llm_bench_stream_latency_seconds", m.labels, m.latency)
+}
+
+func writeHistogram(w io.Writer, name, labels string, observations []float64) {
+	var sum float64
+	for _, value := range observations {
+		sum += value
+	}
+	for _, bound := range histogramBounds {
+		count := 0
+		for _, value := range observations {
+			if value <= bound {
+				count++
+			}
+		}
+		fmt.Fprintf(w, "%s_bucket{%s,le=\"%g\"} %d\n", name, labels, bound, count)
+	}
+	fmt.Fprintf(w, "%s_bucket{%s,le=\"+Inf\"} %d\n", name, labels, len(observations))
+	fmt.Fprintf(w, "%s_sum{%s} %g\n", name, labels, sum)
+	fmt.Fprintf(w, "%s_count{%s} %d\n", name, labels, len(observations))
 }
 
 type summary struct {
@@ -179,12 +264,15 @@ func mockHandler(protocol string, ttft time.Duration, chunks int, interval, back
 			if protocol == "anthropic" {
 				fmt.Fprintf(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"token-%d\"}}\n\n", i)
 			} else {
-				fmt.Fprintf(w, "data: {\"id\":\"chatcmpl_mock\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"token-%d\"}}]}\n\n", i)
+				fmt.Fprintf(w, "data: {\"id\":\"chatcmpl_mock\",\"model\":\"mock-stream-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"token-%d\"}}]}\n\n", i)
 			}
 			flusher.Flush()
 			if i+1 < chunks {
 				time.Sleep(interval)
 			}
+		}
+		if protocol == "openai" {
+			fmt.Fprintf(w, "data: {\"id\":\"chatcmpl_mock\",\"model\":\"mock-stream-model\",\"choices\":[],\"usage\":{\"prompt_tokens\":128,\"completion_tokens\":%d,\"total_tokens\":%d}}\n\n", chunks, 128+chunks)
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
 		flusher.Flush()
@@ -201,6 +289,10 @@ func runLoad(args []string) {
 	duration := fs.Duration("duration", 30*time.Second, "measurement duration")
 	timeout := fs.Duration("timeout", 30*time.Second, "per-request timeout")
 	promptBytes := fs.Int("prompt-bytes", 1024, "approximate prompt size")
+	metricsAddress := fs.String("metrics-address", "", "optional Prometheus listen address, for example :9090")
+	metricsFinalDelay := fs.Duration("metrics-final-delay", 20*time.Second, "keep final metrics available for scraping")
+	runLabel := fs.String("run-label", "manual", "bounded test run ID")
+	targetLabel := fs.String("target-label", "unknown", "bounded target label, direct or gateway")
 	_ = fs.Parse(args)
 	if *concurrency < 1 || (*protocol != "openai" && *protocol != "anthropic") {
 		log.Fatal("concurrency must be positive and protocol must be openai or anthropic")
@@ -221,6 +313,21 @@ func runLoad(args []string) {
 		IdleConnTimeout:     90 * time.Second,
 	}
 	client := &http.Client{Transport: transport, Timeout: *timeout}
+	metrics := &benchMetrics{
+		labels:      metricLabels(*runLabel, *targetLabel, *protocol, *streaming),
+		concurrency: *concurrency,
+		startUnix:   time.Now().Unix(),
+		statuses:    make(map[int]int64),
+	}
+	var metricsServer *http.Server
+	if *metricsAddress != "" {
+		metricsServer = &http.Server{Addr: *metricsAddress, Handler: http.HandlerFunc(metrics.serveHTTP), ReadHeaderTimeout: 2 * time.Second}
+		go func() {
+			if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Printf("metrics server: %v", err)
+			}
+		}()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), *duration)
 	defer cancel()
 	results := make(chan sample, *concurrency*4)
@@ -233,7 +340,10 @@ func runLoad(args []string) {
 			for ctx.Err() == nil {
 				// Do not cancel an in-flight stream at the measurement boundary.
 				// Let it complete, then stop that worker before the next request.
-				results <- oneRequest(context.Background(), client, *url, *host, payload)
+				metrics.begin()
+				result := oneRequest(context.Background(), client, *url, *host, payload)
+				metrics.finish(result)
+				results <- result
 			}
 		}()
 	}
@@ -262,6 +372,10 @@ func runLoad(args []string) {
 	if err := encoder.Encode(out); err != nil {
 		log.Fatal(err)
 	}
+	if metricsServer != nil {
+		time.Sleep(*metricsFinalDelay)
+		_ = metricsServer.Shutdown(context.Background())
+	}
 }
 
 func oneRequest(parent context.Context, client *http.Client, url, host string, payload []byte) sample {
@@ -282,13 +396,13 @@ func oneRequest(parent context.Context, client *http.Client, url, host string, p
 	if err != nil {
 		return sample{}
 	}
-	_, readErr := io.Copy(io.Discard, resp.Body)
+	readBytes, readErr := io.Copy(io.Discard, resp.Body)
 	closeErr := resp.Body.Close()
 	finished := time.Now()
 	if firstByte.IsZero() {
 		firstByte = finished
 	}
-	return sample{total: finished.Sub(start), ttfb: firstByte.Sub(start), ok: readErr == nil && closeErr == nil && resp.StatusCode >= 200 && resp.StatusCode < 300}
+	return sample{total: finished.Sub(start), ttfb: firstByte.Sub(start), bytes: readBytes, status: resp.StatusCode, ok: readErr == nil && closeErr == nil && resp.StatusCode >= 200 && resp.StatusCode < 300}
 }
 
 func percentiles(values []time.Duration) map[string]float64 {

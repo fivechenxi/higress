@@ -1,0 +1,143 @@
+{{- if .Values.monitoring.enabled }}
+{{- $remoteWriteUrl := required "monitoring.remoteWriteUrl must be set" .Values.monitoring.remoteWriteUrl }}
+{{- $clusterId := required "monitoring.clusterId must be set" .Values.monitoring.clusterId }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: higress-metrics-collector
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ .Values.monitoring.collector.scrapeInterval }}
+      external_labels:
+        ack_cluster: {{ $clusterId | quote }}
+    rule_files:
+      - /etc/prometheus/alerts.yml
+    remote_write:
+      - url: {{ $remoteWriteUrl | quote }}
+        remote_timeout: 10s
+        queue_config:
+          capacity: 2500
+          min_shards: 1
+          max_shards: 4
+          max_samples_per_send: 500
+    scrape_configs:
+      - job_name: higress-gateway
+        metrics_path: {{ .Values.monitoring.gateway.path }}
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [{{ .Values.monitoring.gateway.namespace | quote }}]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: {{ .Values.monitoring.gateway.selector.app | quote }}
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            regex: {{ .Values.monitoring.gateway.port | quote }}
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_phase]
+            regex: Running
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            action: keep
+            regex: '^(route_upstream_model_consumer_metric_(llm_first_token_duration|llm_stream_duration_count|llm_service_duration|llm_duration_count|llm_failure_count|input_token|output_token|total_token)|ai_endpoint_picker_(decisions_total|fallback_total|missing_signal_total|feedback_total|inflight)|ai_sec_(request_deny|response_deny)|envoy_http_downstream_(rq_active|cx_active|rq|rq_timeout|rq_rx_reset|rq_tx_reset|rq_too_many_premature_resets|cx_delayed_close_timeout|cx_idle_timeout)|envoy_http_rq_reset_after_downstream_response_started|envoy_listener_downstream_(cx_active|cx_overflow|global_cx_overflow|cx_transport_socket_connect_timeout|pre_cx_timeout)|envoy_cluster_(upstream_rq_active|upstream_cx_active|upstream_rq_pending_active|upstream_rq|external_upstream_rq|upstream_cx_connect_fail|upstream_cx_connect_timeout|upstream_cx_overflow|upstream_cx_pool_overflow|upstream_rq_pending_overflow|upstream_rq_retry_overflow|upstream_rq_timeout|upstream_rq_per_try_timeout|upstream_rq_per_try_idle_timeout|upstream_rq_rx_reset|upstream_rq_tx_reset|http2_header_overflow|http2_rx_reset|http2_tx_reset|http2_keepalive_timeout|http2_tx_flush_timeout)|envoy_server_memory_(allocated|heap_size)|envoy_envoy_overload_actions_reset_high_memory_stream_count)$'
+          - regex: '^ai_consumer$'
+            action: labeldrop
+
+      - job_name: higress-controller
+        metrics_path: {{ .Values.monitoring.controller.path }}
+        static_configs:
+          - targets:
+              - 'higress-controller.{{ .Values.monitoring.controller.namespace }}.svc:15014'
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            action: keep
+            regex: '^(pilot_(xds|xds_expired_nonce|endpoint_not_ready|eds_no_instances)|pilot_(xds_push_time|proxy_convergence_time)(_bucket|_sum|_count))$'
+
+      - job_name: terway-cilium
+        metrics_path: {{ .Values.monitoring.terway.path }}
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [{{ .Values.monitoring.terway.namespace | quote }}]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: {{ .Values.monitoring.terway.selector.app | quote }}
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            regex: policy
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_phase]
+            regex: Running
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_ip]
+            regex: (.+)
+            replacement: '$1:{{ .Values.monitoring.terway.targetPort }}'
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            action: keep
+            regex: '^(cilium_bpf_map_pressure|cilium_bpf_map_capacity|cilium_bpf_map_ops_total|cilium_bpf_maps_virtual_memory_max_bytes)$'
+
+      - job_name: higress-load-generator
+        metrics_path: {{ .Values.monitoring.loadgen.path }}
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [{{ .Values.monitoring.loadgen.namespace | quote }}]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: {{ .Values.monitoring.loadgen.selector.app | quote }}
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            regex: {{ .Values.monitoring.loadgen.port | quote }}
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_phase]
+            regex: Running
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            action: keep
+            regex: '^llm_bench_.*$'
+
+      {{- if .Values.prometheusAdapter.enabled }}
+      - job_name: prometheus-adapter
+        static_configs:
+          - targets:
+              - 'higress-prometheus-adapter.{{ .Release.Namespace }}.svc:443'
+        scheme: https
+        authorization:
+          credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        tls_config:
+          insecure_skip_verify: true
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            action: keep
+            regex: '^(apiserver_request_total|process_resident_memory_bytes|process_cpu_seconds_total)$'
+      {{- end }}
+  alerts.yml: |
+    groups:
+      - name: higress-custom-metrics
+        rules:
+          - alert: HigressPrometheusAdapterDown
+            expr: absent(up{job="prometheus-adapter"} == 1)
+            for: 2m
+            labels:
+              severity: warning
+              component: prometheus-adapter
+            annotations:
+              summary: Higress custom-metrics adapter is unavailable
+              description: Gateway HPA cannot use active streams. CPU can still trigger scale-up, but scale-down is intentionally blocked while one metric is unavailable; inspect the adapter manually.
+{{- end }}

@@ -9,7 +9,7 @@ metadata:
   name: llm-mock
   namespace: higress-performance
 spec:
-  replicas: 1
+  replicas: 4
   selector:
     matchLabels:
       app: llm-mock
@@ -18,14 +18,27 @@ spec:
       labels:
         app: llm-mock
     spec:
+      affinity:
+        podAntiAffinity:
+          # Gateway availability takes precedence over benchmark isolation.
+          # Prefer another node, but never make the gateway's hard spread
+          # constraint unschedulable on the three-node disposable pool.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: higress-gateway
+                namespaceSelector: {}
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: llm-mock
           image: registry.cn-hangzhou.aliyuncs.com/acs/busybox:v1.29.2
           command: ["/bin/sh", "-c", "sleep 86400"]
           resources:
             requests:
-              cpu: 250m
-              memory: 128Mi
+              cpu: 500m
+              memory: 256Mi
             limits:
               cpu: "2"
               memory: 512Mi
@@ -49,7 +62,7 @@ metadata:
   name: load-generator
   namespace: higress-performance
 spec:
-  replicas: 1
+  replicas: 4
   selector:
     matchLabels:
       app: load-generator
@@ -58,16 +71,35 @@ spec:
       labels:
         app: load-generator
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: higress-gateway
+                namespaceSelector: {}
+                topologyKey: kubernetes.io/hostname
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: llm-mock
+              namespaceSelector: {}
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: load-generator
           image: registry.cn-hangzhou.aliyuncs.com/acs/busybox:v1.29.2
           command: ["/bin/sh", "-c", "sleep 86400"]
+          ports:
+            - name: bench-prom
+              containerPort: 9090
           resources:
             requests:
-              cpu: "1"
+              cpu: 500m
               memory: 256Mi
             limits:
-              cpu: "3"
+              cpu: "1"
               memory: 1Gi
 ---
 apiVersion: networking.k8s.io/v1
@@ -88,3 +120,19 @@ spec:
                 name: llm-mock
                 port:
                   number: 8080
+---
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: llm-bench-ai-statistics
+  namespace: higress-system
+spec:
+  url: oci://higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/ai-statistics:2.0.2
+  phase: UNSPECIFIED_PHASE
+  priority: 200
+  defaultConfigDisable: true
+  matchRules:
+    - ingress:
+        - higress-performance/llm-mock
+      config:
+        use_default_response_attributes: true

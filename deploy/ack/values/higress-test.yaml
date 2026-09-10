@@ -18,7 +18,9 @@ gateway:
       cpu: "1"
       memory: 1Gi
   autoscaling:
-    enabled: true
+    # Managed by the higress-ack-ops Helm chart so both workloads share one
+    # explicit scaling policy and observability contract.
+    enabled: false
     minReplicas: 2
     maxReplicas: 4
     targetCPUUtilizationPercentage: 65
@@ -31,6 +33,15 @@ gateway:
             labelSelector:
               matchLabels:
                 app: higress-gateway
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      # Four replicas can be placed 2/1/1 on the three-node test pool. Keep
+      # the skew hard-bounded so a single node cannot own every gateway Pod.
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app: higress-gateway
 
 controller:
   replicas: 2

@@ -2,12 +2,12 @@ resource "alicloud_cs_managed_kubernetes" "this" {
   name         = var.cluster_name
   cluster_spec = var.cluster_spec
   profile      = "Default"
+  version      = var.kubernetes_version
 
-  vswitch_ids    = [var.vswitch_id]
-  pod_cidr       = var.pod_cidr
-  service_cidr   = var.service_cidr
-  node_cidr_mask = 24
-  proxy_mode     = "ipvs"
+  vswitch_ids     = [var.vswitch_id]
+  pod_vswitch_ids = [var.vswitch_id]
+  service_cidr    = var.service_cidr
+  node_cidr_mask  = 24
 
   new_nat_gateway      = false
   slb_internet_enabled = var.enable_public_api
@@ -16,8 +16,15 @@ resource "alicloud_cs_managed_kubernetes" "this" {
   timezone             = "Asia/Shanghai"
 
   addons {
-    name   = "flannel"
-    config = ""
+    name = "terway-eniip"
+    config = jsonencode({
+      # ACK retains IPVlan as the cluster-creation compatibility switch for
+      # shared-ENI acceleration. Terway >= 1.8 materializes it as DataPath V2,
+      # not the retired IPvlan datapath.
+      IPVlan        = "true"
+      NetworkPolicy = "true"
+      CiliumArgs    = local.terway_cilium_args
+    })
   }
 
   addons {

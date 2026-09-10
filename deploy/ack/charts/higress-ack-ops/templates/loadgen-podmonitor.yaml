@@ -1,0 +1,26 @@
+{{- if and .Values.monitoring.enabled .Values.monitoring.discoveryObjectsEnabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: higress-load-generator
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    arms.prometheus.io/discovery: {{ .Values.monitoring.discoveryAnnotation | quote }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.monitoring.loadgen.namespace }}
+  selector:
+    matchLabels:
+      {{- toYaml .Values.monitoring.loadgen.selector | nindent 6 }}
+  podMetricsEndpoints:
+    - port: {{ .Values.monitoring.loadgen.port }}
+      path: {{ .Values.monitoring.loadgen.path }}
+      interval: {{ .Values.monitoring.interval }}
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          action: keep
+          regex: '^llm_bench_.*$'
+{{- end }}

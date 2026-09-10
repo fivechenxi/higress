@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: higress-ack-promql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+data:
+  gateway-active-streams: 'sum by (namespace,pod) (envoy_http_downstream_rq_active{http_conn_manager_prefix="outbound_0.0.0.0_80"})'
+  prometheus-adapter-down: 'absent(up{job="prometheus-adapter"} == 1)'
+  ai-average-ttft-ms: 'sum(rate(route_upstream_model_consumer_metric_llm_first_token_duration[2m])) by (ai_cluster,ai_model) / sum(rate(route_upstream_model_consumer_metric_llm_stream_duration_count[2m])) by (ai_cluster,ai_model)'
+  ai-failure-rate: 'sum(rate(route_upstream_model_consumer_metric_llm_failure_count[2m])) by (ai_cluster,ai_model)'
+  terway-ct-pressure: 'max by (instance,map_name) (cilium_bpf_map_pressure{map_name=~"ct(4|6|_any4|_any6)_global"})'
+  terway-map-update-failures: 'sum by (instance,map_name) (rate(cilium_bpf_map_ops_total{operation="update",outcome="fail"}[1m]))'
