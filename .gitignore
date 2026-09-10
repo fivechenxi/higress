@@ -6,6 +6,12 @@ out
 coverage.xml
 .idea/
 .vscode/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+deploy/ack/terraform.tfvars
 bazel-bin
 bazel-out
 bazel-testlogs
