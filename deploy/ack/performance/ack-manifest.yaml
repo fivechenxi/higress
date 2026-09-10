@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: higress-performance
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-mock
+  namespace: higress-performance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llm-mock
+  template:
+    metadata:
+      labels:
+        app: llm-mock
+    spec:
+      containers:
+        - name: llm-mock
+          image: registry.cn-hangzhou.aliyuncs.com/acs/busybox:v1.29.2
+          command: ["/bin/sh", "-c", "sleep 86400"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 128Mi
+            limits:
+              cpu: "2"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-mock
+  namespace: higress-performance
+spec:
+  selector:
+    app: llm-mock
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-generator
+  namespace: higress-performance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: load-generator
+  template:
+    metadata:
+      labels:
+        app: load-generator
+    spec:
+      containers:
+        - name: load-generator
+          image: registry.cn-hangzhou.aliyuncs.com/acs/busybox:v1.29.2
+          command: ["/bin/sh", "-c", "sleep 86400"]
+          resources:
+            requests:
+              cpu: "1"
+              memory: 256Mi
+            limits:
+              cpu: "3"
+              memory: 1Gi
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: llm-mock
+  namespace: higress-performance
+spec:
+  ingressClassName: higress
+  rules:
+    - host: llm-perf.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: llm-mock
+                port:
+                  number: 8080

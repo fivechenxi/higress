@@ -33,13 +33,17 @@ There are two lifecycle levels:
 ## Test sizing and traffic
 
 - Workers: `ecs.e-c1m2.xlarge`, pay-as-you-go, 1 configured minimum and 3
-  maximum. ACK may temporarily scale to 2 because its two CoreDNS replicas use
-  required hostname anti-affinity.
+  maximum. A running Higress installation requires at least 2 because the two
+  controller replicas use required hostname anti-affinity. Controller HPA,
+  failover, or a rolling update can temporarily request the third worker.
 - Worker disk: 40 GiB ESSD Entry.
 - Higress gateway: 2 replicas, HPA up to 4 replicas at 65% CPU.
+- Higress controller: 2 replicas on different nodes, HPA up to 3 replicas at
+  65% CPU. Controller and gateway each have a PDB with `minAvailable: 1`.
 - Gateway service: `ClusterIP`; there is no Higress public or internal CLB yet.
-- Pod placement: soft hostname anti-affinity. Two replicas can run on one worker
-  during cheap testing and spread when another worker is added.
+- Pod placement: controller replicas use required hostname anti-affinity;
+  gateway replicas use preferred hostname anti-affinity and may share a worker
+  in the low-cost test topology.
 - Network: Flannel; the existing NAT provides image-pull and upstream egress.
 - Observability: no SLS, ARMS, or Nginx Ingress add-on is requested by this
   stack. ACK 1.36 installs its baseline CSI components even without persistent
@@ -158,6 +162,11 @@ kubectl -n higress-system delete ingress gateway-smoke
 ```
 
 The expected result is `HTTP/1.1 200 OK` with `server: istio-envoy`.
+
+The MaaS-oriented Gateway/Controller test matrix, measured ACK baseline, and
+derived scaling signals are in
+[`PERFORMANCE_TEST_PLAN.md`](./PERFORMANCE_TEST_PLAN.md). The reproducible mock
+and load generator live under [`performance/`](./performance/).
 
 ## Final cleanup
 

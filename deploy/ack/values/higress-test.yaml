@@ -33,7 +33,7 @@ gateway:
                 app: higress-gateway
 
 controller:
-  replicas: 1
+  replicas: 2
   automaticHttps:
     enabled: false
   resources:
@@ -43,6 +43,13 @@ controller:
     limits:
       cpu: "1"
       memory: 1Gi
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app: higress-controller
+          topologyKey: kubernetes.io/hostname
 
 pilot:
   resources:

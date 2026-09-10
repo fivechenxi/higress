@@ -22,3 +22,10 @@ provider "helm" {
     client_key             = base64decode(local.kubeuser["client-key-data"])
   }
 }
+
+provider "kubernetes" {
+  host                   = local.kubecluster.server
+  cluster_ca_certificate = base64decode(local.kubecluster["certificate-authority-data"])
+  client_certificate     = base64decode(local.kubeuser["client-certificate-data"])
+  client_key             = base64decode(local.kubeuser["client-key-data"])
+}
