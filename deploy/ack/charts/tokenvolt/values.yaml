@@ -2,6 +2,12 @@ controlPlane:
   image: ""
   imagePullPolicy: IfNotPresent
   replicas: 1
+  # Exact browser origin accepted by the control-plane API. Leave empty to
+  # default to https://<portal.host> for private/production installations.
+  allowedOrigin: ""
+  # Temporary HTTP-only test endpoints need a non-Secure session cookie.
+  # Keep false once TLS is enabled.
+  allowInsecureSessionCookie: false
   serviceAccountName: tokenvolt-control-plane
   rrsaRoleName: ""
   databaseSecretName: tokenvolt-database
@@ -19,12 +25,15 @@ controlPlane:
     limits: {cpu: "1", memory: 512Mi}
 
 higress:
+  # Higress only watches WasmPlugin resources in its controller namespace.
+  # Route scoping is expressed as namespace/name in matchRules.
   namespace: higress-system
   ingressClassName: higress
   policyName: tokenvolt-policy
   policyPluginUrl: ""
   policyPluginSha256: ""
-  # The TokenVolt adapter must publish matchRules for this namespace/name.
+  imagePullSecret: ""
+  # The TokenVolt adapter validates and publishes a namespace/name reference.
   policyIngress: tokenvolt-system/tokenvolt-model-api
   aiStatistics:
     enabled: true
@@ -45,5 +54,66 @@ modelApi:
   backendService:
     name: tokenvolt-model-backend
     port: 8080
+  mock:
+    enabled: false
+    image: ""
+    replicas: 1
+    resources:
+      requests: {cpu: 20m, memory: 24Mi}
+      limits: {cpu: 200m, memory: 64Mi}
+
+publicEntry:
+  # Optional shared host: model paths are more specific than the portal `/`
+  # prefix, so Higress can expose both control-plane UI and data plane safely.
+  host: ""
+
+# Declarative copy of the three routes that are Deployed in the current
+# Alibaba Cloud AI Gateway environment.  The six Completions/Responses routes
+# that exist there in NotDeployed state are intentionally not activated.
+modelRouting:
+  enabled: true
+  # Keep the first acceptance pass deterministic. Switching this flag retains
+  # the same route objects but changes their destinations from the fixture to
+  # the external provider registries below.
+  useRealBackends: false
+  credentialSecretName: tokenvolt-provider-credentials
+  # tokenvolt-policy parses the authenticated request model and writes the
+  # trusted x-higress-llm-model header used by the route annotations below.
+  aiProxy:
+    # 2.0.0 is the latest public compatibility-format artifact accepted by the
+    # Higress 2.1 gateway (tar+gzip layer). Newer ORAS wasm-layer artifacts are
+    # rejected by this gateway build even though their digest is valid.
+    url: oci://higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/ai-proxy@sha256:69c17eae7b8331f37f05a651a0a1aa731fe7aff2ce30452ff4bbba7c7271818d
+    sha256: 69c17eae7b8331f37f05a651a0a1aa731fe7aff2ce30452ff4bbba7c7271818d
+  providers:
+    bailian:
+      type: qwen
+      domain: ws-pjazv7zkm6csqo43.cn-beijing.maas.aliyuncs.com
+      port: 443
+    suheai:
+      type: openai
+      domain: suheai.cn
+      port: 443
+    neutoken:
+      type: openai
+      domain: neutoken.net
+      port: 443
+  routes:
+    - name: qwen-max
+      model: qwen-max
+      provider: bailian
+      upstreamModel: qwen-max
+    - name: glm-5-2
+      model: glm-5.2
+      provider: suheai
+      upstreamModel: GLM-5.2
+      fallbackProvider: bailian
+      fallbackModel: glm-5.2
+    - name: kimi-k3
+      model: kimi-k3
+      provider: neutoken
+      upstreamModel: kimi-k3
+      fallbackProvider: suheai
+      fallbackModel: Kimi-K3
 
 imagePullSecrets: []

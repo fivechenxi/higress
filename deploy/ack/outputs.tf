@@ -22,6 +22,14 @@ output "gateway_service" {
   value       = var.lifecycle_mode == "running" ? "higress-gateway.higress-system.svc.cluster.local:80" : null
 }
 
+output "higress_public_edge" {
+  description = "Persistent public CLB referenced by the disposable Higress Service."
+  value = {
+    id      = alicloud_slb_load_balancer.higress_public.id
+    address = alicloud_slb_load_balancer.higress_public.address
+  }
+}
+
 output "lifecycle_mode" {
   description = "Requested lifecycle phase. Stable values are running and stopped."
   value       = var.lifecycle_mode
@@ -33,6 +41,11 @@ output "tokenvolt_internal_hosts" {
     portal = var.tokenvolt_portal_host
     api    = var.tokenvolt_api_host
   } : null
+}
+
+output "tokenvolt_public_host" {
+  description = "Persistent public canary hostname routed through the fixed Higress CLB."
+  value       = var.tokenvolt_enabled ? var.tokenvolt_public_host : null
 }
 
 output "tokenvolt_rds" {

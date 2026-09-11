@@ -139,6 +139,37 @@ variable "tokenvolt_control_plane_image" {
   default     = ""
 }
 
+variable "tokenvolt_mock_image" {
+  description = "Immutable TokenVolt OpenAI/Anthropic fixture image used only for staged end-to-end validation."
+  type        = string
+  default     = ""
+}
+
+variable "tokenvolt_mock_enabled" {
+  description = "Deploy the deterministic model fixture behind the internal model API ingress."
+  type        = bool
+  default     = true
+}
+
+variable "tokenvolt_real_model_backends" {
+  description = "Route the three deployed TokenVolt models to their existing external providers instead of the deterministic fixture."
+  type        = bool
+  default     = false
+}
+
+variable "tokenvolt_ghcr_username" {
+  description = "GitHub user used by ACK to pull private TokenVolt release images."
+  type        = string
+  default     = "fivechenxi"
+}
+
+variable "tokenvolt_ghcr_token" {
+  description = "GitHub token with read:packages for private TokenVolt GHCR images. Pass through TF_VAR_tokenvolt_ghcr_token; never commit it."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "tokenvolt_rds_vswitch_id" {
   description = "Existing vSwitch used by the production-candidate RDS PostgreSQL instance. It must be in the selected VPC and the ACK availability zone."
   type        = string
@@ -164,7 +195,7 @@ variable "tokenvolt_policy_plugin_url" {
 }
 
 variable "tokenvolt_policy_plugin_sha256" {
-  description = "Optional SHA-256 of the Wasm payload inside the OCI artifact."
+  description = "Optional checksum expected by Higress. For a multi-platform OCI index this is the selected linux/amd64 image manifest digest, without the sha256: prefix."
   type        = string
   default     = ""
 
@@ -181,7 +212,7 @@ variable "tokenvolt_ai_statistics_plugin_url" {
 }
 
 variable "tokenvolt_ai_statistics_plugin_sha256" {
-  description = "Optional SHA-256 of the ai-statistics Wasm payload inside the OCI artifact."
+  description = "Optional checksum expected by Higress. For a multi-platform OCI index this is the selected linux/amd64 image manifest digest, without the sha256: prefix."
   type        = string
   default     = ""
 
@@ -201,6 +232,12 @@ variable "tokenvolt_api_host" {
   description = "Internal validation host routed to the TokenVolt model API before public cutover."
   type        = string
   default     = "api.tokenvolt.internal"
+}
+
+variable "tokenvolt_public_host" {
+  description = "Persistent public canary host shared by the TokenVolt portal and model API paths."
+  type        = string
+  default     = "ack.tokenvolt.net"
 }
 
 variable "tokenvolt_model_backend_service" {

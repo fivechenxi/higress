@@ -12,16 +12,20 @@ spec:
   sha256: {{ . | quote }}
   {{- end }}
   imagePullPolicy: IfNotPresent
+  {{- with .Values.higress.imagePullSecret }}
+  imagePullSecret: {{ . | quote }}
+  {{- end }}
   phase: UNSPECIFIED_PHASE
   priority: 200
-  defaultConfigDisable: true
-  matchRules:
-    - ingress:
-        - {{ .Values.higress.policyIngress | quote }}
-      config:
-        # Production/high-concurrency mode: retain model/usage/timing fields,
-        # but never retain prompts or streamed model output.
-        use_default_response_attributes: true
-        enable_path_suffixes:
-          {{- toYaml .Values.higress.aiStatistics.paths | nindent 10 }}
+  # The AUTHN policy adds the trusted model header and causes an Envoy route
+  # re-selection. A route-scoped statistics config is not re-instantiated after
+  # that re-selection, so it silently produces ai_log="-". This is a dedicated
+  # TokenVolt gateway; enable the filter globally and constrain it by AI paths.
+  defaultConfigDisable: false
+  defaultConfig:
+    # Production/high-concurrency mode: retain model/usage/timing fields,
+    # but never retain prompts or streamed model output.
+    use_default_response_attributes: true
+    enable_path_suffixes:
+      {{- toYaml .Values.higress.aiStatistics.paths | nindent 6 }}
 {{- end }}

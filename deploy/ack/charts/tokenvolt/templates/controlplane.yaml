@@ -62,7 +62,8 @@ spec:
             - {name: OSS_ENDPOINT, value: {{ required "controlPlane.cloud.ossEndpoint must be set" .Values.controlPlane.cloud.ossEndpoint | quote }}}
             - {name: OSS_BUCKET, value: {{ required "controlPlane.cloud.ossBucket must be set" .Values.controlPlane.cloud.ossBucket | quote }}}
             - {name: CREDENTIAL_PROVIDER, value: higress}
-            - {name: ALLOWED_ORIGIN, value: {{ printf "https://%s" .Values.portal.host | quote }}}
+            - {name: ALLOWED_ORIGIN, value: {{ default (printf "https://%s" .Values.portal.host) .Values.controlPlane.allowedOrigin | quote }}}
+            - {name: ALLOW_INSECURE_SESSION_COOKIE, value: {{ .Values.controlPlane.allowInsecureSessionCookie | quote }}}
             - {name: LISTEN_ADDR, value: ":8000"}
             - {name: HIGRESS_KUBE_API, value: "https://kubernetes.default.svc"}
             - {name: HIGRESS_KUBE_TOKEN_FILE, value: "/var/run/secrets/kubernetes.io/serviceaccount/token"}
@@ -71,6 +72,7 @@ spec:
             - {name: HIGRESS_POLICY_NAME, value: {{ .Values.higress.policyName | quote }}}
             - {name: HIGRESS_POLICY_PLUGIN_URL, value: {{ required "higress.policyPluginUrl must be an immutable OCI digest URL" .Values.higress.policyPluginUrl | quote }}}
             - {name: HIGRESS_POLICY_PLUGIN_SHA256, value: {{ .Values.higress.policyPluginSha256 | quote }}}
+            - {name: HIGRESS_POLICY_IMAGE_PULL_SECRET, value: {{ .Values.higress.imagePullSecret | quote }}}
             - {name: HIGRESS_POLICY_INGRESS, value: {{ .Values.higress.policyIngress | quote }}}
           readinessProbe:
             httpGet: {path: /readyz, port: http}
@@ -88,4 +90,6 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
             capabilities: {drop: [ALL]}

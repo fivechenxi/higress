@@ -1,0 +1,123 @@
+{{- if .Values.modelRouting.enabled }}
+{{- $credentialSecret := dict }}
+{{- if .Values.modelRouting.useRealBackends }}
+{{- $credentialSecret = lookup "v1" "Secret" .Release.Namespace .Values.modelRouting.credentialSecretName }}
+{{- if not $credentialSecret }}
+{{- fail (printf "provider credential Secret %s/%s is required" .Release.Namespace .Values.modelRouting.credentialSecretName) }}
+{{- end }}
+{{- end }}
+{{- if .Values.modelRouting.useRealBackends }}
+apiVersion: networking.higress.io/v1
+kind: McpBridge
+metadata:
+  # Higress 2.1 only reconciles the controller-namespace McpBridge named
+  # `default`; the API shape misleadingly permits arbitrary names.
+  name: default
+  namespace: {{ .Values.higress.namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  registries:
+    {{- range $name, $provider := .Values.modelRouting.providers }}
+    - type: dns
+      name: {{ printf "tokenvolt-%s" $name | quote }}
+      domain: {{ $provider.domain | quote }}
+      port: {{ $provider.port }}
+      protocol: https
+    {{- end }}
+---
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: tokenvolt-ai-proxy
+  namespace: {{ .Values.higress.namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  url: {{ required "modelRouting.aiProxy.url must be set" .Values.modelRouting.aiProxy.url | quote }}
+  sha256: {{ required "modelRouting.aiProxy.sha256 must be set" .Values.modelRouting.aiProxy.sha256 | quote }}
+  imagePullPolicy: IfNotPresent
+  phase: UNSPECIFIED_PHASE
+  priority: 100
+  defaultConfigDisable: true
+  matchRules:
+    {{- range .Values.modelRouting.routes }}
+    {{- $provider := index $.Values.modelRouting.providers .provider }}
+    - ingress:
+        - {{ printf "%s/tokenvolt-model-%s" $.Release.Namespace .name | quote }}
+      config:
+        provider:
+          type: {{ $provider.type | quote }}
+          {{- if eq $provider.type "qwen" }}
+          qwenDomain: {{ $provider.domain | quote }}
+          qwenEnableCompatible: true
+          {{- else }}
+          openaiCustomUrl: {{ printf "https://%s/v1/chat/completions" $provider.domain | quote }}
+          {{- end }}
+          apiTokens:
+            - {{ required (printf "Secret %s key %s is required" $.Values.modelRouting.credentialSecretName .provider) (index $credentialSecret.data .provider) | b64dec | quote }}
+          modelMapping:
+            {{ .model | quote }}: {{ .upstreamModel | quote }}
+    {{- end }}
+---
+{{- end }}
+{{- range .Values.modelRouting.routes }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ printf "tokenvolt-model-%s" .name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "tokenvolt.labels" $ | nindent 4 }}
+    tokenvolt.ai/model: {{ .model | quote }}
+    tokenvolt.ai/provider: {{ .provider | quote }}
+  annotations:
+    higress.io/exact-match-header-x-higress-llm-model: {{ .model | quote }}
+    {{- if $.Values.modelRouting.useRealBackends }}
+    higress.io/destination: {{ printf "https://tokenvolt-%s.dns:%v" .provider (index $.Values.modelRouting.providers .provider).port | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ $.Values.higress.ingressClassName }}
+  rules:
+    - host: {{ $.Values.modelApi.host }}
+      http:
+        paths:
+          - path: /v1/chat/completions
+            pathType: Exact
+            backend:
+              {{- if $.Values.modelRouting.useRealBackends }}
+              # A destination annotation is only consumed for a resource
+              # backend. With a Service backend Higress intentionally routes
+              # to that Service and ignores the external destination list.
+              resource:
+                apiGroup: networking.higress.io
+                kind: McpBridge
+                name: default
+              {{- else }}
+              service:
+                name: {{ $.Values.modelApi.backendService.name }}
+                port:
+                  number: {{ $.Values.modelApi.backendService.port }}
+              {{- end }}
+    {{- with $.Values.publicEntry.host }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /v1/chat/completions
+            pathType: Exact
+            backend:
+              {{- if $.Values.modelRouting.useRealBackends }}
+              resource:
+                apiGroup: networking.higress.io
+                kind: McpBridge
+                name: default
+              {{- else }}
+              service:
+                name: {{ $.Values.modelApi.backendService.name }}
+                port:
+                  number: {{ $.Values.modelApi.backendService.port }}
+              {{- end }}
+    {{- end }}
+---
+{{- end }}
+{{- end }}

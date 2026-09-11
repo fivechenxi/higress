@@ -14,7 +14,14 @@ gateway:
   kind: Deployment
   replicas: 2
   service:
-    type: ClusterIP
+    # A single-AZ ACK test cluster cannot satisfy NLB's two-zone vSwitch
+    # requirement. Let ACK CCM create a low-cost Internet-facing CLB for the
+    # public canary entrypoint; switch to NLB when the multi-AZ topology lands.
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/alibaba-cloud-loadbalancer-address-type: internet
+      service.beta.kubernetes.io/alibaba-cloud-loadbalancer-additional-resource-tags: Project=higress,Environment=production,ManagedBy=ack-ccm
+    externalTrafficPolicy: Cluster
   resources:
     requests:
       cpu: 250m

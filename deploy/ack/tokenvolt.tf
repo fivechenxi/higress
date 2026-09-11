@@ -5,14 +5,16 @@ resource "random_password" "tokenvolt_database" {
   special = false
 }
 
-resource "random_id" "tokenvolt_totp_master_key" {
-  count       = var.tokenvolt_enabled ? 1 : 0
-  byte_length = 32
+resource "random_password" "tokenvolt_totp_master_key" {
+  count   = var.tokenvolt_enabled ? 1 : 0
+  length  = 32
+  special = false
 }
 
-resource "random_id" "tokenvolt_api_key_pepper" {
-  count       = var.tokenvolt_enabled ? 1 : 0
-  byte_length = 32
+resource "random_password" "tokenvolt_api_key_pepper" {
+  count   = var.tokenvolt_enabled ? 1 : 0
+  length  = 32
+  special = false
 }
 
 locals {
@@ -28,6 +30,12 @@ resource "alicloud_log_project" "tokenvolt" {
   project_name = local.tokenvolt_sls_project
   description  = "Authoritative raw model access records for TokenVolt usage reconciliation"
   tags         = merge(var.tags, { Component = "tokenvolt-usage" })
+
+  lifecycle {
+    # ACK's logtail add-on adds its cluster ownership tag to this project.
+    # Preserve that provider-managed tag instead of removing it on every apply.
+    ignore_changes = [tags]
+  }
 }
 
 resource "alicloud_log_store" "tokenvolt" {
@@ -55,6 +63,7 @@ resource "alicloud_log_store_index" "tokenvolt" {
       "consumer"                        = "text"
       "path"                            = "text"
       "request_id"                      = "text"
+      "route_name"                      = "text"
       "start_time"                      = "text"
       "upstream_cluster"                = "text"
       "ai_log.model"                    = "text"
@@ -221,17 +230,15 @@ resource "alicloud_db_account_privilege" "tokenvolt" {
 resource "alicloud_db_backup_policy" "tokenvolt" {
   count = var.tokenvolt_enabled ? 1 : 0
 
-  instance_id                     = alicloud_db_instance.tokenvolt[0].id
-  backup_retention_period         = 90
-  enable_backup_log               = true
-  enable_pitr_protection          = true
-  log_backup_retention_period     = 90
-  archive_backup_keep_policy      = "ByMonth"
-  archive_backup_keep_count       = 12
-  archive_backup_retention_period = 365
-  released_keep_policy            = "Lastest"
-  preferred_backup_period         = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-  preferred_backup_time           = "18:00Z-19:00Z"
+  instance_id                 = alicloud_db_instance.tokenvolt[0].id
+  backup_retention_period     = 90
+  enable_backup_log           = true
+  enable_pitr_protection      = true
+  log_backup_retention_period = 90
+  archive_backup_keep_policy  = "ByMonth"
+  released_keep_policy        = "Lastest"
+  preferred_backup_period     = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+  preferred_backup_time       = "18:00Z-19:00Z"
 }
 
 resource "kubernetes_namespace_v1" "tokenvolt" {
@@ -274,9 +281,52 @@ resource "kubernetes_secret_v1" "tokenvolt_app" {
   }
 
   data = {
-    totpMasterKeyB64 = random_id.tokenvolt_totp_master_key[0].b64_std
-    apiKeyPepperB64  = random_id.tokenvolt_api_key_pepper[0].b64_std
+    totpMasterKeyB64 = base64encode(random_password.tokenvolt_totp_master_key[0].result)
+    apiKeyPepperB64  = base64encode(random_password.tokenvolt_api_key_pepper[0].result)
   }
+}
+
+resource "kubernetes_secret_v1" "tokenvolt_registry" {
+  count = var.tokenvolt_enabled ? 1 : 0
+
+  metadata {
+    name      = "tokenvolt-ghcr"
+    namespace = kubernetes_namespace_v1.tokenvolt[0].metadata[0].name
+  }
+  type = "kubernetes.io/dockerconfigjson"
+  data = {
+    ".dockerconfigjson" = jsonencode({
+      auths = {
+        "ghcr.io" = {
+          username = var.tokenvolt_ghcr_username
+          password = var.tokenvolt_ghcr_token
+          auth     = base64encode("${var.tokenvolt_ghcr_username}:${var.tokenvolt_ghcr_token}")
+        }
+      }
+    })
+  }
+
+  lifecycle {
+    precondition {
+      condition     = var.tokenvolt_ghcr_token != ""
+      error_message = "tokenvolt_ghcr_token is required when TokenVolt private GHCR images are enabled."
+    }
+  }
+}
+
+# Higress converts WasmPlugin CRs only from the controller namespace. Keep a
+# registry credential there for private TokenVolt plugin images.
+resource "kubernetes_secret_v1" "tokenvolt_registry_higress" {
+  count = var.tokenvolt_enabled && var.lifecycle_mode == "running" ? 1 : 0
+
+  metadata {
+    name      = "tokenvolt-ghcr"
+    namespace = "higress-system"
+  }
+  type = kubernetes_secret_v1.tokenvolt_registry[0].type
+  data = kubernetes_secret_v1.tokenvolt_registry[0].data
+
+  depends_on = [helm_release.higress]
 }
 
 resource "helm_release" "tokenvolt" {
@@ -294,8 +344,10 @@ resource "helm_release" "tokenvolt" {
   values = [
     yamlencode({
       controlPlane = {
-        image        = var.tokenvolt_control_plane_image
-        rrsaRoleName = alicloud_ram_role.tokenvolt[0].role_name
+        image                      = var.tokenvolt_control_plane_image
+        rrsaRoleName               = alicloud_ram_role.tokenvolt[0].role_name
+        allowedOrigin              = var.tokenvolt_public_host != "" ? "http://${var.tokenvolt_public_host}" : ""
+        allowInsecureSessionCookie = var.tokenvolt_public_host != ""
         cloud = {
           slsRegionId = var.region
           slsEndpoint = "${var.region}-intranet.log.aliyuncs.com"
@@ -310,6 +362,7 @@ resource "helm_release" "tokenvolt" {
         namespace          = "higress-system"
         policyPluginUrl    = var.tokenvolt_policy_plugin_url
         policyPluginSha256 = var.tokenvolt_policy_plugin_sha256
+        imagePullSecret    = kubernetes_secret_v1.tokenvolt_registry_higress[0].metadata[0].name
         policyIngress      = "${var.tokenvolt_namespace}/tokenvolt-model-api"
         aiStatistics = {
           enabled      = true
@@ -327,7 +380,18 @@ resource "helm_release" "tokenvolt" {
           name = var.tokenvolt_model_backend_service
           port = var.tokenvolt_model_backend_port
         }
+        mock = {
+          enabled = var.tokenvolt_mock_enabled
+          image   = var.tokenvolt_mock_image
+        }
       }
+      publicEntry = {
+        host = var.tokenvolt_public_host
+      }
+      modelRouting = {
+        useRealBackends = var.tokenvolt_real_model_backends
+      }
+      imagePullSecrets = [{ name = kubernetes_secret_v1.tokenvolt_registry[0].metadata[0].name }]
     })
   ]
 
@@ -336,7 +400,8 @@ resource "helm_release" "tokenvolt" {
       condition = (
         can(regex("@sha256:[0-9a-f]{64}$", var.tokenvolt_control_plane_image)) &&
         can(regex("^oci://.+@sha256:[0-9a-f]{64}$", var.tokenvolt_policy_plugin_url)) &&
-        can(regex("^oci://.+@sha256:[0-9a-f]{64}$", var.tokenvolt_ai_statistics_plugin_url))
+        can(regex("^oci://.+@sha256:[0-9a-f]{64}$", var.tokenvolt_ai_statistics_plugin_url)) &&
+        (!var.tokenvolt_mock_enabled || can(regex("@sha256:[0-9a-f]{64}$", var.tokenvolt_mock_image)))
       )
       error_message = "TokenVolt control-plane and both Wasm plugin references must be immutable digest references."
     }
@@ -346,6 +411,8 @@ resource "helm_release" "tokenvolt" {
     helm_release.higress,
     kubernetes_secret_v1.tokenvolt_database,
     kubernetes_secret_v1.tokenvolt_app,
+    kubernetes_secret_v1.tokenvolt_registry,
+    kubernetes_secret_v1.tokenvolt_registry_higress,
     alicloud_db_account_privilege.tokenvolt,
     alicloud_db_backup_policy.tokenvolt,
     alicloud_ram_role_policy_attachment.tokenvolt,
