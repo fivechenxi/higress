@@ -35,6 +35,17 @@ resource "alicloud_cs_managed_kubernetes" "this" {
   dynamic "addons" {
     for_each = var.tokenvolt_enabled ? [1] : []
     content {
+      # Required for the namespace injection label and ServiceAccount role
+      # annotation to materialize RRSA OIDC env vars and the projected token
+      # inside TokenVolt Pods.
+      name   = "ack-pod-identity-webhook"
+      config = ""
+    }
+  }
+
+  dynamic "addons" {
+    for_each = var.tokenvolt_enabled ? [1] : []
+    content {
       name = "logtail-ds"
       config = jsonencode({
         IngressDashboardEnabled = "false"
