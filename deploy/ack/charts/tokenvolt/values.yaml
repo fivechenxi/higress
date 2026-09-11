@@ -93,14 +93,17 @@ modelRouting:
     sha256: 69c17eae7b8331f37f05a651a0a1aa731fe7aff2ce30452ff4bbba7c7271818d
   providers:
     bailian:
+      displayName: Alibaba Cloud Bailian
       type: qwen
       domain: ws-pjazv7zkm6csqo43.cn-beijing.maas.aliyuncs.com
       port: 443
     suheai:
+      displayName: Suhe AI
       type: openai
       domain: suheai.cn
       port: 443
     neutoken:
+      displayName: NeuToken
       type: openai
       domain: neutoken.net
       port: 443
@@ -109,17 +112,22 @@ modelRouting:
       model: qwen-max
       provider: bailian
       upstreamModel: qwen-max
+      weight: 100
     - name: glm-5-2
       model: glm-5.2
       provider: suheai
       upstreamModel: GLM-5.2
+      weight: 100
       fallbackProvider: bailian
       fallbackModel: glm-5.2
+      fallbackWeight: 1
     - name: kimi-k3
       model: kimi-k3
       provider: neutoken
       upstreamModel: kimi-k3
+      weight: 100
       fallbackProvider: suheai
       fallbackModel: Kimi-K3
+      fallbackWeight: 1
 
 imagePullSecrets: []

@@ -1,0 +1,22 @@
+{{- if and .Values.higress.gatewayConfigPublisher.enabled .Values.modelRouting.useRealBackends }}
+{{- $providers := list }}
+{{- range $name, $provider := .Values.modelRouting.providers }}
+{{- $providers = append $providers (dict "id" $name "displayName" (default $name $provider.displayName) "kind" $provider.type "domain" $provider.domain "port" $provider.port "status" "active" "apiTokenFile" (printf "/var/run/tokenvolt/provider-credentials/%s" $name)) }}
+{{- end }}
+{{- $routes := list }}
+{{- range $route := .Values.modelRouting.routes }}
+{{- $routes = append $routes (dict "modelId" $route.model "providerId" $route.provider "upstreamModel" $route.upstreamModel "weight" (default 100 $route.weight) "status" "active") }}
+{{- if $route.fallbackProvider }}
+{{- $routes = append $routes (dict "modelId" $route.model "providerId" $route.fallbackProvider "upstreamModel" $route.fallbackModel "weight" (default 1 $route.fallbackWeight) "status" "disabled") }}
+{{- end }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tokenvolt-gateway-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+data:
+  bootstrap.json: {{ dict "providers" $providers "routes" $routes | toJson | quote }}
+{{- end }}

@@ -35,17 +35,6 @@ resource "alicloud_cs_managed_kubernetes" "this" {
   dynamic "addons" {
     for_each = var.tokenvolt_enabled ? [1] : []
     content {
-      # Required for the namespace injection label and ServiceAccount role
-      # annotation to materialize RRSA OIDC env vars and the projected token
-      # inside TokenVolt Pods.
-      name   = "ack-pod-identity-webhook"
-      config = ""
-    }
-  }
-
-  dynamic "addons" {
-    for_each = var.tokenvolt_enabled ? [1] : []
-    content {
       name = "logtail-ds"
       config = jsonencode({
         IngressDashboardEnabled = "false"
@@ -64,6 +53,20 @@ resource "alicloud_cs_managed_kubernetes" "this" {
   }
 
   depends_on = [data.alicloud_vswitches.selected]
+}
+
+# Manage this post-creation addon independently. Putting it in the cluster's
+# creation-time addons set makes an existing cluster credential unknown during
+# planning, which also prevents the Kubernetes and Helm providers from reading
+# their current resources.
+resource "alicloud_cs_kubernetes_addon" "pod_identity" {
+  count      = var.tokenvolt_enabled ? 1 : 0
+  cluster_id = alicloud_cs_managed_kubernetes.this.id
+  name       = "ack-pod-identity-webhook"
+  version    = "0.4.4"
+  config = jsonencode({
+    AutoInjectSTSEnvVars = true
+  })
 }
 
 resource "alicloud_key_pair" "workers" {

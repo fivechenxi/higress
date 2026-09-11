@@ -171,6 +171,15 @@ placed in Terraform values, Git, the policy snapshot or logs.
 ### Phase 3: build the model data path
 
 - Register Bailian, Suheai and Neutoken as DNS/static Higress services.
+- When the database has never been initialized, mount a Helm-generated
+  bootstrap document plus the existing provider credential Secret into the
+  control plane. Seed PostgreSQL once through the normal encrypted gateway
+  configuration service, then make PostgreSQL the sole desired-state source.
+  Restarts must never overwrite administrator changes.
+- Once the gateway publisher is enabled, stop rendering the legacy static
+  route objects. The TokenVolt reconciler owns only resources labeled
+  `tokenvolt.ai/managed=gateway-config`; Higress controller remains responsible
+  for translating those resources into Envoy xDS.
 - Attach immutable ai-proxy configuration per provider and keep public model
   IDs separate from provider model IDs (`glm-5.2` -> `GLM-5.2`, etc.).
 - Reproduce the current primary/fallback intent: Kimi uses Neutoken then

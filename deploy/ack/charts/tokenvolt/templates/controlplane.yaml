@@ -82,6 +82,9 @@ spec:
             - {name: HIGRESS_AI_PROXY_PLUGIN_URL, value: {{ required "modelRouting.aiProxy.url must be set for the gateway config publisher" .Values.modelRouting.aiProxy.url | quote }}}
             - {name: HIGRESS_AI_PROXY_PLUGIN_SHA256, value: {{ required "modelRouting.aiProxy.sha256 must be set for the gateway config publisher" .Values.modelRouting.aiProxy.sha256 | quote }}}
             - {name: HIGRESS_AI_PROXY_IMAGE_PULL_SECRET, value: {{ .Values.higress.imagePullSecret | quote }}}
+            {{- if .Values.modelRouting.useRealBackends }}
+            - {name: HIGRESS_GATEWAY_BOOTSTRAP_FILE, value: "/etc/tokenvolt/gateway-bootstrap/bootstrap.json"}
+            {{- end }}
             {{- end }}
           readinessProbe:
             httpGet: {path: /readyz, port: http}
@@ -102,3 +105,15 @@ spec:
             runAsUser: 100
             runAsGroup: 101
             capabilities: {drop: [ALL]}
+          {{- if and .Values.higress.gatewayConfigPublisher.enabled .Values.modelRouting.useRealBackends }}
+          volumeMounts:
+            - {name: gateway-bootstrap, mountPath: /etc/tokenvolt/gateway-bootstrap, readOnly: true}
+            - {name: provider-credentials, mountPath: /var/run/tokenvolt/provider-credentials, readOnly: true}
+          {{- end }}
+      {{- if and .Values.higress.gatewayConfigPublisher.enabled .Values.modelRouting.useRealBackends }}
+      volumes:
+        - name: gateway-bootstrap
+          configMap: {name: tokenvolt-gateway-bootstrap}
+        - name: provider-credentials
+          secret: {secretName: {{ .Values.modelRouting.credentialSecretName }}}
+      {{- end }}
