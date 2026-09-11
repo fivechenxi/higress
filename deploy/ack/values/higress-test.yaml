@@ -5,6 +5,11 @@ global:
   ingressClass: higress
   createIngressClass: true
 
+meshConfig:
+  # Keep the billing fields structured and omit prompt/response bodies. The
+  # TokenVolt auth plugin overwrites x-mse-consumer before this value is logged.
+  accessLogFormat: '{"ai_log":"%FILTER_STATE(wasm.ai_log:PLAIN)%","consumer":"%REQ(X-MSE-CONSUMER)%","authority":"%REQ(X-ENVOY-ORIGINAL-HOST?:AUTHORITY)%","bytes_received":"%BYTES_RECEIVED%","bytes_sent":"%BYTES_SENT%","duration":"%DURATION%","method":"%REQ(:METHOD)%","path":"%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%","protocol":"%PROTOCOL%","request_id":"%REQ(X-REQUEST-ID)%","response_code":"%RESPONSE_CODE%","response_flags":"%RESPONSE_FLAGS%","route_name":"%ROUTE_NAME%","start_time":"%START_TIME%","upstream_cluster":"%UPSTREAM_CLUSTER%","upstream_host":"%UPSTREAM_HOST%","upstream_service_time":"%RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)%","upstream_transport_failure_reason":"%UPSTREAM_TRANSPORT_FAILURE_REASON%"}'
+
 gateway:
   kind: Deployment
   replicas: 2

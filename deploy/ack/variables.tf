@@ -19,19 +19,19 @@ variable "vpc_id" {
 variable "vswitch_id" {
   description = "Existing single-AZ vSwitch to reuse. This stack never creates or deletes it."
   type        = string
-  default     = "vsw-2zex87nrlhukk0mlgricd"
+  default     = "vsw-2zevlkujoiw0wy0k15z9o"
 }
 
 variable "availability_zone" {
   description = "Availability zone of the reused vSwitch."
   type        = string
-  default     = "cn-beijing-k"
+  default     = "cn-beijing-l"
 }
 
 variable "cluster_name" {
-  description = "Name of the disposable ACK test cluster."
+  description = "Name of the ACK cluster that is validated privately before production traffic cutover."
   type        = string
-  default     = "higress-ack-test"
+  default     = "higress-ack"
 }
 
 variable "cluster_spec" {
@@ -116,7 +116,101 @@ variable "tags" {
   type        = map(string)
   default = {
     Project     = "higress"
-    Environment = "test"
+    Environment = "production"
     ManagedBy   = "opentofu"
   }
+}
+
+variable "tokenvolt_enabled" {
+  description = "Deploy an isolated TokenVolt control plane in ACK and its managed RDS database."
+  type        = bool
+  default     = false
+}
+
+variable "tokenvolt_namespace" {
+  description = "Namespace for the isolated TokenVolt application."
+  type        = string
+  default     = "tokenvolt-system"
+}
+
+variable "tokenvolt_control_plane_image" {
+  description = "Immutable VPC-reachable TokenVolt control-plane image."
+  type        = string
+  default     = ""
+}
+
+variable "tokenvolt_rds_vswitch_id" {
+  description = "Existing vSwitch used by the production-candidate RDS PostgreSQL instance. It must be in the selected VPC and the ACK availability zone."
+  type        = string
+  default     = "vsw-2zevlkujoiw0wy0k15z9o"
+}
+
+variable "tokenvolt_rds_deletion_protection" {
+  description = "Protect the TokenVolt RDS instance from accidental deletion. Disable only for an explicitly reviewed data-destruction operation."
+  type        = bool
+  default     = true
+}
+
+variable "tokenvolt_oss_worm_enabled" {
+  description = "Enable irreversible OSS WORM retention only after the legal retention period is approved."
+  type        = bool
+  default     = false
+}
+
+variable "tokenvolt_policy_plugin_url" {
+  description = "Immutable OCI digest URL for the TokenVolt policy Wasm plugin."
+  type        = string
+  default     = ""
+}
+
+variable "tokenvolt_policy_plugin_sha256" {
+  description = "Optional SHA-256 of the Wasm payload inside the OCI artifact."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.tokenvolt_policy_plugin_sha256 == "" || can(regex("^[0-9a-f]{64}$", var.tokenvolt_policy_plugin_sha256))
+    error_message = "tokenvolt_policy_plugin_sha256 must be empty or 64 lowercase hexadecimal characters."
+  }
+}
+
+variable "tokenvolt_ai_statistics_plugin_url" {
+  description = "Immutable OCI digest URL for this fork's ai-statistics Wasm plugin."
+  type        = string
+  default     = ""
+}
+
+variable "tokenvolt_ai_statistics_plugin_sha256" {
+  description = "Optional SHA-256 of the ai-statistics Wasm payload inside the OCI artifact."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.tokenvolt_ai_statistics_plugin_sha256 == "" || can(regex("^[0-9a-f]{64}$", var.tokenvolt_ai_statistics_plugin_sha256))
+    error_message = "tokenvolt_ai_statistics_plugin_sha256 must be empty or 64 lowercase hexadecimal characters."
+  }
+}
+
+variable "tokenvolt_portal_host" {
+  description = "Internal validation host routed to the TokenVolt Portal before public cutover."
+  type        = string
+  default     = "portal.tokenvolt.internal"
+}
+
+variable "tokenvolt_api_host" {
+  description = "Internal validation host routed to the TokenVolt model API before public cutover."
+  type        = string
+  default     = "api.tokenvolt.internal"
+}
+
+variable "tokenvolt_model_backend_service" {
+  description = "Service used behind the model API ingress during staged provider integration."
+  type        = string
+  default     = "tokenvolt-model-backend"
+}
+
+variable "tokenvolt_model_backend_port" {
+  description = "Port of the staged model API backend Service."
+  type        = number
+  default     = 8080
 }

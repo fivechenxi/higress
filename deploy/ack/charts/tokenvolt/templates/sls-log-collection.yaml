@@ -1,0 +1,40 @@
+apiVersion: log.alibabacloud.com/v1alpha1
+kind: AliyunLogConfig
+metadata:
+  name: tokenvolt-higress-access
+  namespace: kube-system
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  project: {{ required "controlPlane.cloud.slsProject must be set" .Values.controlPlane.cloud.slsProject | quote }}
+  logstore: {{ required "controlPlane.cloud.slsLogstore must be set" .Values.controlPlane.cloud.slsLogstore | quote }}
+  logtailConfig:
+    inputType: plugin
+    configName: tokenvolt-higress-access
+    inputDetail:
+      plugin:
+        inputs:
+          - type: service_docker_stdout
+            detail:
+              Stdout: true
+              Stderr: false
+              K8sNamespaceRegex: "^higress-system$"
+              K8sPodRegex: "^higress-gateway-.*$"
+              K8sContainerRegex: "^higress-gateway$"
+        processors:
+          - type: processor_json
+            detail:
+              SourceKey: content
+              NoKeyError: false
+              ExpandDepth: 1
+              KeepSource: true
+              KeepSourceIfParseError: true
+          - type: processor_json
+            detail:
+              SourceKey: ai_log
+              NoKeyError: false
+              ExpandDepth: 1
+              ExpandConnector: "."
+              KeepSource: true
+              UseSourceKeyAsPrefix: true
+              KeepSourceIfParseError: true

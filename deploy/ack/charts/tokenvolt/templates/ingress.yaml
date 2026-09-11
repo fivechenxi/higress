@@ -1,0 +1,39 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tokenvolt-portal
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.higress.ingressClassName }}
+  rules:
+    - host: {{ .Values.portal.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tokenvolt-control-plane
+                port: {number: 8000}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tokenvolt-model-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.higress.ingressClassName }}
+  rules:
+    - host: {{ .Values.modelApi.host }}
+      http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.modelApi.backendService.name }}
+                port: {number: {{ .Values.modelApi.backendService.port }}}

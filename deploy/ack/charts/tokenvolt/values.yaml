@@ -1,0 +1,49 @@
+controlPlane:
+  image: ""
+  imagePullPolicy: IfNotPresent
+  replicas: 1
+  serviceAccountName: tokenvolt-control-plane
+  rrsaRoleName: ""
+  databaseSecretName: tokenvolt-database
+  appSecretName: tokenvolt-app
+  cloud:
+    slsRegionId: ""
+    slsEndpoint: ""
+    slsProject: ""
+    slsLogstore: ""
+    ossRegionId: ""
+    ossEndpoint: ""
+    ossBucket: ""
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: "1", memory: 512Mi}
+
+higress:
+  namespace: higress-system
+  ingressClassName: higress
+  policyName: tokenvolt-policy
+  policyPluginUrl: ""
+  policyPluginSha256: ""
+  # The TokenVolt adapter must publish matchRules for this namespace/name.
+  policyIngress: tokenvolt-system/tokenvolt-model-api
+  aiStatistics:
+    enabled: true
+    # Use the independently built fork: stock 2.0.2 does not contain all of
+    # TokenVolt's provider/cache/TTFT/TPOT/inflight metric additions.
+    pluginUrl: ""
+    pluginSha256: ""
+    paths:
+      - /v1/chat/completions
+      - /v1/responses
+      - /v1/messages
+
+portal:
+  host: portal.tokenvolt.internal
+
+modelApi:
+  host: api.tokenvolt.internal
+  backendService:
+    name: tokenvolt-model-backend
+    port: 8080
+
+imagePullSecrets: []

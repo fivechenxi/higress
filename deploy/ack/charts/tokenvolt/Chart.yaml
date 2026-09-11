@@ -1,0 +1,6 @@
+apiVersion: v2
+name: tokenvolt
+description: TokenVolt control plane and Higress data-plane integration
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

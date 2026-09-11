@@ -12,7 +12,7 @@ resource "alicloud_cs_managed_kubernetes" "this" {
   new_nat_gateway      = false
   slb_internet_enabled = var.enable_public_api
   deletion_protection  = false
-  enable_rrsa          = false
+  enable_rrsa          = true
   timezone             = "Asia/Shanghai"
 
   addons {
@@ -30,6 +30,17 @@ resource "alicloud_cs_managed_kubernetes" "this" {
   addons {
     name   = "metrics-server"
     config = ""
+  }
+
+  dynamic "addons" {
+    for_each = var.tokenvolt_enabled ? [1] : []
+    content {
+      name = "logtail-ds"
+      config = jsonencode({
+        IngressDashboardEnabled = "false"
+        sls_project_name        = alicloud_log_project.tokenvolt[0].project_name
+      })
+    }
   }
 
   tags = var.tags

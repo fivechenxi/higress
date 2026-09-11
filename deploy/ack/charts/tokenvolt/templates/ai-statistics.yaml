@@ -1,0 +1,27 @@
+{{- if .Values.higress.aiStatistics.enabled }}
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: tokenvolt-ai-statistics
+  namespace: {{ .Values.higress.namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  url: {{ required "higress.aiStatistics.pluginUrl must be an immutable OCI digest URL" .Values.higress.aiStatistics.pluginUrl | quote }}
+  {{- with .Values.higress.aiStatistics.pluginSha256 }}
+  sha256: {{ . | quote }}
+  {{- end }}
+  imagePullPolicy: IfNotPresent
+  phase: UNSPECIFIED_PHASE
+  priority: 200
+  defaultConfigDisable: true
+  matchRules:
+    - ingress:
+        - {{ .Values.higress.policyIngress | quote }}
+      config:
+        # Production/high-concurrency mode: retain model/usage/timing fields,
+        # but never retain prompts or streamed model output.
+        use_default_response_attributes: true
+        enable_path_suffixes:
+          {{- toYaml .Values.higress.aiStatistics.paths | nindent 10 }}
+{{- end }}

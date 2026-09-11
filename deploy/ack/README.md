@@ -91,7 +91,7 @@ To use a different cluster name or sizing, create an untracked
 `terraform.tfvars` file. For example:
 
 ```hcl
-cluster_name          = "higress-ack-test"
+cluster_name          = "higress-ack"
 worker_instance_types = ["ecs.u1-c1m2.xlarge"]
 node_min_size         = 1
 node_max_size         = 3

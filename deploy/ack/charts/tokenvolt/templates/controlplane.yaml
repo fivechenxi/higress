@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: tokenvolt-control-plane
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "tokenvolt.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tokenvolt-control-plane
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controlPlane.replicas }}
+  selector:
+    matchLabels:
+      {{- include "tokenvolt.selectorLabels" . | nindent 6 }}
+  strategy:
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels:
+        {{- include "tokenvolt.selectorLabels" . | nindent 8 }}
+        {{- include "tokenvolt.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.controlPlane.serviceAccountName }}
+      automountServiceAccountToken: true
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: control-plane
+          image: {{ required "controlPlane.image must be an immutable VPC-reachable image" .Values.controlPlane.image | quote }}
+          imagePullPolicy: {{ .Values.controlPlane.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ .Values.controlPlane.databaseSecretName }}, key: url}}
+            - name: TOTP_MASTER_KEY_B64
+              valueFrom: {secretKeyRef: {name: {{ .Values.controlPlane.appSecretName }}, key: totpMasterKeyB64}}
+            - name: API_KEY_PEPPER_B64
+              valueFrom: {secretKeyRef: {name: {{ .Values.controlPlane.appSecretName }}, key: apiKeyPepperB64}}
+            - {name: SLS_REGION_ID, value: {{ required "controlPlane.cloud.slsRegionId must be set" .Values.controlPlane.cloud.slsRegionId | quote }}}
+            - {name: SLS_ENDPOINT, value: {{ required "controlPlane.cloud.slsEndpoint must be set" .Values.controlPlane.cloud.slsEndpoint | quote }}}
+            - {name: SLS_PROJECT, value: {{ required "controlPlane.cloud.slsProject must be set" .Values.controlPlane.cloud.slsProject | quote }}}
+            - {name: SLS_LOGSTORE, value: {{ required "controlPlane.cloud.slsLogstore must be set" .Values.controlPlane.cloud.slsLogstore | quote }}}
+            - {name: USAGE_BINDING_PROVIDER, value: "higress"}
+            - {name: OSS_REGION_ID, value: {{ required "controlPlane.cloud.ossRegionId must be set" .Values.controlPlane.cloud.ossRegionId | quote }}}
+            - {name: OSS_ENDPOINT, value: {{ required "controlPlane.cloud.ossEndpoint must be set" .Values.controlPlane.cloud.ossEndpoint | quote }}}
+            - {name: OSS_BUCKET, value: {{ required "controlPlane.cloud.ossBucket must be set" .Values.controlPlane.cloud.ossBucket | quote }}}
+            - {name: CREDENTIAL_PROVIDER, value: higress}
+            - {name: ALLOWED_ORIGIN, value: {{ printf "https://%s" .Values.portal.host | quote }}}
+            - {name: LISTEN_ADDR, value: ":8000"}
+            - {name: HIGRESS_KUBE_API, value: "https://kubernetes.default.svc"}
+            - {name: HIGRESS_KUBE_TOKEN_FILE, value: "/var/run/secrets/kubernetes.io/serviceaccount/token"}
+            - {name: HIGRESS_KUBE_CA_FILE, value: "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"}
+            - {name: HIGRESS_NAMESPACE, value: {{ .Values.higress.namespace | quote }}}
+            - {name: HIGRESS_POLICY_NAME, value: {{ .Values.higress.policyName | quote }}}
+            - {name: HIGRESS_POLICY_PLUGIN_URL, value: {{ required "higress.policyPluginUrl must be an immutable OCI digest URL" .Values.higress.policyPluginUrl | quote }}}
+            - {name: HIGRESS_POLICY_PLUGIN_SHA256, value: {{ .Values.higress.policyPluginSha256 | quote }}}
+            - {name: HIGRESS_POLICY_INGRESS, value: {{ .Values.higress.policyIngress | quote }}}
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 12
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 2
+          resources:
+            {{- toYaml .Values.controlPlane.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}

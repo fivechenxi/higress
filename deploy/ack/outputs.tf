@@ -27,6 +27,24 @@ output "lifecycle_mode" {
   value       = var.lifecycle_mode
 }
 
+output "tokenvolt_internal_hosts" {
+  description = "Internal-only TokenVolt test hosts when the optional release is enabled."
+  value = var.tokenvolt_enabled && var.lifecycle_mode == "running" ? {
+    portal = var.tokenvolt_portal_host
+    api    = var.tokenvolt_api_host
+  } : null
+}
+
+output "tokenvolt_rds" {
+  description = "Managed private RDS endpoint for the isolated TokenVolt deployment."
+  value = var.tokenvolt_enabled ? {
+    instance_id = alicloud_db_instance.tokenvolt[0].id
+    endpoint    = alicloud_db_instance.tokenvolt[0].connection_string
+    port        = alicloud_db_instance.tokenvolt[0].port
+    zone        = alicloud_db_instance.tokenvolt[0].zone_id
+  } : null
+}
+
 output "kubeconfig_command" {
   description = "Write a short-lived kubeconfig when kubectl access is needed."
   value       = "aliyun cs GET /k8s/${alicloud_cs_managed_kubernetes.this.id}/user_config --profile ${var.alicloud_profile} --region ${var.region}"

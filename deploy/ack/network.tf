@@ -7,6 +7,12 @@ data "alicloud_vswitches" "selected" {
   vpc_id = var.vpc_id
 }
 
+data "alicloud_vswitches" "tokenvolt_rds" {
+  count  = var.tokenvolt_enabled ? 1 : 0
+  ids    = [var.tokenvolt_rds_vswitch_id]
+  vpc_id = var.vpc_id
+}
+
 check "existing_network_matches" {
   assert {
     condition = (
@@ -15,5 +21,15 @@ check "existing_network_matches" {
       data.alicloud_vswitches.selected.vswitches[0].zone_id == var.availability_zone
     )
     error_message = "The configured VPC/vSwitch was not found in the region, or the vSwitch zone does not match availability_zone."
+  }
+}
+
+check "tokenvolt_rds_network_matches" {
+  assert {
+    condition = (
+      !var.tokenvolt_enabled ||
+      length(data.alicloud_vswitches.tokenvolt_rds[0].vswitches) == 1
+    )
+    error_message = "tokenvolt_rds_vswitch_id was not found in the reused VPC."
   }
 }
