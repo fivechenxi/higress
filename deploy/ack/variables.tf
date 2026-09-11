@@ -136,7 +136,7 @@ variable "tokenvolt_namespace" {
 variable "tokenvolt_control_plane_image" {
   description = "Immutable VPC-reachable TokenVolt control-plane image."
   type        = string
-  default     = "ghcr.io/tokenvolt-ai/tokenvolt-control-plane@sha256:5b1fdf68a3358a989fbe5a84341b9c04deebe46b7bd089999ef4cf4cc01c0afa"
+  default     = "ghcr.io/tokenvolt-ai/tokenvolt-control-plane@sha256:af801fc71d0f63ca5c93e5eb01c564f1dc128b9e2b7ae3f3d33ac81ee5e5490b"
 }
 
 variable "tokenvolt_mock_image" {
@@ -159,6 +159,12 @@ variable "tokenvolt_real_model_backends" {
 
 variable "tokenvolt_gateway_config_publisher_enabled" {
   description = "Allow TokenVolt admin desired state to reconcile its labeled Higress routes and AI proxy configuration."
+  type        = bool
+  default     = false
+}
+
+variable "tokenvolt_public_tls_enabled" {
+  description = "Terminate HTTPS in Higress for the public TokenVolt host using the stack-managed test certificate."
   type        = bool
   default     = false
 }

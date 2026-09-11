@@ -346,8 +346,8 @@ resource "helm_release" "tokenvolt" {
       controlPlane = {
         image                      = var.tokenvolt_control_plane_image
         rrsaRoleName               = alicloud_ram_role.tokenvolt[0].role_name
-        allowedOrigin              = var.tokenvolt_public_host != "" ? "http://${var.tokenvolt_public_host}" : ""
-        allowInsecureSessionCookie = var.tokenvolt_public_host != ""
+        allowedOrigin              = var.tokenvolt_public_host != "" ? "${var.tokenvolt_public_tls_enabled ? "https" : "http"}://${var.tokenvolt_public_host}" : ""
+        allowInsecureSessionCookie = var.tokenvolt_public_host != "" && !var.tokenvolt_public_tls_enabled
         cloud = {
           slsRegionId = var.region
           slsEndpoint = "${var.region}-intranet.log.aliyuncs.com"
@@ -389,7 +389,8 @@ resource "helm_release" "tokenvolt" {
         }
       }
       publicEntry = {
-        host = var.tokenvolt_public_host
+        host          = var.tokenvolt_public_host
+        tlsSecretName = var.tokenvolt_public_tls_enabled ? kubernetes_secret_v1.tokenvolt_public_tls[0].metadata[0].name : ""
       }
       modelRouting = {
         useRealBackends = var.tokenvolt_real_model_backends

@@ -41,7 +41,9 @@ There are two lifecycle levels:
   active streams per Pod; the larger desired replica count wins.
 - Higress controller: 2 replicas on different nodes, HPA up to 3 replicas at
   65% CPU. Controller and gateway each have a PDB with `minAvailable: 1`.
-- Gateway service: `ClusterIP`; there is no Higress public or internal CLB yet.
+- Gateway service: `LoadBalancer`, reusing the persistent pay-by-traffic CLB on
+  ports 80 and 443. `ack.tokenvolt.net` routes both the Portal and `/v1` model
+  traffic through Higress; the CLB and DNS record are protected from destroy.
 - Pod placement: controller replicas use required hostname anti-affinity;
   gateway replicas use hard hostname topology spread with `maxSkew: 1`.
 - Network: Terway DataPath V2/eBPF without kube-proxy IPVS/iptables in the Pod
@@ -165,6 +167,29 @@ kubectl -n higress-system delete ingress gateway-smoke
 ```
 
 The expected result is `HTTP/1.1 200 OK` with `server: istio-envoy`.
+
+## Temporary HTTPS certificate
+
+Set `tokenvolt_public_tls_enabled = true` to have OpenTofu create a test-only CA,
+issue a 90-day certificate for `tokenvolt_public_host`, store the TLS keypair in
+the `tokenvolt-public-tls` Kubernetes Secret, and configure both TokenVolt
+Ingresses to terminate TLS in Higress. The CA is valid for one year and the leaf
+certificate for 90 days. Private keys live only in sensitive OpenTofu state and
+the Kubernetes Secret, never in Helm values or Git.
+
+To trust the public CA on the current macOS user account:
+
+```shell
+tofu output -raw tokenvolt_test_ca_certificate > /tmp/tokenvolt-ack-test-ca.pem
+security add-trusted-cert -r trustRoot \
+  -k /Users/fivechen/Library/Keychains/login.keychain-db \
+  /tmp/tokenvolt-ack-test-ca.pem
+curl https://ack.tokenvolt.net/healthz
+```
+
+This CA is for development only. Replace the Secret with an Alibaba Cloud or
+public-CA certificate before exposing production traffic. To remove local trust
+later, use Keychain Access to delete `TokenVolt ACK Test CA`.
 
 The MaaS-oriented Gateway/Controller test matrix, measured ACK baseline, and
 derived scaling signals are in

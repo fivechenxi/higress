@@ -69,6 +69,9 @@ publicEntry:
   # Optional shared host: model paths are more specific than the portal `/`
   # prefix, so Higress can expose both control-plane UI and data plane safely.
   host: ""
+  # Existing Kubernetes TLS secret in this release namespace. Certificate
+  # lifecycle is deliberately outside this application Helm release.
+  tlsSecretName: ""
 
 # Declarative copy of the three routes that are Deployed in the current
 # Alibaba Cloud AI Gateway environment.  The six Completions/Responses routes

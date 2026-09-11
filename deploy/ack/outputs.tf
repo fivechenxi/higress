@@ -48,6 +48,11 @@ output "tokenvolt_public_host" {
   value       = var.tokenvolt_enabled ? var.tokenvolt_public_host : null
 }
 
+output "tokenvolt_test_ca_certificate" {
+  description = "Public test CA certificate to trust locally while using the self-issued ACK edge certificate."
+  value       = var.tokenvolt_enabled && var.tokenvolt_public_tls_enabled ? tls_self_signed_cert.tokenvolt_test_ca[0].cert_pem : null
+}
+
 output "tokenvolt_rds" {
   description = "Managed private RDS endpoint for the isolated TokenVolt deployment."
   value = var.tokenvolt_enabled ? {

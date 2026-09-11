@@ -7,6 +7,11 @@ metadata:
     {{- include "tokenvolt.labels" . | nindent 4 }}
 spec:
   ingressClassName: {{ .Values.higress.ingressClassName }}
+  {{- if and .Values.publicEntry.host .Values.publicEntry.tlsSecretName }}
+  tls:
+    - hosts: [{{ .Values.publicEntry.host | quote }}]
+      secretName: {{ .Values.publicEntry.tlsSecretName | quote }}
+  {{- end }}
   rules:
     - host: {{ .Values.portal.host }}
       http:
@@ -38,6 +43,11 @@ metadata:
     {{- include "tokenvolt.labels" . | nindent 4 }}
 spec:
   ingressClassName: {{ .Values.higress.ingressClassName }}
+  {{- if and .Values.publicEntry.host .Values.publicEntry.tlsSecretName }}
+  tls:
+    - hosts: [{{ .Values.publicEntry.host | quote }}]
+      secretName: {{ .Values.publicEntry.tlsSecretName | quote }}
+  {{- end }}
   rules:
     - host: {{ .Values.modelApi.host }}
       http:
