@@ -1,0 +1,147 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+controlPlane:
+  image: ""
+  imagePullPolicy: IfNotPresent
+  replicas: 1
+  # Exact browser origin accepted by the control-plane API. Leave empty to
+  # default to https://<portal.host> for private/production installations.
+  allowedOrigin: ""
+  # Temporary HTTP-only test endpoints need a non-Secure session cookie.
+  # Keep false once TLS is enabled.
+  allowInsecureSessionCookie: false
+  serviceAccountName: tokenvolt-control-plane
+  rrsaRoleName: ""
+  databaseSecretName: tokenvolt-database
+  appSecretName: tokenvolt-app
+  cloud:
+    slsRegionId: ""
+    slsEndpoint: ""
+    slsProject: ""
+    slsLogstore: ""
+    ossRegionId: ""
+    ossEndpoint: ""
+    ossBucket: ""
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: "1", memory: 512Mi}
+
+higress:
+  # Higress only watches WasmPlugin resources in its controller namespace.
+  # Route scoping is expressed as namespace/name in matchRules.
+  namespace: higress-system
+  ingressClassName: higress
+  policyName: tokenvolt-policy
+  policyPluginUrl: ""
+  policyPluginSha256: ""
+  imagePullSecret: ""
+  # The TokenVolt adapter validates and publishes a namespace/name reference.
+  policyIngress: tokenvolt-system/tokenvolt-model-api
+  gatewayConfigPublisher:
+    enabled: false
+    aiProxyName: tokenvolt-ai-proxy-managed
+  aiStatistics:
+    enabled: true
+    # Use the independently built fork: stock 2.0.2 does not contain all of
+    # TokenVolt's provider/cache/TTFT/TPOT/inflight metric additions.
+    pluginUrl: ""
+    pluginSha256: ""
+    paths:
+      - /v1/chat/completions
+      - /v1/responses
+      - /v1/messages
+
+portal:
+  host: portal.tokenvolt.internal
+
+modelApi:
+  host: api.tokenvolt.internal
+  backendService:
+    name: tokenvolt-model-backend
+    port: 8080
+  mock:
+    enabled: false
+    image: ""
+    replicas: 1
+    resources:
+      requests: {cpu: 20m, memory: 24Mi}
+      limits: {cpu: 200m, memory: 64Mi}
+
+publicEntry:
+  # Optional shared host: model paths are more specific than the portal `/`
+  # prefix, so Higress can expose both control-plane UI and data plane safely.
+  host: ""
+  # Existing Kubernetes TLS secret in this release namespace. Certificate
+  # lifecycle is deliberately outside this application Helm release.
+  tlsSecretName: ""
+
+# Declarative copy of the three routes that are Deployed in the current
+# Alibaba Cloud AI Gateway environment.  The six Completions/Responses routes
+# that exist there in NotDeployed state are intentionally not activated.
+modelRouting:
+  enabled: true
+  # Keep the first acceptance pass deterministic. Switching this flag retains
+  # the same route objects but changes their destinations from the fixture to
+  # the external provider registries below.
+  useRealBackends: false
+  credentialSecretName: tokenvolt-provider-credentials
+  # tokenvolt-policy parses the authenticated request model and writes the
+  # trusted x-higress-llm-model header used by the route annotations below.
+  aiProxy:
+    # 2.0.0 is the latest public compatibility-format artifact accepted by the
+    # Higress 2.1 gateway (tar+gzip layer). Newer ORAS wasm-layer artifacts are
+    # rejected by this gateway build even though their digest is valid.
+    url: oci://higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/ai-proxy@sha256:69c17eae7b8331f37f05a651a0a1aa731fe7aff2ce30452ff4bbba7c7271818d
+    sha256: 69c17eae7b8331f37f05a651a0a1aa731fe7aff2ce30452ff4bbba7c7271818d
+  providers:
+    bailian:
+      displayName: Alibaba Cloud Bailian
+      type: qwen
+      domain: ws-pjazv7zkm6csqo43.cn-beijing.maas.aliyuncs.com
+      port: 443
+    suheai:
+      displayName: Suhe AI
+      type: openai
+      domain: suheai.cn
+      port: 443
+    neutoken:
+      displayName: NeuToken
+      type: openai
+      domain: neutoken.net
+      port: 443
+  routes:
+    - name: qwen-max
+      model: qwen-max
+      provider: bailian
+      upstreamModel: qwen-max
+      weight: 100
+    - name: glm-5-2
+      model: glm-5.2
+      provider: suheai
+      upstreamModel: GLM-5.2
+      weight: 100
+      fallbackProvider: bailian
+      fallbackModel: glm-5.2
+      fallbackWeight: 1
+    - name: kimi-k3
+      model: kimi-k3
+      provider: neutoken
+      upstreamModel: kimi-k3
+      weight: 100
+      fallbackProvider: suheai
+      fallbackModel: Kimi-K3
+      fallbackWeight: 1
+
+imagePullSecrets: []

@@ -40,6 +40,7 @@ func init() {
 		wrapper.ProcessResponseHeaders(onHttpResponseHeaders),
 		wrapper.ProcessStreamingResponseBody(onHttpStreamingBody),
 		wrapper.ProcessResponseBody(onHttpResponseBody),
+		wrapper.ProcessStreamDone(onHttpStreamDone),
 		wrapper.WithRebuildMaxMemBytes[AIStatisticsConfig](200*1024*1024),
 	)
 }
@@ -49,6 +50,9 @@ const (
 	// Context consts
 	StatisticsRequestStartTime = "ai-statistics-request-start-time"
 	StatisticsFirstTokenTime   = "ai-statistics-first-token-time"
+	StatisticsMetricsRecorded  = "ai-statistics-metrics-recorded"
+	StatisticsInflightMetric   = "ai-statistics-inflight-metric"
+	StatisticsInflightAcquired = "ai-statistics-inflight-acquired"
 	CtxGeneralAtrribute        = "attributes"
 	CtxLogAtrribute            = "logAttributes"
 	CtxStreamingBodyBuffer     = "streamingBodyBuffer"
@@ -88,6 +92,14 @@ const (
 	LLMDurationCount       = "llm_duration_count"
 	LLMStreamDurationCount = "llm_stream_duration_count"
 	LLMFailureCount        = "llm_failure_count"
+	LLMRequestCount        = "llm_request_count"
+	LLMAbortedCount        = "llm_aborted_count"
+	LLMInflightRequest     = "llm_inflight_request"
+	LLMTPOTDuration        = "llm_tpot_duration"
+	LLMTPOTCount           = "llm_tpot_count"
+	CacheHitToken          = "cache_hit_token"
+	CacheReportedCount     = "cache_reported_request_count"
+	CacheHitRequestCount   = "cache_hit_request_count"
 	ResponseType           = "response_type"
 	ChatID                 = "chat_id"
 	ChatRound              = "chat_round"
@@ -448,8 +460,8 @@ type Attribute struct {
 
 type AIStatisticsConfig struct {
 	// Metrics
-	// TODO: add more metrics in Gauge and Histogram format
 	counterMetrics map[string]proxywasm.MetricCounter
+	gaugeMetrics   map[string]proxywasm.MetricGauge
 	// Attributes to be recorded in log & span
 	attributes []Attribute
 	// If there exist attributes extracted from streaming body, chunks should be buffered
@@ -504,12 +516,26 @@ func (config *AIStatisticsConfig) incrementCounter(metricName string, inc uint64
 	if inc == 0 {
 		return
 	}
+	counter := config.ensureCounter(metricName)
+	counter.Increment(inc)
+}
+
+func (config *AIStatisticsConfig) ensureCounter(metricName string) proxywasm.MetricCounter {
 	counter, ok := config.counterMetrics[metricName]
 	if !ok {
 		counter = proxywasm.DefineCounterMetric(metricName)
 		config.counterMetrics[metricName] = counter
 	}
-	counter.Increment(inc)
+	return counter
+}
+
+func (config *AIStatisticsConfig) addGauge(metricName string, delta int64) {
+	gauge, ok := config.gaugeMetrics[metricName]
+	if !ok {
+		gauge = proxywasm.DefineGaugeMetric(metricName)
+		config.gaugeMetrics[metricName] = gauge
+	}
+	gauge.Add(delta)
 }
 
 // isPathEnabled checks if the request path matches any of the enabled path suffixes
@@ -621,6 +647,7 @@ func parseConfig(configJson gjson.Result, config *AIStatisticsConfig) error {
 	}
 	// Metric settings
 	config.counterMetrics = make(map[string]proxywasm.MetricCounter)
+	config.gaugeMetrics = make(map[string]proxywasm.MetricGauge)
 
 	// Parse openai usage config setting.
 	config.disableOpenaiUsage = configJson.Get("disable_openai_usage").Bool()
@@ -750,6 +777,19 @@ func onHttpRequestBody(ctx wrapper.HttpContext, config AIStatisticsConfig, body 
 	}
 	ctx.SetContext(tokenusage.CtxKeyRequestModel, requestModel)
 	setSpanAttribute(ArmsRequestModel, requestModel)
+
+	// Track LLM request concurrency with the same route/upstream/model dimensions
+	// as the completion counters. StreamDone releases the gauge on every exit
+	// path, including downstream cancellation and upstream reset.
+	if route, ok := ctx.GetContext(RouteName).(string); ok {
+		if cluster, ok := ctx.GetContext(ClusterName).(string); ok {
+			consumer := ctx.GetStringContext(ConsumerKey, "none")
+			metricName := generateMetricName(route, cluster, requestModel, consumer, LLMInflightRequest)
+			config.addGauge(metricName, 1)
+			ctx.SetContext(StatisticsInflightMetric, metricName)
+			ctx.SetContext(StatisticsInflightAcquired, true)
+		}
+	}
 
 	// Set the number of conversation rounds (only if body is available)
 	userPromptCount := 0
@@ -1470,10 +1510,10 @@ func setSpanAttribute(key string, value interface{}) {
 
 // isErrorResponse checks whether the LLM response indicates an error.
 // Detects errors by:
-// 1. Response body contains non-null "error" field at root level (OpenAI/Anthropic format).
-//    Handles both raw JSON and SSE "data: " prefixed chunks, including multi-event
-//    streaming buffers.
-// 2. HTTP status code >= 400 as fallback when body is empty.
+//  1. Response body contains non-null "error" field at root level (OpenAI/Anthropic format).
+//     Handles both raw JSON and SSE "data: " prefixed chunks, including multi-event
+//     streaming buffers.
+//  2. HTTP status code >= 400 as fallback when body is empty.
 //
 // Note: some providers (e.g. Anthropic streaming responses) emit {"error":""}
 // even on success; an empty-string error is treated as not-an-error to avoid
@@ -1520,35 +1560,110 @@ func hasErrorField(jsonBody []byte) bool {
 	return false
 }
 
-func writeMetric(ctx wrapper.HttpContext, config AIStatisticsConfig, body []byte) {
-	// Generate usage metrics
-	var ok bool
-	var route, cluster, model string
-	consumer := ctx.GetStringContext(ConsumerKey, "none")
+var ttftBucketBounds = []uint64{100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000}
+var tpotBucketBounds = []uint64{5, 10, 20, 30, 50, 100, 250, 500, 1000}
+
+func observeDuration(config *AIStatisticsConfig, metricPrefix string, value uint64, bounds []uint64) {
+	for _, bound := range bounds {
+		counter := config.ensureCounter(fmt.Sprintf("%s_bucket_le_%d", metricPrefix, bound))
+		if value <= bound {
+			counter.Increment(1)
+		}
+	}
+	config.incrementCounter(metricPrefix+"_bucket_le_inf", 1)
+}
+
+func calculateTPOT(serviceDuration, firstTokenDuration, outputTokens uint64) (uint64, bool) {
+	if outputTokens < 2 || serviceDuration < firstTokenDuration {
+		return 0, false
+	}
+	return (serviceDuration - firstTokenDuration) / (outputTokens - 1), true
+}
+
+// cacheHitTokens returns tokens read from a provider cache. Cache creation is
+// deliberately excluded: writing a prefix is cost, not a cache hit.
+func cacheHitTokens(ctx wrapper.HttpContext) (uint64, bool) {
+	details, ok := ctx.GetContext(tokenusage.CtxKeyInputTokenDetails).(map[string]int64)
+	if !ok {
+		details, ok = ctx.GetUserAttribute(tokenusage.CtxKeyInputTokenDetails).(map[string]int64)
+	}
+	if !ok {
+		return 0, false
+	}
+	keys := []string{
+		BuiltinCachedTokens,
+		tokenusage.InputTokenDetailsKeyAnthropicMessagesUsageCacheReadInputTokens,
+		tokenusage.InputTokenDetailsKeyGeminiCachedContentTokenCount,
+	}
+	var total uint64
+	reported := false
+	for _, key := range keys {
+		if value, exists := details[key]; exists {
+			reported = true
+			if value > 0 {
+				total += uint64(value)
+			}
+		}
+	}
+	return total, reported
+}
+
+func metricDimensions(ctx wrapper.HttpContext) (route, cluster, model, consumer string, ok bool) {
 	route, ok = ctx.GetContext(RouteName).(string)
+	if !ok {
+		return "", "", "", "", false
+	}
+	cluster, ok = ctx.GetContext(ClusterName).(string)
+	if !ok {
+		return "", "", "", "", false
+	}
+	model = "-"
+	if value, exists := ctx.GetUserAttribute(tokenusage.CtxKeyModel).(string); exists && value != "" {
+		model = value
+	}
+	if model == "-" {
+		if value, exists := ctx.GetContext(tokenusage.CtxKeyRequestModel).(string); exists && value != "" {
+			model = value
+		}
+	}
+	consumer = ctx.GetStringContext(ConsumerKey, "none")
+	return route, cluster, model, consumer, true
+}
+
+func onHttpStreamDone(ctx wrapper.HttpContext, config AIStatisticsConfig) {
+	if ctx.GetBoolContext(StatisticsInflightAcquired, false) {
+		if metricName, ok := ctx.GetContext(StatisticsInflightMetric).(string); ok {
+			config.addGauge(metricName, -1)
+		}
+		ctx.SetContext(StatisticsInflightAcquired, false)
+	}
+
+	// A stream that never reached writeMetric was cancelled or reset. Preserve
+	// it in both the error-rate denominator and an explicit abort counter.
+	if ctx.GetBoolContext(SkipProcessing, false) || ctx.GetBoolContext(StatisticsMetricsRecorded, false) {
+		return
+	}
+	if route, cluster, model, consumer, ok := metricDimensions(ctx); ok {
+		config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMRequestCount), 1)
+		config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMFailureCount), 1)
+		config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMAbortedCount), 1)
+		ctx.SetContext(StatisticsMetricsRecorded, true)
+	}
+}
+
+func writeMetric(ctx wrapper.HttpContext, config AIStatisticsConfig, body []byte) {
+	if ctx.GetBoolContext(StatisticsMetricsRecorded, false) {
+		return
+	}
+	route, cluster, model, consumer, ok := metricDimensions(ctx)
 	if !ok {
 		log.Info("RouteName type assert failed, skip metric record")
 		return
 	}
-	cluster, ok = ctx.GetContext(ClusterName).(string)
-	if !ok {
-		log.Info("ClusterName type assert failed, skip metric record")
-		return
-	}
-
-	// Get model for metric label (may be empty for error responses)
-	modelStr := "-"
-	if m := ctx.GetUserAttribute(tokenusage.CtxKeyModel); m != nil {
-		if ms, ok := m.(string); ok {
-			modelStr = ms
-		}
-	}
-	// Fallback to request model for error responses where usage info is unavailable
-	if modelStr == "-" {
-		if rm, ok := ctx.GetContext(tokenusage.CtxKeyRequestModel).(string); ok && rm != "" {
-			modelStr = rm
-		}
-	}
+	ctx.SetContext(StatisticsMetricsRecorded, true)
+	config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMRequestCount), 1)
+	failureMetric := generateMetricName(route, cluster, model, consumer, LLMFailureCount)
+	config.ensureCounter(failureMetric)
 
 	// Count failure before usage check, so error responses without usage info are still counted.
 	// For streaming, also check the hasStreamError flag set during onHttpStreamingBody.
@@ -1556,36 +1671,44 @@ func writeMetric(ctx wrapper.HttpContext, config AIStatisticsConfig, body []byte
 	// because error responses carry no usage info and operators still need the failure
 	// signal even when usage tracking is off.
 	if isErrorResponse(body) || ctx.GetBoolContext("hasStreamError", false) {
-		config.incrementCounter(generateMetricName(route, cluster, modelStr, consumer, LLMFailureCount), 1)
+		config.incrementCounter(failureMetric, 1)
 	}
 
-	if config.disableOpenaiUsage {
-		return
-	}
-
-	if ctx.GetUserAttribute(tokenusage.CtxKeyModel) == nil || ctx.GetUserAttribute(tokenusage.CtxKeyInputToken) == nil || ctx.GetUserAttribute(tokenusage.CtxKeyOutputToken) == nil || ctx.GetUserAttribute(tokenusage.CtxKeyTotalToken) == nil {
-		log.Info("get usage information failed, skip metric record")
-		return
-	}
-	model, ok = ctx.GetUserAttribute(tokenusage.CtxKeyModel).(string)
-	if !ok {
-		log.Info("Model type assert failed, skip metric record")
-		return
-	}
-	if inputToken, ok := convertToUInt(ctx.GetUserAttribute(tokenusage.CtxKeyInputToken)); ok {
-		config.incrementCounter(generateMetricName(route, cluster, model, consumer, tokenusage.CtxKeyInputToken), inputToken)
-	} else {
-		log.Info("InputToken type assert failed, skip metric record")
-	}
-	if outputToken, ok := convertToUInt(ctx.GetUserAttribute(tokenusage.CtxKeyOutputToken)); ok {
-		config.incrementCounter(generateMetricName(route, cluster, model, consumer, tokenusage.CtxKeyOutputToken), outputToken)
-	} else {
-		log.Info("OutputToken type assert failed, skip metric record")
-	}
-	if totalToken, ok := convertToUInt(ctx.GetUserAttribute(tokenusage.CtxKeyTotalToken)); ok {
-		config.incrementCounter(generateMetricName(route, cluster, model, consumer, tokenusage.CtxKeyTotalToken), totalToken)
-	} else {
-		log.Info("TotalToken type assert failed, skip metric record")
+	usageAvailable := !config.disableOpenaiUsage &&
+		ctx.GetUserAttribute(tokenusage.CtxKeyModel) != nil &&
+		ctx.GetUserAttribute(tokenusage.CtxKeyInputToken) != nil &&
+		ctx.GetUserAttribute(tokenusage.CtxKeyOutputToken) != nil &&
+		ctx.GetUserAttribute(tokenusage.CtxKeyTotalToken) != nil
+	if usageAvailable {
+		if responseModel, validModel := ctx.GetUserAttribute(tokenusage.CtxKeyModel).(string); validModel {
+			model = responseModel
+		}
+		if inputToken, valid := convertToUInt(ctx.GetUserAttribute(tokenusage.CtxKeyInputToken)); valid {
+			config.incrementCounter(generateMetricName(route, cluster, model, consumer, tokenusage.CtxKeyInputToken), inputToken)
+		} else {
+			log.Info("InputToken type assert failed, skip metric record")
+		}
+		if outputToken, valid := convertToUInt(ctx.GetUserAttribute(tokenusage.CtxKeyOutputToken)); valid {
+			config.incrementCounter(generateMetricName(route, cluster, model, consumer, tokenusage.CtxKeyOutputToken), outputToken)
+		} else {
+			log.Info("OutputToken type assert failed, skip metric record")
+		}
+		if totalToken, valid := convertToUInt(ctx.GetUserAttribute(tokenusage.CtxKeyTotalToken)); valid {
+			config.incrementCounter(generateMetricName(route, cluster, model, consumer, tokenusage.CtxKeyTotalToken), totalToken)
+		} else {
+			log.Info("TotalToken type assert failed, skip metric record")
+		}
+		if cachedTokens, reported := cacheHitTokens(ctx); reported {
+			config.incrementCounter(generateMetricName(route, cluster, model, consumer, CacheReportedCount), 1)
+			config.ensureCounter(generateMetricName(route, cluster, model, consumer, CacheHitToken))
+			config.ensureCounter(generateMetricName(route, cluster, model, consumer, CacheHitRequestCount))
+			if cachedTokens > 0 {
+				config.incrementCounter(generateMetricName(route, cluster, model, consumer, CacheHitToken), cachedTokens)
+				config.incrementCounter(generateMetricName(route, cluster, model, consumer, CacheHitRequestCount), 1)
+			}
+		}
+	} else if !config.disableOpenaiUsage {
+		log.Info("get usage information failed, skip token/cache/TPOT metric record")
 	}
 
 	// Generate duration metrics
@@ -1599,6 +1722,7 @@ func writeMetric(ctx wrapper.HttpContext, config AIStatisticsConfig, body []byte
 		}
 		config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMFirstTokenDuration), llmFirstTokenDuration)
 		config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMStreamDurationCount), 1)
+		observeDuration(&config, generateMetricName(route, cluster, model, consumer, LLMFirstTokenDuration), llmFirstTokenDuration, ttftBucketBounds)
 	}
 	if ctx.GetUserAttribute(LLMServiceDuration) != nil {
 		llmServiceDuration, ok = convertToUInt(ctx.GetUserAttribute(LLMServiceDuration))
@@ -1608,6 +1732,16 @@ func writeMetric(ctx wrapper.HttpContext, config AIStatisticsConfig, body []byte
 		}
 		config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMServiceDuration), llmServiceDuration)
 		config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMDurationCount), 1)
+	}
+	if usageAvailable {
+		if outputTokens, validOutput := convertToUInt(ctx.GetUserAttribute(tokenusage.CtxKeyOutputToken)); validOutput {
+			if tpot, valid := calculateTPOT(llmServiceDuration, llmFirstTokenDuration, outputTokens); valid && ctx.GetUserAttribute(LLMFirstTokenDuration) != nil {
+				config.ensureCounter(generateMetricName(route, cluster, model, consumer, LLMTPOTDuration))
+				config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMTPOTDuration), tpot)
+				config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMTPOTCount), 1)
+				observeDuration(&config, generateMetricName(route, cluster, model, consumer, LLMTPOTDuration), tpot, tpotBucketBounds)
+			}
+		}
 	}
 }
 

@@ -1,0 +1,152 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: higress-performance
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-mock
+  namespace: higress-performance
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: llm-mock
+  template:
+    metadata:
+      labels:
+        app: llm-mock
+    spec:
+      affinity:
+        podAntiAffinity:
+          # Gateway availability takes precedence over benchmark isolation.
+          # Prefer another node, but never make the gateway's hard spread
+          # constraint unschedulable on the three-node disposable pool.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: higress-gateway
+                namespaceSelector: {}
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: llm-mock
+          image: registry.cn-hangzhou.aliyuncs.com/acs/busybox:v1.29.2
+          command: ["/bin/sh", "-c", "sleep 86400"]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-mock
+  namespace: higress-performance
+spec:
+  selector:
+    app: llm-mock
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-generator
+  namespace: higress-performance
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: load-generator
+  template:
+    metadata:
+      labels:
+        app: load-generator
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: higress-gateway
+                namespaceSelector: {}
+                topologyKey: kubernetes.io/hostname
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: llm-mock
+              namespaceSelector: {}
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: load-generator
+          image: registry.cn-hangzhou.aliyuncs.com/acs/busybox:v1.29.2
+          command: ["/bin/sh", "-c", "sleep 86400"]
+          ports:
+            - name: bench-prom
+              containerPort: 9090
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: llm-mock
+  namespace: higress-performance
+spec:
+  ingressClassName: higress
+  rules:
+    - host: llm-perf.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: llm-mock
+                port:
+                  number: 8080
+---
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: llm-bench-ai-statistics
+  namespace: higress-system
+spec:
+  url: oci://higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/ai-statistics:2.0.2
+  phase: UNSPECIFIED_PHASE
+  priority: 200
+  defaultConfigDisable: true
+  matchRules:
+    - ingress:
+        - higress-performance/llm-mock
+      config:
+        use_default_response_attributes: true

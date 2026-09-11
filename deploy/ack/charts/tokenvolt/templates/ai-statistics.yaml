@@ -1,0 +1,45 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.higress.aiStatistics.enabled }}
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: tokenvolt-ai-statistics
+  namespace: {{ .Values.higress.namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  url: {{ required "higress.aiStatistics.pluginUrl must be an immutable OCI digest URL" .Values.higress.aiStatistics.pluginUrl | quote }}
+  {{- with .Values.higress.aiStatistics.pluginSha256 }}
+  sha256: {{ . | quote }}
+  {{- end }}
+  imagePullPolicy: IfNotPresent
+  {{- with .Values.higress.imagePullSecret }}
+  imagePullSecret: {{ . | quote }}
+  {{- end }}
+  phase: UNSPECIFIED_PHASE
+  priority: 200
+  # The AUTHN policy adds the trusted model header and causes an Envoy route
+  # re-selection. A route-scoped statistics config is not re-instantiated after
+  # that re-selection, so it silently produces ai_log="-". This is a dedicated
+  # TokenVolt gateway; enable the filter globally and constrain it by AI paths.
+  defaultConfigDisable: false
+  defaultConfig:
+    # Production/high-concurrency mode: retain model/usage/timing fields,
+    # but never retain prompts or streamed model output.
+    use_default_response_attributes: true
+    enable_path_suffixes:
+      {{- toYaml .Values.higress.aiStatistics.paths | nindent 6 }}
+{{- end }}

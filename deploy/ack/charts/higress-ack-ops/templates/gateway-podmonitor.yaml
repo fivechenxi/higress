@@ -1,0 +1,42 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if and .Values.monitoring.enabled .Values.monitoring.discoveryObjectsEnabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: higress-gateway
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    arms.prometheus.io/discovery: {{ .Values.monitoring.discoveryAnnotation | quote }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.monitoring.gateway.namespace }}
+  selector:
+    matchLabels:
+      {{- toYaml .Values.monitoring.gateway.selector | nindent 6 }}
+  podMetricsEndpoints:
+    - port: {{ .Values.monitoring.gateway.port }}
+      path: {{ .Values.monitoring.gateway.path }}
+      interval: {{ .Values.monitoring.interval }}
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          action: keep
+          regex: '^(route_upstream_model_consumer_metric_(llm_first_token_duration|llm_stream_duration_count|llm_service_duration|llm_duration_count|llm_failure_count|input_token|output_token|total_token)|ai_endpoint_picker_(decisions_total|fallback_total|missing_signal_total|feedback_total|inflight)|ai_sec_(request_deny|response_deny)|envoy_http_downstream_(rq_active|cx_active|rq|rq_timeout|rq_rx_reset|rq_tx_reset|rq_too_many_premature_resets|cx_delayed_close_timeout|cx_idle_timeout)|envoy_http_rq_reset_after_downstream_response_started|envoy_listener_downstream_(cx_active|cx_overflow|global_cx_overflow|cx_transport_socket_connect_timeout|pre_cx_timeout)|envoy_cluster_(upstream_rq_active|upstream_cx_active|upstream_rq_pending_active|upstream_rq|external_upstream_rq|upstream_cx_connect_fail|upstream_cx_connect_timeout|upstream_cx_overflow|upstream_cx_pool_overflow|upstream_rq_pending_overflow|upstream_rq_retry_overflow|upstream_rq_timeout|upstream_rq_per_try_timeout|upstream_rq_per_try_idle_timeout|upstream_rq_rx_reset|upstream_rq_tx_reset|http2_header_overflow|http2_rx_reset|http2_tx_reset|http2_keepalive_timeout|http2_tx_flush_timeout)|envoy_server_memory_(allocated|heap_size)|envoy_envoy_overload_actions_reset_high_memory_stream_count)$'
+        - regex: '^ai_consumer$'
+          action: labeldrop
+{{- end }}

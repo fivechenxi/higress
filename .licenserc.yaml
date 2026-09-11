@@ -16,6 +16,9 @@ header:
     - '.github/**'
     - '.licenserc.yaml'
     - 'helm/**'
+    # Helm helper templates use Go-template comments, while license-eye treats
+    # generic .tpl files as Smarty templates and would generate invalid syntax.
+    - 'deploy/ack/**/_helpers.tpl'
     - 'envoy/**'
     - 'istio/**'
     - 'go.mod'

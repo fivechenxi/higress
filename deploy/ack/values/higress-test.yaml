@@ -1,0 +1,98 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+global:
+  enableGatewayAPI: false
+  enableRedis: false
+  enablePluginServer: false
+  ingressClass: higress
+  createIngressClass: true
+
+meshConfig:
+  # Keep the billing fields structured and omit prompt/response bodies. The
+  # TokenVolt auth plugin overwrites x-mse-consumer before this value is logged.
+  accessLogFormat: '{"ai_log":"%FILTER_STATE(wasm.ai_log:PLAIN)%","consumer":"%REQ(X-MSE-CONSUMER)%","authority":"%REQ(X-ENVOY-ORIGINAL-HOST?:AUTHORITY)%","bytes_received":"%BYTES_RECEIVED%","bytes_sent":"%BYTES_SENT%","duration":"%DURATION%","method":"%REQ(:METHOD)%","path":"%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%","protocol":"%PROTOCOL%","request_id":"%REQ(X-REQUEST-ID)%","response_code":"%RESPONSE_CODE%","response_flags":"%RESPONSE_FLAGS%","route_name":"%ROUTE_NAME%","start_time":"%START_TIME%","upstream_cluster":"%UPSTREAM_CLUSTER%","upstream_host":"%UPSTREAM_HOST%","upstream_service_time":"%RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)%","upstream_transport_failure_reason":"%UPSTREAM_TRANSPORT_FAILURE_REASON%"}'
+
+gateway:
+  kind: Deployment
+  replicas: 2
+  service:
+    # A single-AZ ACK test cluster cannot satisfy NLB's two-zone vSwitch
+    # requirement. Let ACK CCM create a low-cost Internet-facing CLB for the
+    # public canary entrypoint; switch to NLB when the multi-AZ topology lands.
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/alibaba-cloud-loadbalancer-address-type: internet
+      service.beta.kubernetes.io/alibaba-cloud-loadbalancer-additional-resource-tags: Project=higress,Environment=production,ManagedBy=ack-ccm
+    externalTrafficPolicy: Cluster
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  autoscaling:
+    # Managed by the higress-ack-ops Helm chart so both workloads share one
+    # explicit scaling policy and observability contract.
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 65
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app: higress-gateway
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      # Four replicas can be placed 2/1/1 on the three-node test pool. Keep
+      # the skew hard-bounded so a single node cannot own every gateway Pod.
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app: higress-gateway
+
+controller:
+  replicas: 2
+  automaticHttps:
+    enabled: false
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app: higress-controller
+          topologyKey: kubernetes.io/hostname
+
+pilot:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi

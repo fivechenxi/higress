@@ -1,0 +1,81 @@
+name: TokenVolt ai-statistics release
+
+on:
+  push:
+    tags:
+      - "tokenvolt-ai-statistics-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tokenvolt-ai-statistics-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test-and-publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    env:
+      IMAGE: ghcr.io/fivechenxi/higress-ai-statistics
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.24.4"
+          cache: true
+          cache-dependency-path: plugins/wasm-go/extensions/ai-statistics/go.sum
+      - name: Resolve version
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#tokenvolt-ai-statistics-v}"
+          [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+$ ]]
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+      - name: Test and build Wasm
+        working-directory: plugins/wasm-go/extensions/ai-statistics
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          mkdir -p "${GITHUB_WORKSPACE}/dist/ai-statistics"
+          GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build -trimpath -buildvcs=false -buildmode=c-shared -o "${GITHUB_WORKSPACE}/dist/ai-statistics/main.wasm" .
+          cp ../../../wasm-go/examples/request-block/Dockerfile "${GITHUB_WORKSPACE}/dist/ai-statistics/Dockerfile"
+          cd "${GITHUB_WORKSPACE}/dist/ai-statistics"
+          sha256sum main.wasm > SHA256SUMS
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Publish Wasm OCI image
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: dist/ai-statistics
+          file: dist/ai-statistics/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.release.outputs.version }}
+            ${{ env.IMAGE }}:${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+      - name: Record immutable image reference
+        run: echo "${IMAGE}@${{ steps.image.outputs.digest }}" > dist/ai-statistics/IMAGE_DIGEST.txt
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/ai-statistics/main.wasm \
+            dist/ai-statistics/SHA256SUMS \
+            dist/ai-statistics/IMAGE_DIGEST.txt \
+            --verify-tag \
+            --generate-notes \
+            --title "TokenVolt ai-statistics ${{ steps.release.outputs.version }}"

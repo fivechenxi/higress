@@ -1,0 +1,40 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if and .Values.monitoring.enabled .Values.monitoring.discoveryObjectsEnabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: terway-cilium
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    arms.prometheus.io/discovery: {{ .Values.monitoring.discoveryAnnotation | quote }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.monitoring.terway.namespace }}
+  selector:
+    matchLabels:
+      {{- toYaml .Values.monitoring.terway.selector | nindent 6 }}
+  podMetricsEndpoints:
+    - targetPort: {{ .Values.monitoring.terway.targetPort }}
+      path: {{ .Values.monitoring.terway.path }}
+      interval: {{ .Values.monitoring.interval }}
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          action: keep
+          regex: '^(cilium_bpf_map_pressure|cilium_bpf_map_capacity|cilium_bpf_map_ops_total|cilium_bpf_maps_virtual_memory_max_bytes)$'
+{{- end }}

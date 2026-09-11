@@ -153,6 +153,25 @@ irate(route_upstream_model_consumer_metric_llm_service_duration[2m])
 irate(route_upstream_model_consumer_metric_llm_duration_count[2m])
 ```
 
+本版本还提供以下可按 `ai_route`、`ai_cluster`、`ai_model` 聚合的指标：
+
+| 指标后缀 | 类型 | 含义 |
+| --- | --- | --- |
+| `llm_request_count` | Counter | 已结束或中断的 LLM 请求数；错误率和 RPM 的分母 |
+| `llm_failure_count` / `llm_aborted_count` | Counter | 失败请求 / 未正常完成的流式请求数 |
+| `llm_inflight_request` | Gauge | 当前进行中的 LLM 请求数 |
+| `llm_tpot_duration` / `llm_tpot_count` | Counter | 请求级平均 TPOT（毫秒）的累计值 / 样本数 |
+| `llm_first_token_duration_bucket_le_*` | Counter | TTFT 固定累计桶 |
+| `llm_tpot_duration_bucket_le_*` | Counter | TPOT 固定累计桶 |
+| `cache_hit_token` | Counter | 从供应商缓存读取的输入 token 数 |
+| `cache_reported_request_count` | Counter | 供应商明确返回缓存明细的请求数 |
+| `cache_hit_request_count` | Counter | 缓存读取 token 大于零的请求数 |
+
+TPOT 按 `(请求总时长 - TTFT) / (输出 token - 1)` 计算，只统计至少
+两个输出 token 的流式请求。缓存命中 token 兼容 OpenAI
+`cached_tokens`、Anthropic `cache_read_input_tokens` 和 Gemini
+`cached_content_token_count`；Anthropic cache creation 不算命中。
+
 #### 日志
 
 ```json

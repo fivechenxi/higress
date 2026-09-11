@@ -1,0 +1,86 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.controlPlane.serviceAccountName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+  annotations:
+    pod-identity.alibabacloud.com/role-name: {{ required "controlPlane.rrsaRoleName must be set" .Values.controlPlane.rrsaRoleName | quote }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tokenvolt-policy-publisher
+  namespace: {{ .Values.higress.namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["extensions.higress.io"]
+    resources: ["wasmplugins"]
+    verbs: ["get", "create", "update"]
+  {{- if .Values.higress.gatewayConfigPublisher.enabled }}
+  - apiGroups: ["networking.higress.io"]
+    resources: ["mcpbridges"]
+    verbs: ["get", "create", "update"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tokenvolt-policy-publisher
+  namespace: {{ .Values.higress.namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.controlPlane.serviceAccountName }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tokenvolt-policy-publisher
+{{- if .Values.higress.gatewayConfigPublisher.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tokenvolt-gateway-route-publisher
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "create", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tokenvolt-gateway-route-publisher
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.controlPlane.serviceAccountName }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tokenvolt-gateway-route-publisher
+{{- end }}
