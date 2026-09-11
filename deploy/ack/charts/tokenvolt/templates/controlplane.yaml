@@ -74,6 +74,15 @@ spec:
             - {name: HIGRESS_POLICY_PLUGIN_SHA256, value: {{ .Values.higress.policyPluginSha256 | quote }}}
             - {name: HIGRESS_POLICY_IMAGE_PULL_SECRET, value: {{ .Values.higress.imagePullSecret | quote }}}
             - {name: HIGRESS_POLICY_INGRESS, value: {{ .Values.higress.policyIngress | quote }}}
+            {{- if .Values.higress.gatewayConfigPublisher.enabled }}
+            - {name: HIGRESS_ROUTE_NAMESPACE, value: {{ .Release.Namespace | quote }}}
+            - {name: HIGRESS_MODEL_HOST, value: {{ .Values.modelApi.host | quote }}}
+            - {name: HIGRESS_PUBLIC_HOST, value: {{ .Values.publicEntry.host | quote }}}
+            - {name: HIGRESS_AI_PROXY_NAME, value: {{ .Values.higress.gatewayConfigPublisher.aiProxyName | quote }}}
+            - {name: HIGRESS_AI_PROXY_PLUGIN_URL, value: {{ required "modelRouting.aiProxy.url must be set for the gateway config publisher" .Values.modelRouting.aiProxy.url | quote }}}
+            - {name: HIGRESS_AI_PROXY_PLUGIN_SHA256, value: {{ required "modelRouting.aiProxy.sha256 must be set for the gateway config publisher" .Values.modelRouting.aiProxy.sha256 | quote }}}
+            - {name: HIGRESS_AI_PROXY_IMAGE_PULL_SECRET, value: {{ .Values.higress.imagePullSecret | quote }}}
+            {{- end }}
           readinessProbe:
             httpGet: {path: /readyz, port: http}
             periodSeconds: 5

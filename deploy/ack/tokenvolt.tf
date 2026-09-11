@@ -364,6 +364,9 @@ resource "helm_release" "tokenvolt" {
         policyPluginSha256 = var.tokenvolt_policy_plugin_sha256
         imagePullSecret    = kubernetes_secret_v1.tokenvolt_registry_higress[0].metadata[0].name
         policyIngress      = "${var.tokenvolt_namespace}/tokenvolt-model-api"
+        gatewayConfigPublisher = {
+          enabled = var.tokenvolt_gateway_config_publisher_enabled
+        }
         aiStatistics = {
           enabled      = true
           pluginUrl    = var.tokenvolt_ai_statistics_plugin_url

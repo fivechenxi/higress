@@ -157,6 +157,12 @@ variable "tokenvolt_real_model_backends" {
   default     = false
 }
 
+variable "tokenvolt_gateway_config_publisher_enabled" {
+  description = "Allow TokenVolt admin desired state to reconcile its labeled Higress routes and AI proxy configuration."
+  type        = bool
+  default     = false
+}
+
 variable "tokenvolt_ghcr_username" {
   description = "GitHub user used by ACK to pull private TokenVolt release images."
   type        = string

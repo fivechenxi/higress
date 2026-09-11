@@ -35,6 +35,9 @@ higress:
   imagePullSecret: ""
   # The TokenVolt adapter validates and publishes a namespace/name reference.
   policyIngress: tokenvolt-system/tokenvolt-model-api
+  gatewayConfigPublisher:
+    enabled: false
+    aiProxyName: tokenvolt-ai-proxy-managed
   aiStatistics:
     enabled: true
     # Use the independently built fork: stock 2.0.2 does not contain all of
