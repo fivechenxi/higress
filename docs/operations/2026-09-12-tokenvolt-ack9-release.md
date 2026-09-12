@@ -19,7 +19,7 @@
 
 本版本保留独立已知 input/output 聚合，修复 Higress 启动覆盖旧固定目录，并增加搜索下拉框。未修改或更新 Higress ai-statistics 插件；缺少最终 usage 的中断请求精确 Token 仍然未知。
 
-20 次中断请求于北京时间 16:26:52–16:27:46 执行，无重试，均收到 HTTP 200 后主动断开。SLS 收齐 20 条，无重复，均无最终 usage。最终三侧汇总对账记录另行补充。
+20 次中断请求于北京时间 16:26:52–16:27:46 执行，无重试，均收到 HTTP 200 后主动断开。SLS 收齐 20 条，无重复，均无最终 usage。最终千帆官方 API 汇总增量为 20 次、输入 50,676、输出 587、共 51,263 Token，cache 17,152 Token、4 次命中。TokenVolt 已收齐 20 次中断与 20 条未知用量，但未计入上述 Token，说明无最终 usage 的中断计量尚未闭环。详见控制面 docs/operations/2026-09-12-ack9-release-reconciliation.md。
 
 ## 回滚
 
