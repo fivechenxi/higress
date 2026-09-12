@@ -150,7 +150,7 @@ variable "tokenvolt_namespace" {
 variable "tokenvolt_control_plane_image" {
   description = "Immutable VPC-reachable TokenVolt control-plane image."
   type        = string
-  default     = "ghcr.io/tokenvolt-ai/tokenvolt-control-plane@sha256:310a01295dd3ed6d0b8a3c71f60a9fc0f2bbf6355033b50e8664c82011095d83"
+  default     = "ghcr.io/tokenvolt-ai/tokenvolt-control-plane@sha256:0f993657cf19dcb91274cb4038200ea1cd52cc4a1df71648f804a535fc807a99"
 }
 
 variable "tokenvolt_mock_image" {
@@ -234,15 +234,15 @@ variable "tokenvolt_policy_plugin_sha256" {
 }
 
 variable "tokenvolt_ai_statistics_plugin_url" {
-  description = "Immutable OCI digest URL for this fork's ai-statistics Wasm plugin."
+  description = "Immutable OCI digest or checksum-addressed HTTPS URL for this fork's ai-statistics Wasm plugin."
   type        = string
-  default     = ""
+  default     = "https://tokenvolt-plugins-1150088752341921-cn-beijing.oss-cn-beijing.aliyuncs.com/ai-statistics/sha256/54ad15680a864eb0f02e23ec5196cb14759862002f4cab9c54b690638e1d1d93.wasm"
 }
 
 variable "tokenvolt_ai_statistics_plugin_sha256" {
-  description = "Optional checksum expected by Higress. For a multi-platform OCI index this is the selected linux/amd64 image manifest digest, without the sha256: prefix."
+  description = "Checksum expected by Higress: Wasm file SHA-256 for HTTPS, selected image manifest SHA-256 for OCI."
   type        = string
-  default     = ""
+  default     = "54ad15680a864eb0f02e23ec5196cb14759862002f4cab9c54b690638e1d1d93"
 
   validation {
     condition     = var.tokenvolt_ai_statistics_plugin_sha256 == "" || can(regex("^[0-9a-f]{64}$", var.tokenvolt_ai_statistics_plugin_sha256))

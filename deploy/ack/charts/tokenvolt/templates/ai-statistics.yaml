@@ -21,7 +21,7 @@ metadata:
   labels:
     {{- include "tokenvolt.labels" . | nindent 4 }}
 spec:
-  url: {{ required "higress.aiStatistics.pluginUrl must be an immutable OCI digest URL" .Values.higress.aiStatistics.pluginUrl | quote }}
+  url: {{ required "higress.aiStatistics.pluginUrl must be an immutable digest URL" .Values.higress.aiStatistics.pluginUrl | quote }}
   {{- with .Values.higress.aiStatistics.pluginSha256 }}
   sha256: {{ . | quote }}
   {{- end }}
