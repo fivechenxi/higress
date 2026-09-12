@@ -94,6 +94,7 @@ The command removes all the Kubernetes components associated with the chart and 
 | gateway.autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
 | gateway.containerSecurityContext | string | `nil` |  |
 | gateway.env | object | `{}` | Pod environment variables |
+| gateway.externallyManagedReplicas | bool | `false` |  |
 | gateway.hostNetwork | bool | `false` |  |
 | gateway.httpPort | int | `80` |  |
 | gateway.httpsPort | int | `443` |  |
@@ -102,6 +103,7 @@ The command removes all the Kubernetes components associated with the chart and 
 | gateway.imagePullPolicy | string | `""` | Specify image pull policy if default behavior isn't desired. Default behavior: latest images will be Always else IfNotPresent. |
 | gateway.kind | string | `"Deployment"` | Use a `DaemonSet` or `Deployment` |
 | gateway.labels | object | `{}` | Labels to apply to all resources |
+| gateway.lifecycle | object | `{}` |  |
 | gateway.metrics.enabled | bool | `false` | If true, create PodMonitor or VMPodScrape for gateway |
 | gateway.metrics.honorLabels | bool | `false` |  |
 | gateway.metrics.interval | string | `""` |  |
@@ -113,6 +115,7 @@ The command removes all the Kubernetes components associated with the chart and 
 | gateway.metrics.relabelConfigs | list | `[]` |  |
 | gateway.metrics.relabelings | list | `[]` |  |
 | gateway.metrics.scrapeTimeout | string | `""` |  |
+| gateway.minReadySeconds | int | `0` |  |
 | gateway.name | string | `"higress-gateway"` |  |
 | gateway.networkGateway | string | `""` | If specified, the gateway will act as a network gateway for the given network. |
 | gateway.nodeSelector | object | `{}` |  |
@@ -154,6 +157,7 @@ The command removes all the Kubernetes components associated with the chart and 
 | gateway.serviceAccount.create | bool | `true` | If set, a service account will be created. Otherwise, the default is used |
 | gateway.serviceAccount.name | string | `""` | The name of the service account to use. If not set, the release name is used |
 | gateway.tag | string | `""` |  |
+| gateway.terminationGracePeriodSeconds | string | `nil` |  |
 | gateway.tolerations | list | `[]` |  |
 | gateway.topologySpreadConstraints | list | `[]` |  |
 | gateway.unprivilegedPortSupported | string | `nil` |  |

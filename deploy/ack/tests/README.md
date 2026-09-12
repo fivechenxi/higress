@@ -46,7 +46,7 @@ pilot-agent logged `Graceful termination period is 5s`. After the fix, both
 40-second scale-down requests and both 60-second rolling-upgrade requests
 completed and emitted exactly one complete usage log each. The agent explicitly
 waited for two active connections and exited only after they reached zero.
-Sanitized structured evidence is in `drain-evidence-20260912.json`. No Qianfan
+Sanitized structured evidence is in `../evidence/drain-evidence-20260912.json`. No Qianfan
 usage is involved in this fixture test.
 
 ## First production migration
