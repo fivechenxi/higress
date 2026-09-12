@@ -150,7 +150,7 @@ variable "tokenvolt_namespace" {
 variable "tokenvolt_control_plane_image" {
   description = "Immutable VPC-reachable TokenVolt control-plane image."
   type        = string
-  default     = "ghcr.io/tokenvolt-ai/tokenvolt-control-plane@sha256:805ae796aabac0107dcb18d4aab25972adbb3ab4fafc47a8e86b60e19d6abdee"
+  default     = "ghcr.io/tokenvolt-ai/tokenvolt-control-plane@sha256:aa9b70c7fe9f742bdaed42813653a83b876e4df110dd107c54f6a6b34a362c3b"
 }
 
 variable "tokenvolt_mock_image" {
