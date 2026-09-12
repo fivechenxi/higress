@@ -68,7 +68,8 @@ resource "alicloud_cs_autoscaling_config" "this" {
   skip_nodes_with_system_pods   = true
   skip_nodes_with_local_storage = false
   daemonset_eviction_for_nodes  = false
-  max_graceful_termination_sec  = 600
+  # Must exceed the gateway Pod grace (660s), including endpoint propagation.
+  max_graceful_termination_sec  = 900
   min_replica_count             = 0
   recycle_node_deletion_enabled = false
   scale_up_from_zero            = true

@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: drain-fixture
+  namespace: higress-drain-test
+  labels:
+    app: drain-fixture
+spec:
+  containers:
+  - name: fixture
+    image: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/gateway:2.2.4
+    command:
+    - /bin/sh
+    - -c
+    - while [ ! -x /tmp/drain-fixture ]; do sleep 1; done; exec /tmp/drain-fixture
+    ports:
+    - containerPort: 8080
+    resources:
+      requests:
+        cpu: 20m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drain-fixture
+  namespace: higress-drain-test
+spec:
+  selector:
+    app: drain-fixture
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: drain-fixture
+  namespace: higress-drain-test
+spec:
+  ingressClassName: higress-drain-test
+  rules:
+  - host: drain.test
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: drain-fixture
+            port:
+              number: 8080
+---
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: drain-ai-statistics
+  namespace: higress-drain-test
+spec:
+  defaultConfig:
+    enable_path_suffixes:
+    - /v1/chat/completions
+    - /v1/responses
+    - /v1/messages
+    use_default_response_attributes: true
+  defaultConfigDisable: false
+  imagePullPolicy: IfNotPresent
+  phase: UNSPECIFIED_PHASE
+  priority: 200
+  sha256: 54ad15680a864eb0f02e23ec5196cb14759862002f4cab9c54b690638e1d1d93
+  url: https://tokenvolt-plugins-1150088752341921-cn-beijing.oss-cn-beijing.aliyuncs.com/ai-statistics/sha256/54ad15680a864eb0f02e23ec5196cb14759862002f4cab9c54b690638e1d1d93.wasm
