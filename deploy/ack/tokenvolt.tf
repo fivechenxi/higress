@@ -82,6 +82,7 @@ resource "alicloud_log_store_index" "tokenvolt" {
       "upstream_cluster"                = "text"
       "ai_log.model"                    = "text"
       "response_code"                   = "long"
+      "response_flags"                  = "text"
       "ai_log.input_token"              = "long"
       "ai_log.output_token"             = "long"
       "ai_log.total_token"              = "long"
