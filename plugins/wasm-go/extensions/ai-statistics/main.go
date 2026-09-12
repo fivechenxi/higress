@@ -776,6 +776,12 @@ func onHttpRequestBody(ctx wrapper.HttpContext, config AIStatisticsConfig, body 
 		}
 	}
 	ctx.SetContext(tokenusage.CtxKeyRequestModel, requestModel)
+	if requestModel != "UNKNOWN" && requestModel != "" && !config.disableOpenaiUsage {
+		ctx.SetUserAttribute(requestedModel, requestModel)
+		ctx.SetUserAttribute(tokenusage.CtxKeyModel, requestModel)
+		ctx.SetUserAttribute(responseCompleted, false)
+		setUsageStatus(ctx)
+	}
 	setSpanAttribute(ArmsRequestModel, requestModel)
 
 	// Track LLM request concurrency with the same route/upstream/model dimensions
@@ -833,8 +839,18 @@ func onHttpResponseHeaders(ctx wrapper.HttpContext, config AIStatisticsConfig) t
 		ctx.BufferResponseBody()
 	}
 
+	// Retain a provider request ID even when its response body never arrives.
+	if !config.disableOpenaiUsage {
+		for _, header := range []string{"x-bce-request-id", "x-request-id", "request-id"} {
+			if id, _ := proxywasm.GetHttpResponseHeader(header); id != "" {
+				ctx.SetUserAttribute("upstream_request_id", id)
+				break
+			}
+		}
+	}
 	// Set user defined log & span attributes.
 	setAttributeBySource(ctx, config, ResponseHeader, nil)
+	_ = ctx.WriteUserAttributeToLogWithKey(wrapper.AILogKey)
 
 	return types.ActionContinue
 }
@@ -871,14 +887,6 @@ func onHttpStreamingBody(ctx wrapper.HttpContext, config AIStatisticsConfig, dat
 	}
 
 	ctx.SetUserAttribute(ResponseType, "stream")
-	if chatID := wrapper.GetValueFromBody(data, []string{
-		"id",
-		"response.id",
-		"responseId", // Gemini generateContent
-		"message.id", // anthropic/claude messages
-	}); chatID != nil {
-		ctx.SetUserAttribute(ChatID, chatID.String())
-	}
 
 	// Get requestStartTime from http context
 	requestStartTime, ok := ctx.GetContext(StatisticsRequestStartTime).(int64)
@@ -909,6 +917,7 @@ func onHttpStreamingBody(ctx wrapper.HttpContext, config AIStatisticsConfig, dat
 		// Set information about this request
 		if !config.disableOpenaiUsage {
 			processTokenUsageEvent(ctx, event)
+			captureResponseMetadata(ctx, event)
 		}
 		// Track streaming errors across events — SSE failures often appear as
 		// data: {"error":{...}} before data: [DONE], so the last chunk alone is
@@ -917,7 +926,13 @@ func onHttpStreamingBody(ctx wrapper.HttpContext, config AIStatisticsConfig, dat
 		// regardless of how many error events matched.
 		if !ctx.GetBoolContext("hasStreamError", false) && isErrorResponse(event) {
 			ctx.SetContext("hasStreamError", true)
+			ctx.SetUserAttribute("response_error", true)
 		}
+	}
+
+	if !config.disableOpenaiUsage {
+		setUsageStatus(ctx)
+		_ = ctx.WriteUserAttributeToLogWithKey(wrapper.AILogKey)
 	}
 
 	// If the end of the stream is reached, record metrics/logs/spans.
@@ -1007,7 +1022,13 @@ func processTokenUsageEvent(ctx wrapper.HttpContext, event []byte) {
 	prevInputDetails, _ := ctx.GetContext(tokenusage.CtxKeyInputTokenDetails).(map[string]int64)
 	prevOutputDetails, _ := ctx.GetContext(tokenusage.CtxKeyOutputTokenDetails).(map[string]int64)
 
+	previousInput := ctx.GetUserAttribute(tokenusage.CtxKeyInputToken)
+	previousOutput := ctx.GetUserAttribute(tokenusage.CtxKeyOutputToken)
+	previousTotal := ctx.GetUserAttribute(tokenusage.CtxKeyTotalToken)
 	usage := getTokenUsage(ctx, event)
+	inputChanged := restoreScalar(ctx, tokenusage.CtxKeyInputToken, previousInput, event, inputScalarPaths)
+	outputChanged := restoreScalar(ctx, tokenusage.CtxKeyOutputToken, previousOutput, event, outputScalarPaths)
+	totalChanged := restoreScalar(ctx, tokenusage.CtxKeyTotalToken, previousTotal, event, totalScalarPaths)
 
 	inputDetails := prevInputDetails
 	if wrapper.GetValueFromBody(event, inputTokenDetailsProbePaths) != nil {
@@ -1032,18 +1053,31 @@ func processTokenUsageEvent(ctx wrapper.HttpContext, event []byte) {
 		ctx.SetUserAttribute(tokenusage.CtxKeyOutputTokenDetails, outputDetails)
 	}
 
-	if usage.TotalToken > 0 {
-		// Set span attributes for ARMS. Repeated writes across multiple usage
-		// events are per-key last-write-wins, so the final complete usage event
-		// determines the span (Design #4249 output consistency).
-		setSpanAttribute(ArmsTotalToken, usage.TotalToken)
-		setSpanAttribute(ArmsModelName, usage.Model)
-		setSpanAttribute(ArmsInputToken, usage.InputToken)
-		setSpanAttribute(ArmsOutputToken, usage.OutputToken)
-
-		// Write once
-		_ = ctx.WriteUserAttributeToLogWithKey(wrapper.AILogKey)
+	if !totalChanged && (inputChanged || outputChanged) {
+		input, inOK := ctx.GetUserAttribute(tokenusage.CtxKeyInputToken).(int64)
+		output, outOK := ctx.GetUserAttribute(tokenusage.CtxKeyOutputToken).(int64)
+		if inOK && outOK {
+			total := input + output
+			for _, key := range []string{tokenusage.InputTokenDetailsKeyAnthropicMessagesUsageCacheCreationInputTokens, tokenusage.InputTokenDetailsKeyAnthropicMessagesUsageCacheReadInputTokens} {
+				total += inputDetails[key]
+			}
+			ctx.SetUserAttribute(tokenusage.CtxKeyTotalToken, total)
+		} else {
+			delete(ctx.GetUserAttributeMap(), tokenusage.CtxKeyTotalToken)
+		}
 	}
+	setUsageStatus(ctx)
+
+	for field, span := range map[string]string{tokenusage.CtxKeyInputToken: ArmsInputToken, tokenusage.CtxKeyOutputToken: ArmsOutputToken, tokenusage.CtxKeyTotalToken: ArmsTotalToken} {
+		if v := ctx.GetUserAttribute(field); v != nil {
+			setSpanAttribute(span, v)
+		}
+	}
+	if model := ctx.GetUserAttribute(tokenusage.CtxKeyModel); model != nil {
+		setSpanAttribute(ArmsModelName, model)
+	}
+	_ = ctx.WriteUserAttributeToLogWithKey(wrapper.AILogKey)
+
 }
 
 func onHttpResponseBody(ctx wrapper.HttpContext, config AIStatisticsConfig, body []byte) types.Action {
@@ -1068,23 +1102,11 @@ func onHttpResponseBody(ctx wrapper.HttpContext, config AIStatisticsConfig, body
 		ctx.SetUserAttribute(ChatID, chatID.String())
 	}
 
-	// Set information about this request
 	if !config.disableOpenaiUsage {
-		if usage := tokenusage.GetTokenUsage(ctx, body); usage.TotalToken > 0 {
-			// Set span attributes for ARMS.
-			setSpanAttribute(ArmsModelName, usage.Model)
-			setSpanAttribute(ArmsInputToken, usage.InputToken)
-			setSpanAttribute(ArmsOutputToken, usage.OutputToken)
-			setSpanAttribute(ArmsTotalToken, usage.TotalToken)
-
-			// Set token details to context for later use in attributes
-			if len(usage.InputTokenDetails) > 0 {
-				ctx.SetContext(tokenusage.CtxKeyInputTokenDetails, usage.InputTokenDetails)
-			}
-			if len(usage.OutputTokenDetails) > 0 {
-				ctx.SetContext(tokenusage.CtxKeyOutputTokenDetails, usage.OutputTokenDetails)
-			}
-		}
+		processTokenUsageEvent(ctx, body)
+		captureResponseMetadata(ctx, body)
+		ctx.SetUserAttribute(responseCompleted, !isErrorResponse(body))
+		ctx.SetUserAttribute("response_error", isErrorResponse(body))
 	}
 
 	// Set user defined log & span attributes.
@@ -1638,17 +1660,21 @@ func onHttpStreamDone(ctx wrapper.HttpContext, config AIStatisticsConfig) {
 		ctx.SetContext(StatisticsInflightAcquired, false)
 	}
 
-	// A stream that never reached writeMetric was cancelled or reset. Preserve
-	// it in both the error-rate denominator and an explicit abort counter.
-	if ctx.GetBoolContext(SkipProcessing, false) || ctx.GetBoolContext(StatisticsMetricsRecorded, false) {
+	if ctx.GetBoolContext(SkipProcessing, false) {
 		return
 	}
-	if route, cluster, model, consumer, ok := metricDimensions(ctx); ok {
-		config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMRequestCount), 1)
-		config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMFailureCount), 1)
-		config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMAbortedCount), 1)
-		ctx.SetContext(StatisticsMetricsRecorded, true)
+	if !config.disableOpenaiUsage {
+		setUsageStatus(ctx)
+		setAttributeBySource(ctx, config, ResponseStreamingBody, nil)
+		_ = ctx.WriteUserAttributeToLogWithKey(wrapper.AILogKey)
 	}
+	if ctx.GetBoolContext(StatisticsMetricsRecorded, false) {
+		return
+	}
+	completed, _ := ctx.GetUserAttribute(responseCompleted).(bool)
+	ctx.SetContext(interruptedContext, !completed)
+	writeMetric(ctx, config, nil)
+
 }
 
 func writeMetric(ctx wrapper.HttpContext, config AIStatisticsConfig, body []byte) {
@@ -1670,16 +1696,19 @@ func writeMetric(ctx wrapper.HttpContext, config AIStatisticsConfig, body []byte
 	// llm_failure_count is intentionally incremented regardless of disableOpenaiUsage,
 	// because error responses carry no usage info and operators still need the failure
 	// signal even when usage tracking is off.
-	if isErrorResponse(body) || ctx.GetBoolContext("hasStreamError", false) {
+	if isErrorResponse(body) || ctx.GetBoolContext("hasStreamError", false) || ctx.GetBoolContext(interruptedContext, false) {
 		config.incrementCounter(failureMetric, 1)
 	}
 
+	if ctx.GetBoolContext(interruptedContext, false) {
+		config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMAbortedCount), 1)
+	}
 	usageAvailable := !config.disableOpenaiUsage &&
 		ctx.GetUserAttribute(tokenusage.CtxKeyModel) != nil &&
 		ctx.GetUserAttribute(tokenusage.CtxKeyInputToken) != nil &&
 		ctx.GetUserAttribute(tokenusage.CtxKeyOutputToken) != nil &&
 		ctx.GetUserAttribute(tokenusage.CtxKeyTotalToken) != nil
-	if usageAvailable {
+	if !config.disableOpenaiUsage {
 		if responseModel, validModel := ctx.GetUserAttribute(tokenusage.CtxKeyModel).(string); validModel {
 			model = responseModel
 		}
