@@ -12,9 +12,9 @@ sources:
 dependencies:
 - name: higress-core
   repository: "file://../core"
-  version: 2.2.4
+  version: 2.2.4-tokenvolt.1
 - name: higress-console
   repository: "https://higress.io/helm-charts/"
   version: 2.2.4
 type: application
-version: 2.2.4
+version: 2.2.4-tokenvolt.1
