@@ -39,6 +39,13 @@ def gateway(objects):
 
 
 class GatewayPolicyTest(unittest.TestCase):
+    def test_parent_chart_and_lock_pin_current_core(self):
+        core = yaml.safe_load((ROOT / 'helm/core/Chart.yaml').read_text())['version']
+        for name in ['Chart.yaml', 'Chart.lock']:
+            wrapper = yaml.safe_load((ROOT / 'helm/higress' / name).read_text())
+            dependency = next(d for d in wrapper['dependencies'] if d['name'] == 'higress-core')
+            self.assertEqual(dependency['version'], core)
+
     def test_ack_does_not_reset_hpa_and_waits_for_new_capacity(self):
         deployment = gateway(render('helm/core', '-f', str(ROOT / 'deploy/ack/values/higress-test.yaml')))
         spec = deployment['spec']

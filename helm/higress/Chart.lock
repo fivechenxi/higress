@@ -1,9 +1,9 @@
 dependencies:
 - name: higress-core
   repository: file://../core
-  version: 2.2.4
+  version: 2.2.4-tokenvolt.1
 - name: higress-console
   repository: https://higress.io/helm-charts/
   version: 2.2.4
-digest: sha256:1da225950cee654744e67dd44c62e75640aeb9c981210ddad5c752de5d5fdc91
-generated: "2026-08-14T07:22:21.771165657+08:00"
+digest: sha256:a1fe7874a8a24cf21409b3397195465b48b615c2c92aa7fe4e0950ece03a4a41
+generated: "2026-09-12T18:55:27.4126+08:00"
