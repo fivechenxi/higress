@@ -1,0 +1,72 @@
+{
+  "checkedAt": "2026-09-12T10:33:18.790170+08:00",
+  "nodes": [
+    {
+      "name": "cn-beijing.192.168.10.73",
+      "instanceType": "ecs.u1-c1m2.xlarge",
+      "ready": "True"
+    },
+    {
+      "name": "cn-beijing.192.168.10.94",
+      "instanceType": "ecs.u1-c1m2.xlarge",
+      "ready": "True"
+    }
+  ],
+  "deployments": [
+    {
+      "namespace": "higress-system",
+      "name": "higress-controller",
+      "desired": 2,
+      "ready": 2,
+      "images": [
+        "higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/higress:2.2.4",
+        "higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/pilot:2.2.4"
+      ]
+    },
+    {
+      "namespace": "higress-system",
+      "name": "higress-gateway",
+      "desired": 3,
+      "ready": 3,
+      "images": [
+        "higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/gateway:2.2.4"
+      ]
+    },
+    {
+      "namespace": "higress-system",
+      "name": "higress-metrics-collector",
+      "desired": 1,
+      "ready": 1,
+      "images": [
+        "registry.cn-hangzhou.aliyuncs.com/marksugar-k8s/prometheus:v2.26.0"
+      ]
+    },
+    {
+      "namespace": "higress-system",
+      "name": "higress-prometheus-adapter",
+      "desired": 1,
+      "ready": 1,
+      "images": [
+        "m.daocloud.io/registry.k8s.io/prometheus-adapter/prometheus-adapter:v0.12.0@sha256:932eae60e2bcf9c4660d6442da066ef1a79b4ea7cc232c61c7303069216ca006"
+      ]
+    },
+    {
+      "namespace": "tokenvolt-system",
+      "name": "tokenvolt-control-plane",
+      "desired": 1,
+      "ready": 1,
+      "images": [
+        "ghcr.io/tokenvolt-ai/tokenvolt-control-plane@sha256:dfe14c395e7c8dc4a60c08ab3d8196735f099fed5898d4aab71650ce0cb12e7b"
+      ]
+    },
+    {
+      "namespace": "tokenvolt-system",
+      "name": "tokenvolt-model-mock",
+      "desired": 1,
+      "ready": 1,
+      "images": [
+        "ghcr.io/tokenvolt-ai/openai-fixture@sha256:693eb67b93059f08c67d7807d3f448d1f8e016f8c5ce220db2d8c69062fe6cda"
+      ]
+    }
+  ]
+}

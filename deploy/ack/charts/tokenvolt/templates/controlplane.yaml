@@ -40,7 +40,12 @@ spec:
     matchLabels:
       {{- include "tokenvolt.selectorLabels" . | nindent 6 }}
   strategy:
+    {{- if .Values.higress.gatewayConfigPublisher.enabled }}
+    # Do not overlap a legacy publisher with the serialized publication worker.
+    type: Recreate
+    {{- else }}
     rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+    {{- end }}
   template:
     metadata:
       labels:

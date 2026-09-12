@@ -2651,6 +2651,7 @@ func TestStreamingIntactUsageEventParity(t *testing.T) {
 			// event is exactly the bytes the raw-chunk path used to see, and an
 			// event without details leaves empty detail maps in the log.
 			require.Equal(t, map[string]interface{}{
+				"requested_model": "gpt-4", "response_completed": false, "usage_status": "complete",
 				"api":                  "-",
 				"chat_round":           float64(1),
 				"response_type":        "stream",

@@ -1,0 +1,7 @@
+{
+  "runningPlan": "No changes. Your infrastructure matches the configuration.",
+  "stoppedPlanExecuted": false,
+  "stoppedPlanKeepsPublicEdgeAndPluginCredentials": true,
+  "originalRandomSecretsUnchanged": true,
+  "stateSerial": 138
+}

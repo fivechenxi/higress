@@ -34,6 +34,16 @@ rules:
     resources: ["wasmplugins"]
     verbs: ["get", "create", "update"]
   {{- if .Values.higress.gatewayConfigPublisher.enabled }}
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    # ACK authorizes the upgraded exec connection with create as well as get.
+    verbs: ["get", "create"]
+  - apiGroups: ["networking.istio.io"]
+    resources: ["envoyfilters"]
+    verbs: ["get", "create", "update", "delete"]
   - apiGroups: ["networking.higress.io"]
     resources: ["mcpbridges"]
     verbs: ["get", "create", "update"]
