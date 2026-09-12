@@ -331,16 +331,15 @@ resource "kubernetes_secret_v1" "tokenvolt_registry" {
 # Higress converts WasmPlugin CRs only from the controller namespace. Keep a
 # registry credential there for private TokenVolt plugin images.
 resource "kubernetes_secret_v1" "tokenvolt_registry_higress" {
-  count = var.tokenvolt_enabled && var.lifecycle_mode == "running" ? 1 : 0
+  count = var.tokenvolt_enabled ? 1 : 0
 
   metadata {
     name      = "tokenvolt-ghcr"
-    namespace = "higress-system"
+    namespace = kubernetes_namespace_v1.higress.metadata[0].name
   }
   type = kubernetes_secret_v1.tokenvolt_registry[0].type
   data = kubernetes_secret_v1.tokenvolt_registry[0].data
 
-  depends_on = [helm_release.higress]
 }
 
 resource "helm_release" "tokenvolt" {
@@ -404,7 +403,7 @@ resource "helm_release" "tokenvolt" {
       }
       publicEntry = {
         host          = var.tokenvolt_public_host
-        tlsSecretName = var.tokenvolt_public_tls_enabled ? kubernetes_secret_v1.tokenvolt_public_tls[0].metadata[0].name : ""
+        tlsSecretName = var.tokenvolt_public_tls_enabled && !local.shared_public_edge ? kubernetes_secret_v1.tokenvolt_public_tls[0].metadata[0].name : ""
       }
       modelRouting = {
         useRealBackends = var.tokenvolt_real_model_backends

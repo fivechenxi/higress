@@ -1,0 +1,44 @@
+[
+  {
+    "address": "data.kubernetes_config_map_v1.terway",
+    "actions": [
+      "read"
+    ]
+  },
+  {
+    "address": "alicloud_cs_kubernetes_node_pool.gateway",
+    "actions": [
+      "update"
+    ]
+  },
+  {
+    "address": "helm_release.higress[0]",
+    "actions": [
+      "delete"
+    ]
+  },
+  {
+    "address": "helm_release.higress_ack_ops[0]",
+    "actions": [
+      "delete"
+    ]
+  },
+  {
+    "address": "helm_release.tokenvolt[0]",
+    "actions": [
+      "delete"
+    ]
+  },
+  {
+    "address": "kubernetes_annotations.terway_cilium_metrics_rollout",
+    "actions": [
+      "update"
+    ]
+  },
+  {
+    "address": "kubernetes_config_map_v1_data.terway_cilium_metrics",
+    "actions": [
+      "update"
+    ]
+  }
+]

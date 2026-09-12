@@ -20,6 +20,13 @@ limitations under the License.
 Run all commands from `deploy/ack`. Keep the local `terraform.tfvars` and
 OpenTofu state; both contain environment-specific or sensitive data.
 
+## 共享公网入口
+
+如果当前 CLB 同时承载 `www.tokenvolt.net` 和 `newapi.tokenvolt.net`，必须保留
+`ecs_public_sites` 配置以及最新 state。参见 [共享入口部署与纳管说明](../../deploy/ack/SHARED_PUBLIC_EDGE.md)。
+共享模式由 Terraform 管理监听与域名规则，ACK CCM 只管理 Higress 后端成员。
+不要恢复旧的 `force-override-listeners=true` 配置；那会覆盖原 ECS 的在线入口。
+
 ## Start
 
 The first phase restores one worker, and the second enables autoscaling and
