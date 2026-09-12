@@ -1,0 +1,63 @@
+global:
+  enableGatewayAPI: false
+  enableRedis: false
+  enablePluginServer: false
+  ingressClass: higress-drain-test
+  createIngressClass: true
+  watchNamespace: higress-drain-test
+  hub: higress-registry.cn-hangzhou.cr.aliyuncs.com
+gateway:
+  replicas: 2
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: '1'
+      memory: 1Gi
+  terminationGracePeriodSeconds: 660
+  lifecycle:
+    preStop:
+      exec:
+        command:
+        - /bin/sh
+        - -c
+        - "admin=http://127.0.0.1:15000\ncurl -fsS --max-time 2 -X POST \"$admin/healthcheck/fail\"\
+          \nsleep 15\ncurl -fsS --max-time 2 -X POST \"$admin/drain_listeners?graceful&skip_exit\"\
+          \ndeadline=$(( $(date +%s) + 600 ))\nwhile [ \"$(date +%s)\" -lt \"$deadline\"\
+          \ ]; do\n  stats=$(curl -fsS --max-time 2 \"$admin/stats?filter=downstream_rq_active\"\
+          )\n  active=$(printf '%s\\n' \"$stats\" | awk '/^http[.]outbound_.*[.]downstream_rq_active:/\
+          \ {n += $2; found=1} END {if(found) print n; else print \"unknown\"}')\n\
+          \  echo \"tokenvolt drain: active_requests=$active\" > /proc/1/fd/1\n  if\
+          \ [ \"$active\" = \"0\" ]; then\n    # Envoy buffers file access logs (1s\
+          \ by default). Do not let\n    # exit-on-zero kill it before the last usage\
+          \ log is flushed.\n    sleep 2\n    exit 0\n  fi\n  sleep 2\ndone\n# Let\
+          \ pilot-agent use the remaining Pod grace if polling failed.\n"
+  env:
+    EXIT_ON_ZERO_ACTIVE_CONNECTIONS: 'true'
+    MINIMUM_DRAIN_DURATION: 5s
+    PROXY_CONFIG: '{"terminationDrainDuration":"600s"}'
+  minReadySeconds: 10
+  rollingMaxSurge: 1
+  rollingMaxUnavailable: 0
+controller:
+  replicas: 1
+  automaticHttps:
+    enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: '1'
+      memory: 512Mi
+pilot:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: '1'
+      memory: 512Mi

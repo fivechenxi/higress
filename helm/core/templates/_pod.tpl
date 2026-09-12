@@ -20,6 +20,9 @@ template:
       {{- end }}
       {{- include "gateway.selectorLabels" . | nindent 6 }}
   spec:
+    {{- with .Values.gateway.terminationGracePeriodSeconds }}
+    terminationGracePeriodSeconds: {{ . }}
+    {{- end }}
     {{- with .Values.gateway.imagePullSecrets }}
     imagePullSecrets:
       {{- toYaml . | nindent 6 }}
@@ -44,6 +47,10 @@ template:
         imagePullPolicy: {{ .Values.gateway.imagePullPolicy }}
         {{- else if .Values.global.imagePullPolicy }}
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+        {{- end }}
+        {{- with .Values.gateway.lifecycle }}
+        lifecycle:
+          {{- toYaml . | nindent 10 }}
         {{- end }}
         args:
           - proxy

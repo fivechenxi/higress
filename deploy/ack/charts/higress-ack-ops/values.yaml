@@ -16,7 +16,6 @@ autoscaling:
   gateway:
     minReplicas: 2
     maxReplicas: 4
-    cpuUtilization: 65
     activeStreams:
       enabled: true
       averageValue: "225"

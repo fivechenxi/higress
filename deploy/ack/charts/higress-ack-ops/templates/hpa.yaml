@@ -26,14 +26,11 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: higress-gateway
+  {{- if not (and .Values.prometheusAdapter.enabled .Values.autoscaling.gateway.activeStreams.enabled) }}
+  {{- fail "Gateway autoscaling requires prometheusAdapter and activeStreams; CPU cannot distinguish plugin initialization from traffic" }}
+  {{- end }}
   metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: {{ .Values.autoscaling.gateway.cpuUtilization }}
-    {{- if and .Values.prometheusAdapter.enabled .Values.autoscaling.gateway.activeStreams.enabled }}
+    # Business requests only: plugin download/compilation CPU must not scale Pods.
     - type: Pods
       pods:
         metric:
@@ -41,7 +38,6 @@ spec:
         target:
           type: AverageValue
           averageValue: {{ .Values.autoscaling.gateway.activeStreams.averageValue | quote }}
-    {{- end }}
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 0

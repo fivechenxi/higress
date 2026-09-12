@@ -1,0 +1,340 @@
+{
+  "baseline_truncation": {
+    "case": "scale",
+    "target_pod": "higress-gateway-65cb7f8645-mxgdb",
+    "started_requests": 2,
+    "triggered_at": "2026-09-12T10:34:07.575759+00:00",
+    "seconds": 20,
+    "results": [
+      {
+        "complete": false,
+        "duration_s": 5.932679834,
+        "error": "Post \"http://192.168.10.108/v1/chat/completions\": EOF",
+        "id": "drain-43cd71b1238b-normal",
+        "mode": "normal",
+        "exit_code": 2
+      },
+      {
+        "complete": false,
+        "duration_s": 5.918917725,
+        "error": "unexpected EOF",
+        "id": "drain-43cd71b1238b-stream",
+        "mode": "stream",
+        "status": 200,
+        "exit_code": 2
+      }
+    ],
+    "access_log_counts": {
+      "drain-43cd71b1238b-normal": 0,
+      "drain-43cd71b1238b-stream": 0
+    },
+    "drain_lines": [
+      "2026-09-12T10:34:08.215171Z\tinfo\tAgent draining Proxy for termination",
+      "2026-09-12T10:34:08.216124Z\tinfo\tGraceful termination period is 5s, starting...",
+      "2026-09-12T10:34:13.216293Z\tinfo\tGraceful termination period complete, terminating remaining proxies."
+    ],
+    "log_sha256": "c30b15c2d51e2f6ba5e0c44abf9cae3a1956d6ad4a5b6d7d5c17030ac5cd581a"
+  },
+  "intermediate_log_flush_race": {
+    "case": "rollout",
+    "target_pod": "higress-gateway-5d7b866975-8rjfw",
+    "triggered_at": "2026-09-12T10:40:37.732591+00:00",
+    "seconds": 60,
+    "results": [
+      {
+        "complete": true,
+        "duration_s": 60.003635737,
+        "id": "drain-10e75c29228f-normal",
+        "mode": "normal",
+        "status": 200,
+        "upstream_id": "fb6a242d-4521-4e28-8a75-f840f6478685",
+        "usage": {
+          "completion_tokens": 20,
+          "prompt_tokens": 20,
+          "total_tokens": 40
+        },
+        "exit_code": 0
+      },
+      {
+        "complete": true,
+        "duration_s": 60.043372851,
+        "id": "drain-10e75c29228f-stream",
+        "mode": "stream",
+        "status": 200,
+        "upstream_id": "f9ce556f-ba98-4e0e-91b8-4a4d186d8027",
+        "usage": {
+          "completion_tokens": 20,
+          "prompt_tokens": 20,
+          "total_tokens": 40
+        },
+        "exit_code": 0
+      }
+    ],
+    "access_log_counts": {
+      "drain-10e75c29228f-normal": 1,
+      "drain-10e75c29228f-stream": 0
+    },
+    "logged_usage": {
+      "drain-10e75c29228f-normal": [
+        {
+          "api": "-",
+          "cached_tokens": null,
+          "chat_id": "fb6a242d-4521-4e28-8a75-f840f6478685",
+          "chat_round": 0,
+          "input_token": 20,
+          "input_token_details": null,
+          "llm_service_duration": 60001,
+          "model": "drain-fixture",
+          "output_token": 20,
+          "output_token_details": null,
+          "reasoning_tokens": null,
+          "requested_model": "drain-fixture",
+          "response_completed": true,
+          "response_error": false,
+          "response_type": "normal",
+          "total_token": 40,
+          "upstream_request_id": "fb6a242d-4521-4e28-8a75-f840f6478685",
+          "usage_status": "complete"
+        }
+      ],
+      "drain-10e75c29228f-stream": []
+    },
+    "drain_lines": [
+      "2026-09-12T10:41:15.059086Z\tinfo\tAgent draining Proxy for termination",
+      "2026-09-12T10:41:15.060086Z\tinfo\tAgent draining proxy for 5s, then waiting for active connections to terminate...",
+      "2026-09-12T10:41:20.061036Z\tinfo\tChecking for active connections...",
+      "2026-09-12T10:41:21.062073Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:22.062040Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:23.062044Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:24.062745Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:25.062690Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:26.062785Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:27.061725Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:28.061959Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:29.062682Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:30.063186Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:31.062722Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:32.061990Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:33.061973Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:34.062728Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:35.062398Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:36.062199Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:37.062281Z\tinfo\tThere are still 2 active connections",
+      "2026-09-12T10:41:38.062773Z\tinfo\tThere are no more active connections. terminating proxy..."
+    ],
+    "log_sha256": "60f1658f3e52aebb8f02fd4357948ca0f939bdcace704b034a02cbc7acc72399"
+  },
+  "fixed_scale": {
+    "case": "scale",
+    "target_pod": "higress-gateway-f5fb669c9-25t5k",
+    "triggered_at": "2026-09-12T10:45:47.246752+00:00",
+    "seconds": 40,
+    "results": [
+      {
+        "complete": true,
+        "duration_s": 40.006444644,
+        "id": "drain-7b110a6f71d9-normal",
+        "mode": "normal",
+        "status": 200,
+        "upstream_id": "366fcadc-c5a5-408e-8ebb-211e20f13933",
+        "usage": {
+          "completion_tokens": 20,
+          "prompt_tokens": 20,
+          "total_tokens": 40
+        },
+        "exit_code": 0
+      },
+      {
+        "complete": true,
+        "duration_s": 40.025575286,
+        "id": "drain-7b110a6f71d9-stream",
+        "mode": "stream",
+        "status": 200,
+        "upstream_id": "76da1a49-8790-4372-b934-5146d78b6754",
+        "usage": {
+          "completion_tokens": 20,
+          "prompt_tokens": 20,
+          "total_tokens": 40
+        },
+        "exit_code": 0
+      }
+    ],
+    "access_log_counts": {
+      "drain-7b110a6f71d9-normal": 1,
+      "drain-7b110a6f71d9-stream": 1
+    },
+    "logged_usage": {
+      "drain-7b110a6f71d9-normal": [
+        {
+          "api": "-",
+          "cached_tokens": null,
+          "chat_id": "366fcadc-c5a5-408e-8ebb-211e20f13933",
+          "chat_round": 0,
+          "input_token": 20,
+          "input_token_details": null,
+          "llm_service_duration": 40003,
+          "model": "drain-fixture",
+          "output_token": 20,
+          "output_token_details": null,
+          "reasoning_tokens": null,
+          "requested_model": "drain-fixture",
+          "response_completed": true,
+          "response_error": false,
+          "response_type": "normal",
+          "total_token": 40,
+          "upstream_request_id": "366fcadc-c5a5-408e-8ebb-211e20f13933",
+          "usage_status": "complete"
+        }
+      ],
+      "drain-7b110a6f71d9-stream": [
+        {
+          "api": "-",
+          "cached_tokens": null,
+          "chat_id": "76da1a49-8790-4372-b934-5146d78b6754",
+          "chat_round": 0,
+          "input_token": 20,
+          "input_token_details": null,
+          "llm_first_token_duration": 1002,
+          "llm_service_duration": 40024,
+          "model": "drain-fixture",
+          "output_token": 20,
+          "output_token_details": null,
+          "reasoning_tokens": null,
+          "requested_model": "drain-fixture",
+          "response_completed": true,
+          "response_type": "stream",
+          "total_token": 40,
+          "upstream_request_id": "76da1a49-8790-4372-b934-5146d78b6754",
+          "usage_status": "complete"
+        }
+      ]
+    },
+    "drain_lines": [
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=0",
+      "2026-09-12T10:46:30.853325Z\tinfo\tAgent draining Proxy for termination",
+      "2026-09-12T10:46:30.854329Z\tinfo\tAgent draining proxy for 5s, then waiting for active connections to terminate...",
+      "2026-09-12T10:46:35.855085Z\tinfo\tChecking for active connections...",
+      "2026-09-12T10:46:36.856054Z\tinfo\tThere are no more active connections. terminating proxy..."
+    ],
+    "log_sha256": "65b92dd5d5798e7838240134a40447cbb4e76925cc8fc38baf1672f6015d913e"
+  },
+  "fixed_rollout": {
+    "case": "rollout",
+    "target_pod": "higress-gateway-5b98568f9b-vbj7g",
+    "triggered_at": "2026-09-12T10:44:03.613953+00:00",
+    "seconds": 60,
+    "results": [
+      {
+        "complete": true,
+        "duration_s": 60.003805898,
+        "id": "drain-91116b8e4f4b-normal",
+        "mode": "normal",
+        "status": 200,
+        "upstream_id": "d99a52fd-412a-44e6-8ae7-dd33d95529ac",
+        "usage": {
+          "completion_tokens": 20,
+          "prompt_tokens": 20,
+          "total_tokens": 40
+        },
+        "exit_code": 0
+      },
+      {
+        "complete": true,
+        "duration_s": 60.036279058,
+        "id": "drain-91116b8e4f4b-stream",
+        "mode": "stream",
+        "status": 200,
+        "upstream_id": "445fa4a7-e298-4018-be12-7b50e7d0c31c",
+        "usage": {
+          "completion_tokens": 20,
+          "prompt_tokens": 20,
+          "total_tokens": 40
+        },
+        "exit_code": 0
+      }
+    ],
+    "access_log_counts": {
+      "drain-91116b8e4f4b-normal": 1,
+      "drain-91116b8e4f4b-stream": 1
+    },
+    "logged_usage": {
+      "drain-91116b8e4f4b-normal": [
+        {
+          "api": "-",
+          "cached_tokens": null,
+          "chat_id": "d99a52fd-412a-44e6-8ae7-dd33d95529ac",
+          "chat_round": 0,
+          "input_token": 20,
+          "input_token_details": null,
+          "llm_service_duration": 60001,
+          "model": "drain-fixture",
+          "output_token": 20,
+          "output_token_details": null,
+          "reasoning_tokens": null,
+          "requested_model": "drain-fixture",
+          "response_completed": true,
+          "response_error": false,
+          "response_type": "normal",
+          "total_token": 40,
+          "upstream_request_id": "d99a52fd-412a-44e6-8ae7-dd33d95529ac",
+          "usage_status": "complete"
+        }
+      ],
+      "drain-91116b8e4f4b-stream": [
+        {
+          "api": "-",
+          "cached_tokens": null,
+          "chat_id": "445fa4a7-e298-4018-be12-7b50e7d0c31c",
+          "chat_round": 0,
+          "input_token": 20,
+          "input_token_details": null,
+          "llm_first_token_duration": 1006,
+          "llm_service_duration": 60034,
+          "model": "drain-fixture",
+          "output_token": 20,
+          "output_token_details": null,
+          "reasoning_tokens": null,
+          "requested_model": "drain-fixture",
+          "response_completed": true,
+          "response_type": "stream",
+          "total_token": 40,
+          "upstream_request_id": "445fa4a7-e298-4018-be12-7b50e7d0c31c",
+          "usage_status": "complete"
+        }
+      ]
+    },
+    "drain_lines": [
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=2",
+      "tokenvolt drain: active_requests=0",
+      "2026-09-12T10:45:07.168214Z\tinfo\tAgent draining Proxy for termination",
+      "2026-09-12T10:45:07.169133Z\tinfo\tAgent draining proxy for 5s, then waiting for active connections to terminate...",
+      "2026-09-12T10:45:12.170033Z\tinfo\tChecking for active connections...",
+      "2026-09-12T10:45:13.170813Z\tinfo\tThere are no more active connections. terminating proxy..."
+    ],
+    "log_sha256": "7fdad5471b91263138fe3a6a6a2f0b212c906f295b6fd7f3a866de69f6e8886b"
+  }
+}

@@ -27,6 +27,43 @@ meshConfig:
 gateway:
   kind: Deployment
   replicas: 2
+  externallyManagedReplicas: true
+  # Remove endpoints, drain HTTP requests and flush logs before SIGTERM.
+  # pilot-agent then drains connections; Kubernetes enforces the 11 minute bound.
+  terminationGracePeriodSeconds: 660
+  lifecycle:
+    preStop:
+      exec:
+        command:
+          - /bin/sh
+          - -c
+          - |
+            admin=http://127.0.0.1:15000
+            curl -fsS --max-time 2 -X POST "$admin/healthcheck/fail"
+            sleep 15
+            curl -fsS --max-time 2 -X POST "$admin/drain_listeners?graceful&skip_exit"
+            deadline=$(( $(date +%s) + 600 ))
+            while [ "$(date +%s)" -lt "$deadline" ]; do
+              stats=$(curl -fsS --max-time 2 "$admin/stats?filter=downstream_rq_active")
+              active=$(printf '%s\n' "$stats" | awk '/^http[.]outbound_.*[.]downstream_rq_active:/ {n += $2; found=1} END {if(found) print n; else print "unknown"}')
+              echo "tokenvolt drain: active_requests=$active" > /proc/1/fd/1
+              if [ "$active" = "0" ]; then
+                # Envoy buffers file access logs (1s by default). Do not let
+                # exit-on-zero kill it before the last usage log is flushed.
+                sleep 2
+                exit 0
+              fi
+              sleep 2
+            done
+            # Let pilot-agent use the remaining Pod grace if polling failed.
+
+  env:
+    EXIT_ON_ZERO_ACTIVE_CONNECTIONS: "true"
+    MINIMUM_DRAIN_DURATION: "5s"
+    PROXY_CONFIG: '{"terminationDrainDuration":"600s"}'
+  minReadySeconds: 10
+  rollingMaxSurge: 1
+  rollingMaxUnavailable: 0
   service:
     # A single-AZ ACK test cluster cannot satisfy NLB's two-zone vSwitch
     # requirement. Let ACK CCM create a low-cost Internet-facing CLB for the

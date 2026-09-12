@@ -53,8 +53,25 @@ There are two lifecycle levels:
   controller replicas use required hostname anti-affinity. Controller HPA,
   failover, or a rolling update can temporarily request the third worker.
 - Worker disk: 40 GiB ESSD Entry.
-- Higress gateway: 2 replicas, HPA up to 4 replicas using 65% CPU and 225
-  active streams per Pod; the larger desired replica count wins.
+- Higress gateway: 2 replicas minimum, HPA up to 4 using 225 active HTTP
+  requests per Pod (normal and streaming requests). Gateway CPU is deliberately
+  excluded: plugin initialization is not customer traffic. Controller CPU HPA
+  is unchanged. The adapter is required; metric failures must alert rather than
+  falling back to CPU. Helm does not write the external HPA's replica count.
+- Gateway termination: Kubernetes removes terminating Service endpoints; preStop
+  waits 15 seconds for propagation, drains listeners, and polls active business
+  HTTP requests for up to 600 seconds. Once they reach zero it allows 2 seconds
+  for the configured 1-second access-log flush. Only then does pilot-agent receive
+  SIGTERM and drain remaining connections (minimum 5 seconds). This avoids losing
+  the last usage log when exit-on-zero terminates Envoy. Pod grace is 660 seconds
+  including preStop, a hard bound rather than a promise for unbounded streams.
+  Rolling upgrades use maxUnavailable=0, maxSurge=1 and minReadySeconds=10.
+  These settings protect ordinary Pod scale-down/rollout; forced deletion,
+  node failure, OOM, and requests exceeding the grace are not lossless.
+  Existing Pods must be drained before the first upgrade to these settings;
+  changing a template cannot retroactively lengthen their termination grace.
+  ACK node scale-down allows 900 seconds for Pod termination, longer than the
+  gateway grace, so node reclamation does not cut that grace short.
 - Higress controller: 2 replicas on different nodes, HPA up to 3 replicas at
   65% CPU. Controller and gateway each have a PDB with `minAvailable: 1`.
 - Gateway service: `LoadBalancer`, reusing the persistent pay-by-traffic CLB on

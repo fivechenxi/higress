@@ -23,7 +23,10 @@ metadata:
   annotations:
     {{- .Values.gateway.annotations | toYaml | nindent 4 }}
 spec:
-  {{- if not .Values.gateway.autoscaling.enabled }}
+  {{- with .Values.gateway.minReadySeconds }}
+  minReadySeconds: {{ . }}
+  {{- end }}
+  {{- if not (or .Values.gateway.autoscaling.enabled .Values.gateway.externallyManagedReplicas) }}
   {{- if not (or .Values.global.local .Values.global.kind) }}
   replicas: {{ .Values.gateway.replicas }}
   {{- else }}

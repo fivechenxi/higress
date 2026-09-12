@@ -522,6 +522,14 @@ gateway:
     loadBalancerSourceRanges: []
     externalTrafficPolicy: ""
 
+  # Optional graceful termination controls. The Pod grace includes preStop time.
+  # Leave unset to retain the Kubernetes defaults in existing installations.
+  # An external HPA owns replicas; Helm upgrades must not reset its decision.
+  externallyManagedReplicas: false
+  terminationGracePeriodSeconds: null
+  lifecycle: {}
+  minReadySeconds: 0
+
   rollingMaxSurge: 100%
   # -- If global.local is true, the default value is 100%, otherwise it is 25%
   rollingMaxUnavailable: 25%
