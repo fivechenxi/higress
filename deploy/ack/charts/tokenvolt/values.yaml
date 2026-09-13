@@ -13,6 +13,9 @@
 # limitations under the License.
 
 controlPlane:
+  publicService:
+    enabled: false
+    annotations: {}
   image: ""
   imagePullPolicy: IfNotPresent
   replicas: 1
@@ -64,6 +67,7 @@ higress:
       - /v1/messages
 
 portal:
+  directEntry: false
   host: portal.tokenvolt.internal
 
 modelApi:

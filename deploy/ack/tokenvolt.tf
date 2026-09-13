@@ -363,8 +363,19 @@ resource "helm_release" "tokenvolt" {
 
   values = [
     yamlencode({
+      # The Helm provider does not detect edits beneath an unchanged chart path.
+      chartContentHash = sha256(join("", [for file in sort(fileset("${path.module}/charts/tokenvolt", "**")) : filesha256("${path.module}/charts/tokenvolt/${file}")]))
       controlPlane = {
-        image                      = var.tokenvolt_control_plane_image
+        image = var.tokenvolt_control_plane_image
+        publicService = {
+          enabled = var.tokenvolt_split_public_entry
+          annotations = var.tokenvolt_split_public_entry ? {
+            "service.beta.kubernetes.io/alibaba-cloud-loadbalancer-id"                       = alicloud_slb_load_balancer.higress_public.id
+            "service.beta.kubernetes.io/alibaba-cloud-loadbalancer-force-override-listeners" = "false"
+            "service.beta.kubernetes.io/alibaba-cloud-loadbalancer-vgroup-port"              = "${try(alicloud_slb_server_group.portal_http[0].id, "")}:8000"
+            "service.beta.kubernetes.io/backend-type"                                        = "eni"
+          } : {}
+        }
         rrsaRoleName               = alicloud_ram_role.tokenvolt[0].role_name
         allowedOrigin              = var.tokenvolt_public_host != "" ? "${var.tokenvolt_public_tls_enabled ? "https" : "http"}://${var.tokenvolt_public_host}" : ""
         allowInsecureSessionCookie = var.tokenvolt_public_host != "" && !var.tokenvolt_public_tls_enabled
@@ -395,7 +406,8 @@ resource "helm_release" "tokenvolt" {
         }
       }
       portal = {
-        host = var.tokenvolt_portal_host
+        directEntry = var.tokenvolt_split_public_entry
+        host        = var.tokenvolt_portal_host
       }
       modelApi = {
         host = var.tokenvolt_api_host
@@ -409,7 +421,7 @@ resource "helm_release" "tokenvolt" {
         }
       }
       publicEntry = {
-        host          = var.tokenvolt_public_host
+        host          = var.tokenvolt_split_public_entry ? var.tokenvolt_data_public_host : var.tokenvolt_public_host
         tlsSecretName = var.tokenvolt_public_tls_enabled && !local.shared_public_edge ? kubernetes_secret_v1.tokenvolt_public_tls[0].metadata[0].name : ""
       }
       modelRouting = {
