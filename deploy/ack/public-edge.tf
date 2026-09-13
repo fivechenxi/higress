@@ -29,6 +29,10 @@ resource "alicloud_slb_load_balancer" "higress_public" {
     # The public entrypoint intentionally outlives disposable ACK workloads.
     # Removing it requires a reviewed, explicit lifecycle change.
     prevent_destroy = true
+    precondition {
+      condition     = !var.tokenvolt_split_public_entry || (local.shared_public_edge && var.tokenvolt_enabled && var.tokenvolt_public_tls_enabled)
+      error_message = "Split entry requires enabled TokenVolt, public TLS and shared CLB ECS sites."
+    }
     # ACK CCM annotates a reused load balancer with ownership tags. Terraform
     # must not fight the controller for those tags during application updates.
     ignore_changes = [tags]
@@ -124,5 +128,21 @@ resource "kubernetes_secret_v1" "tokenvolt_public_tls" {
   data = {
     "tls.crt" = "${tls_locally_signed_cert.tokenvolt_public[0].cert_pem}${tls_self_signed_cert.tokenvolt_test_ca[0].cert_pem}"
     "tls.key" = tls_private_key.tokenvolt_public[0].private_key_pem
+  }
+}
+
+resource "alicloud_alidns_record" "model_api" {
+  # First adoption must still be staged and verified with DNS pinned to the CLB.
+  depends_on  = [alicloud_slb_domain_extension.model_api, alicloud_slb_rule.model_api, helm_release.tokenvolt]
+  count       = var.tokenvolt_split_public_entry ? 1 : 0
+  domain_name = "tokenvolt.net"
+  rr          = trimsuffix(var.tokenvolt_data_public_host, ".tokenvolt.net")
+  type        = "A"
+  value       = alicloud_slb_load_balancer.higress_public.address
+  ttl         = 600
+  status      = "ENABLE"
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [remark]
   }
 }

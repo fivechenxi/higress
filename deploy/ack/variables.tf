@@ -336,3 +336,21 @@ variable "grafana_admin_user" {
   type        = string
   default     = "admin"
 }
+
+variable "tokenvolt_split_public_entry" {
+  description = "Route the portal directly from CLB and expose model traffic on a separate public host."
+  type        = bool
+  default     = false
+}
+
+variable "tokenvolt_data_public_host" {
+  description = "Public model API hostname when split entry is enabled."
+  type        = string
+  default     = "api.tokenvolt.net"
+}
+
+variable "tokenvolt_data_certificate_id" {
+  description = "Trusted RSA CLB certificate for the model API hostname."
+  type        = string
+  default     = ""
+}
