@@ -700,14 +700,14 @@ data:
               summary: Higress rejected connections because a connection limit was exhausted
               description: Inspect listener, upstream pool and file-descriptor capacity immediately.
           - alert: HigressGatewayResetSpike
-            expr: sum(increase(envoy_http_downstream_rq_rx_reset[5m])) + sum(increase(envoy_http_downstream_rq_tx_reset[5m])) + sum(increase(envoy_cluster_upstream_rq_rx_reset[5m])) + sum(increase(envoy_cluster_upstream_rq_tx_reset[5m])) > {{ .Values.monitoring.alerts.gatewayResetWarning5m }}
+            expr: sum(increase(route_upstream_model_consumer_metric_llm_aborted_count[5m])) + sum(increase(envoy_cluster_upstream_rq_rx_reset{cluster_name=~".*[|][|]tokenvolt-[^.]+[.]dns.*"}[5m])) + sum(increase(envoy_cluster_upstream_rq_tx_reset{cluster_name=~".*[|][|]tokenvolt-[^.]+[.]dns.*"}[5m])) > {{ .Values.monitoring.alerts.gatewayResetWarning5m }}
             for: 2m
             labels:
               severity: warning
               component: gateway
             annotations:
-              summary: Higress request resets increased
-              description: Correlate reset direction with stream aborts, provider health and rollout activity.
+              summary: Higress model stream aborts or provider resets increased
+              description: Counts AI stream aborts and upstream resets for tokenvolt provider clusters only; UI/client disconnects are excluded.
           - alert: HigressGatewayRequestDurationP90High
             expr: tokenvolt:gateway_downstream_duration_milliseconds:p90_rate5m > {{ .Values.monitoring.alerts.gatewayDurationP90WarningMilliseconds }}
             for: 10m
