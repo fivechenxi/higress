@@ -201,3 +201,17 @@ When adding an e2e conformance test that ships its own wasm-go plugin under
   config and fails closed, and every request on that route returns HTTP 500.
   Locally this can be masked because a previously built `plugin.wasm` still
   exists on disk — so a test can pass locally yet 500 in CI.
+
+## Fork-only TokenVolt deployment exception
+
+Changes limited to `deploy/ack/**` are private TokenVolt deployment and
+operations configuration maintained only in the `fivechenxi/higress` fork.
+
+When these changes are not intended for contribution to
+`higress-group/higress`, they are outside the upstream Higress
+agent-assisted contribution process and do not require the Proposal,
+Design, TASK, or issue-spec workflow described below.
+
+This exception does not apply to Higress source code, shared Helm charts,
+Wasm plugins, upstream workflows, or any change intended for submission to
+the upstream repository.
