@@ -34,6 +34,13 @@ data:
     remote_write:
       - url: {{ $remoteWriteUrl | quote }}
         remote_timeout: 10s
+        # Keep the customer/API-key discriminator only in this bounded,
+        # one-hour local Prometheus. Recording rules aggregate it away before
+        # remote write; raw customer-labelled samples must not leave ACK.
+        write_relabel_configs:
+          - source_labels: [ai_consumer]
+            regex: '.+'
+            action: drop
         queue_config:
           capacity: 2500
           min_shards: 1
@@ -112,8 +119,6 @@ data:
             regex: 'route_upstream_model_consumer_metric_llm_tpot_duration_bucket_le_.+'
             target_label: __name__
             replacement: 'higress_ai_tpot_milliseconds_bucket'
-          - regex: '^ai_consumer$'
-            action: labeldrop
 
       - job_name: higress-controller
         metrics_path: {{ .Values.monitoring.controller.path }}

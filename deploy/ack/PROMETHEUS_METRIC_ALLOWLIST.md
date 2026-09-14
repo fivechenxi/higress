@@ -72,9 +72,11 @@ collector copies `ai_cluster` to `ai_provider`, giving one reusable raw data
 set for gateway-wide aggregation, model drill-down, and model/provider
 drill-down. It does not emit three duplicate metric sets. TokenVolt cluster
 names matching `tokenvolt-<provider>.dns` are normalized to `<provider>`; the
-raw cluster value remains the fallback for unmatched clusters. Drop
-`ai_consumer` from this infrastructure-capacity scrape for now; per-customer
-observability needs its own cardinality and cost budget.
+raw cluster value remains the fallback for unmatched clusters. Keep
+`ai_consumer` only in the bounded one-hour in-cluster Prometheus so distinct
+API-key series cannot collide. Recording rules aggregate it away, and remote
+write drops every raw series that still carries the label. Per-customer
+observability remains in SLS and has its own cardinality and cost budget.
 
 TTFT buckets are `100,250,500,1000,2000,5000,10000,30000,60000,+Inf` ms. TPOT
 buckets are `5,10,20,30,50,100,250,500,1000,+Inf` ms. The plugin emits fixed

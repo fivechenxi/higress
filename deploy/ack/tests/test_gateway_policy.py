@@ -119,6 +119,19 @@ class GatewayPolicyTest(unittest.TestCase):
         self.assertIn('/var/lib/grafana/dashboards', provisioning['dashboards.yaml'])
         self.assertIn(('ConfigMap', 'higress-grafana-dashboards'), by_kind_name)
 
+        collector = by_kind_name[('ConfigMap', 'higress-metrics-collector')]['data']['prometheus.yml']
+        config = yaml.safe_load(collector)
+        gateway_scrape = next(job for job in config['scrape_configs']
+                              if job['job_name'] == 'higress-gateway')
+        self.assertNotIn(
+            {'regex': '^ai_consumer$', 'action': 'labeldrop'},
+            gateway_scrape['metric_relabel_configs'],
+        )
+        self.assertIn(
+            {'source_labels': ['ai_consumer'], 'regex': '.+', 'action': 'drop'},
+            config['remote_write'][0]['write_relabel_configs'],
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

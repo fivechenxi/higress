@@ -16,5 +16,5 @@ apiVersion: v2
 name: higress-ack-ops
 description: ACK autoscaling, disruption budgets, and bounded Prometheus collection for Higress
 type: application
-version: 0.1.9
+version: 0.1.10
 appVersion: "1"

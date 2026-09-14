@@ -28,18 +28,20 @@ Terway/Cilium 以及最低限度的 Higress Controller 指标。
 | `ai_model` | 请求完成时优先使用厂商响应中的模型，否则回退到请求模型 | 是 |
 | `ai_provider` | 从 `tokenvolt-<provider>.dns` 归一化得到的厂商 ID；未命中规则时保留原始集群名 | 是 |
 | `ai_cluster` | Envoy 原始上游集群，用于故障排查 | 是 |
-| `ai_consumer` | 客户或 API Key 维度 | 否；为控制指标基数主动删除 |
+| `ai_consumer` | 客户或 API Key 维度 | 仅在 ACK 内的一小时临时 Prometheus 中保留，用于避免序列碰撞；不远程写入 |
 | `pod`、`namespace` | Gateway 副本身份 | 仅在容量分析需要时保留 |
 
 这里必须区分三类数据：逐请求用量事实源是 SLS；PostgreSQL 保存租户和 API Key
 元数据，以及从 SLS 生成的 `usage_recent`、`usage_hourly` 分钟/小时汇总；Prometheus
-不保存租户或 API Key 维度。价格和实际金额由 TokenVolt 的版本化价格目录与用量
+远程 Prometheus 不保存租户或 API Key 维度。价格和实际金额由 TokenVolt 的版本化价格目录与用量
 账本计算；Prometheus 只保存流量、Token 数量和服务质量信号。
 
-原始 AI 指标写入 ARMS 时保留 `ai_route × ai_model × ai_provider × Pod`；
-Recording Rules 会跨 Pod 求和，生成 `route × model × provider` 的常用查询序列。
+ACK 内的一小时临时 Prometheus 以 `ai_consumer` 区分原始 AI 序列，避免不同 API Key
+删除标签后发生碰撞；Recording Rules 跨 API Key 和 Pod 求和，生成
+`route × model × provider` 的常用查询序列。只有聚合后的 AI 序列会写入 ARMS，
+所有仍带 `ai_consumer` 的原始序列会在远程写入前丢弃。
 因此可以继续聚合为网关整体、单模型、单厂商，也可以直接下钻到“模型 × 厂商”。
-它不是租户维度；`ai_consumer` 已在采集入口删除。
+它不是租户维度；逐租户和 API Key 查询仍以 SLS 用量事实为准。
 
 ## AI 服务指标
 
