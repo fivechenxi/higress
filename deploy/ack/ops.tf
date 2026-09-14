@@ -20,6 +20,10 @@ resource "random_password" "grafana_admin" {
   override_special = "_%@-"
 }
 
+locals {
+  grafana_public_host = var.tokenvolt_split_public_entry ? var.tokenvolt_data_public_host : var.tokenvolt_public_host
+}
+
 resource "kubernetes_secret_v1" "grafana_admin" {
   count = var.lifecycle_mode == "running" && var.grafana_enabled ? 1 : 0
 
@@ -57,8 +61,8 @@ resource "helm_release" "higress_ack_ops" {
         clusterId      = alicloud_cs_managed_kubernetes.this.id
         grafana = {
           enabled        = var.grafana_enabled
-          host           = var.tokenvolt_public_host
-          rootUrl        = "${var.tokenvolt_public_tls_enabled ? "https" : "http"}://${var.tokenvolt_public_host}/grafana/"
+          host           = local.grafana_public_host
+          rootUrl        = "${var.tokenvolt_public_tls_enabled ? "https" : "http"}://${local.grafana_public_host}/grafana/"
           existingSecret = "higress-grafana-admin"
         }
       }

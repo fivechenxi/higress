@@ -65,7 +65,7 @@ output "tokenvolt_public_host" {
 output "grafana_admin_credentials" {
   description = "Grafana URL and generated administrator credentials. Reveal explicitly with: tofu output -json grafana_admin_credentials"
   value = var.grafana_enabled ? {
-    url      = "${var.tokenvolt_public_tls_enabled ? "https" : "http"}://${var.tokenvolt_public_host}/grafana/"
+    url      = "${var.tokenvolt_public_tls_enabled ? "https" : "http"}://${local.grafana_public_host}/grafana/"
     username = var.grafana_admin_user
     password = random_password.grafana_admin[0].result
   } : null

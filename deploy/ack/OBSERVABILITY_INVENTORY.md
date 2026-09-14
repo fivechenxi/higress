@@ -156,8 +156,12 @@ Gateway 副本汇总后的 5 分钟 RPM/TPM 判断，不能由单个 Envoy Pod �
 
 `higress-ack-ops` 在运行阶段部署单副本 Grafana，通过 Higress 的 `/grafana/`
 子路由访问，并自动加载
-`charts/higress-ack-ops/dashboards/tokenvolt-higress-ai-gateway.json`。数据源直接读取
-集群内受控的 `higress-metrics-collector`，无需在 Grafana 中保存 ARMS 凭证。
+`charts/higress-ack-ops/dashboards/tokenvolt-higress-ai-gateway.json`。启用控制面/模型
+API 公网分流时，该路由自动挂到进入
+Higress 的模型 API 域名（当前为 `api.tokenvolt.net/grafana/`），不会挂到绕过
+Higress、直达 TokenVolt 控制面的 `ack.tokenvolt.net`。
+数据源直接读取集群内受控的 `higress-metrics-collector`，无需在 Grafana 中保存
+ARMS 凭证。
 
 管理员密码由 OpenTofu 生成，保存在 `higress-grafana-admin` Secret 和敏感 State
 中，不写入 Git。使用 `tofu output -json grafana_admin_credentials` 单独读取 URL、
