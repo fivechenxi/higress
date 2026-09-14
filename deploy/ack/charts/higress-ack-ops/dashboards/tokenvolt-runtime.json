@@ -1,0 +1,78 @@
+{
+  "annotations": {"list": []},
+  "description": "最近五分钟的模型与厂商实时运行状态。",
+  "editable": true, "graphTooltip": 1, "id": null,
+  "links": [{"title": "模型质量", "type": "link", "url": "/grafana/d/tokenvolt-model-quality"}, {"title": "基础监控", "type": "link", "url": "/grafana/d/tokenvolt-infrastructure"}],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"decimals": 2}, "overrides": [
+        {"matcher": {"id": "byName", "options": "成功率"}, "properties": [{"id": "unit", "value": "percentunit"}]},
+        {"matcher": {"id": "byRegexp", "options": "/^TTFT|^TPOT/"}, "properties": [{"id": "unit", "value": "ms"}]},
+        {"matcher": {"id": "byName", "options": "RPM"}, "properties": [{"id": "unit", "value": "reqpm"}]}
+      ]},
+      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 0}, "id": 1,
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true, "sortBy": [{"desc": true, "displayName": "RPM"}]},
+      "targets": [
+        {"expr": "label_replace(tokenvolt:provider_model_success_ratio:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"runtime_metric\", \"成功率\", \"\", \"\")", "instant": true, "refId": "A"},
+        {"expr": "label_replace(tokenvolt:provider_model_logical_rpm:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"runtime_metric\", \"RPM\", \"\", \"\")", "instant": true, "refId": "B"},
+        {"expr": "label_replace(tokenvolt:provider_model_total_tpm:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"runtime_metric\", \"TPM\", \"\", \"\")", "instant": true, "refId": "C"},
+        {"expr": "label_replace(tokenvolt:provider_model_ttft_milliseconds:p50_rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"runtime_metric\", \"TTFT P50\", \"\", \"\")", "instant": true, "refId": "D"},
+        {"expr": "label_replace(tokenvolt:provider_model_ttft_milliseconds:p90_rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"runtime_metric\", \"TTFT P90\", \"\", \"\")", "instant": true, "refId": "E"},
+        {"expr": "label_replace(tokenvolt:provider_model_tpot_milliseconds:p50_rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"runtime_metric\", \"TPOT P50\", \"\", \"\")", "instant": true, "refId": "F"},
+        {"expr": "label_replace(tokenvolt:provider_model_tpot_milliseconds:p90_rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"runtime_metric\", \"TPOT P90\", \"\", \"\")", "instant": true, "refId": "G"}
+      ],
+      "title": "厂商实时运行状态（一个模型 × 厂商一行）",
+      "transformations": [{"id": "joinByLabels", "options": {"join": ["ai_model", "ai_provider"], "value": "runtime_metric"}}], "type": "table"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12}, "id": 2,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "tokenvolt:provider_model_logical_rpm:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}", "legendFormat": "RPM {{ai_model}} · {{ai_provider}}", "refId": "A"},
+        {"expr": "tokenvolt:provider_model_total_tpm:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}", "legendFormat": "TPM {{ai_model}} · {{ai_provider}}", "refId": "B"}
+      ],
+      "title": "RPM / TPM 趋势", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "ms"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12}, "id": 3,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "tokenvolt:provider_model_ttft_milliseconds:p90_rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}", "legendFormat": "TTFT P90 {{ai_model}} · {{ai_provider}}", "refId": "A"},
+        {"expr": "tokenvolt:provider_model_tpot_milliseconds:p90_rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}", "legendFormat": "TPOT P90 {{ai_model}} · {{ai_provider}}", "refId": "B"}
+      ],
+      "title": "TTFT / TPOT P90 趋势", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "max": 1, "min": 0, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20}, "id": 4,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "asc"}},
+      "targets": [{"expr": "tokenvolt:provider_model_success_ratio:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}", "legendFormat": "{{ai_model}} · {{ai_provider}}", "refId": "A"}],
+      "title": "成功率趋势", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "reqpm"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20}, "id": 5,
+      "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "tokenvolt:provider_5xx_rpm:rate5m{ai_provider=~\"$provider\"}", "legendFormat": "5xx {{ai_provider}}", "refId": "A"},
+        {"expr": "tokenvolt:provider_model_unexpected_429_rpm:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}", "legendFormat": "非预期 429 {{ai_model}} · {{ai_provider}}", "refId": "B"}
+      ],
+      "title": "5xx / 非预期 429", "type": "timeseries"
+    }
+  ],
+  "refresh": "30s", "schemaVersion": 39, "tags": ["tokenvolt", "runtime"],
+  "templating": {"list": [
+    {"current": {}, "label": "Prometheus", "name": "datasource", "query": "prometheus", "refresh": 1, "type": "datasource"},
+    {"allValue": ".*", "current": {"text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "$datasource"}, "definition": "label_values(tokenvolt:provider_model_logical_rpm:rate5m, ai_model)", "includeAll": true, "label": "模型", "multi": true, "name": "model", "query": {"query": "label_values(tokenvolt:provider_model_logical_rpm:rate5m, ai_model)", "refId": "model-variable"}, "refresh": 2, "sort": 1, "type": "query"},
+    {"allValue": ".*", "current": {"text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "$datasource"}, "definition": "label_values(tokenvolt:provider_model_logical_rpm:rate5m{ai_model=~\"$model\"}, ai_provider)", "includeAll": true, "label": "厂商", "multi": true, "name": "provider", "query": {"query": "label_values(tokenvolt:provider_model_logical_rpm:rate5m{ai_model=~\"$model\"}, ai_provider)", "refId": "provider-variable"}, "refresh": 2, "sort": 1, "type": "query"}
+  ]},
+  "time": {"from": "now-1h", "to": "now"}, "timepicker": {}, "timezone": "browser",
+  "title": "TokenVolt / 实时运行", "uid": "tokenvolt-runtime", "version": 1
+}

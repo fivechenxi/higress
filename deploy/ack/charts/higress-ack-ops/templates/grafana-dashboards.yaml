@@ -22,6 +22,10 @@ metadata:
     grafana_dashboard: "1"
     {{- include "higress-ack-ops.labels" . | nindent 4 }}
 data:
-  tokenvolt-higress-ai-gateway.json: |-
-{{ .Files.Get "dashboards/tokenvolt-higress-ai-gateway.json" | indent 4 }}
+  tokenvolt-model-quality.json: |-
+{{ .Files.Get "dashboards/tokenvolt-model-quality.json" | indent 4 }}
+  tokenvolt-runtime.json: |-
+{{ .Files.Get "dashboards/tokenvolt-runtime.json" | indent 4 }}
+  tokenvolt-infrastructure.json: |-
+{{ .Files.Get "dashboards/tokenvolt-infrastructure.json" | indent 4 }}
 {{- end }}

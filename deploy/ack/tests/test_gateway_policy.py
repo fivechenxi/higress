@@ -108,6 +108,10 @@ class GatewayPolicyTest(unittest.TestCase):
             {'name': 'higress-grafana-admin', 'key': 'admin-password'},
         )
         self.assertEqual(env['GF_SERVER_SERVE_FROM_SUB_PATH']['value'], 'true')
+        self.assertEqual(
+            env['GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH']['value'],
+            '/var/lib/grafana/dashboards/tokenvolt-model-quality.json',
+        )
         data_volume = next(volume for volume in deployment['spec']['template']['spec']['volumes']
                            if volume['name'] == 'data')
         self.assertEqual(data_volume['emptyDir']['sizeLimit'], '512Mi')
@@ -121,18 +125,33 @@ class GatewayPolicyTest(unittest.TestCase):
         provisioning = by_kind_name[('ConfigMap', 'higress-grafana-provisioning')]['data']
         self.assertIn('http://higress-metrics-collector.higress-system.svc:9090', provisioning['datasource.yaml'])
         self.assertIn('/var/lib/grafana/dashboards', provisioning['dashboards.yaml'])
-        self.assertIn(('ConfigMap', 'higress-grafana-dashboards'), by_kind_name)
-        dashboard = json.loads(
-            by_kind_name[('ConfigMap', 'higress-grafana-dashboards')]['data']
-            ['tokenvolt-higress-ai-gateway.json']
-        )
-        ranking = next(panel for panel in dashboard['panels'] if panel['id'] == 15)
+        dashboard_data = by_kind_name[('ConfigMap', 'higress-grafana-dashboards')]['data']
+        self.assertEqual(set(dashboard_data), {
+            'tokenvolt-model-quality.json',
+            'tokenvolt-runtime.json',
+            'tokenvolt-infrastructure.json',
+        })
+        dashboard = json.loads(dashboard_data['tokenvolt-model-quality.json'])
+        ranking = next(panel for panel in dashboard['panels'] if panel['id'] == 10)
         self.assertEqual(ranking['type'], 'table')
         self.assertEqual(ranking['transformations'][0]['id'], 'joinByLabels')
-        self.assertIn('provider_model_success_ratio', ranking['targets'][0]['expr'])
+        self.assertEqual(ranking['transformations'][0]['options']['join'], ['ai_provider'])
+        self.assertNotIn('route', {item['name'] for item in dashboard['templating']['list']})
+        self.assertNotIn('p99', json.dumps(dashboard).lower())
+
+        runtime = json.loads(dashboard_data['tokenvolt-runtime.json'])
+        runtime_table = runtime['panels'][0]
+        self.assertEqual(runtime_table['transformations'][0]['options']['join'],
+                         ['ai_model', 'ai_provider'])
+        self.assertNotIn('route', {item['name'] for item in runtime['templating']['list']})
+        self.assertNotIn('p99', json.dumps(runtime).lower())
 
         collector = by_kind_name[('ConfigMap', 'higress-metrics-collector')]['data']['prometheus.yml']
         config = yaml.safe_load(collector)
+        self.assertNotIn('p99_rate5m',
+                         by_kind_name[('ConfigMap', 'higress-metrics-collector')]['data']['recording-rules.yml'])
+        self.assertNotIn('p99',
+                         by_kind_name[('ConfigMap', 'higress-ack-promql')]['data'])
         gateway_scrape = next(job for job in config['scrape_configs']
                               if job['job_name'] == 'higress-gateway')
         self.assertNotIn(

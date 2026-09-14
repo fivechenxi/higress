@@ -41,7 +41,7 @@ data:
       - name: TokenVolt
         folder: TokenVolt
         type: file
-        disableDeletion: true
+        disableDeletion: false
         allowUiUpdates: false
         updateIntervalSeconds: 30
         options:
@@ -68,7 +68,7 @@ spec:
         app: higress-grafana
       annotations:
         checksum/provisioning: {{ printf "%s:%s" (toYaml $grafana) .Values.monitoring.interval | sha256sum }}
-        checksum/dashboards: {{ .Files.Get "dashboards/tokenvolt-higress-ai-gateway.json" | sha256sum }}
+        checksum/dashboards: {{ printf "%s:%s:%s" (.Files.Get "dashboards/tokenvolt-model-quality.json") (.Files.Get "dashboards/tokenvolt-runtime.json") (.Files.Get "dashboards/tokenvolt-infrastructure.json") | sha256sum }}
     spec:
       securityContext:
         fsGroup: 472
@@ -101,6 +101,8 @@ spec:
               value: "false"
             - name: GF_ANALYTICS_CHECK_FOR_UPDATES
               value: "false"
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: /var/lib/grafana/dashboards/tokenvolt-model-quality.json
           ports:
             - name: http
               containerPort: 3000
@@ -134,8 +136,7 @@ spec:
               subPath: dashboards.yaml
               readOnly: true
             - name: dashboards
-              mountPath: /var/lib/grafana/dashboards/tokenvolt-higress-ai-gateway.json
-              subPath: tokenvolt-higress-ai-gateway.json
+              mountPath: /var/lib/grafana/dashboards
               readOnly: true
       volumes:
         - name: data

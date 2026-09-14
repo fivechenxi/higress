@@ -54,8 +54,8 @@ Grafana 大盘中。
 | 客户可见错误率 | `...llm_failure_count`、`...llm_request_count` | 由 `tokenvolt:ai_*_per_second:rate5m` 计算 | 警告 5%，严重 15% | 包含返回给客户的 429 和被中断的流；这是网关结果口径，不用于评价厂商质量 |
 | 中断率 | `...llm_aborted_count`、`...llm_request_count` | 由已记录的速率计算 | 警告 1%，严重 5% | 包含本 fork 插件记录的响应中断 |
 | 处理中请求数 | `...llm_inflight_request` | `tokenvolt:ai_inflight_requests` | 仅大盘展示 | 可按路由、响应模型和厂商拆分 |
-| TTFT P50/P90/P99 | 固定 TTFT 累积计数器，采集时转换为 `higress_ai_ttft_milliseconds_bucket` | `tokenvolt:ai_ttft_milliseconds:p{50,90,99}_rate5m` | P90 超过 1 秒 | 当前是收到首个上游数据块的时间，并非首个有语义内容的 Token |
-| TPOT P50/P90/P99 | 固定 TPOT 累积计数器，采集时转换为 `higress_ai_tpot_milliseconds_bucket` | `tokenvolt:ai_tpot_milliseconds:p{50,90,99}_rate5m` | 暂定 P90 超过 100 毫秒 | 单次请求平均值 `(总耗时-TTFT)/(输出 Token-1)`；依赖最终 usage |
+| TTFT P50/P90 | 固定 TTFT 累积计数器，采集时转换为 `higress_ai_ttft_milliseconds_bucket` | `tokenvolt:ai_ttft_milliseconds:p{50,90}_rate5m` | P90 超过 1 秒 | 当前是收到首个上游数据块的时间，并非首个有语义内容的 Token |
+| TPOT P50/P90 | 固定 TPOT 累积计数器，采集时转换为 `higress_ai_tpot_milliseconds_bucket` | `tokenvolt:ai_tpot_milliseconds:p{50,90}_rate5m` | 暂定 P90 超过 100 毫秒 | 单次请求平均值 `(总耗时-TTFT)/(输出 Token-1)`；依赖最终 usage |
 | 平均服务耗时 | `...llm_service_duration`、`...llm_duration_count` | `tokenvolt:ai_service_duration_milliseconds:avg_rate5m` | 仅大盘展示 | 请求平均值，不是分位数 |
 | 输入、输出、总 TPM | `...input_token`、`...output_token`、`...total_token` | `tokenvolt:ai_{input,output,total}_tpm:rate5m` | 仅大盘展示 | 依赖厂商返回最终 usage 字段 |
 | 缓存命中 TPM | `...cache_hit_token` | `tokenvolt:ai_cache_hit_tpm:rate5m` | 仅大盘展示 | 支持 OpenAI、Anthropic 和 Gemini 的缓存读取字段 |
@@ -157,8 +157,7 @@ Gateway 副本汇总后的 5 分钟 RPM/TPM 判断，不能由单个 Envoy Pod �
 ## Grafana 使用方式
 
 `higress-ack-ops` 在运行阶段部署单副本 Grafana，通过 Higress 的 `/grafana/`
-子路由访问，并自动加载
-`charts/higress-ack-ops/dashboards/tokenvolt-higress-ai-gateway.json`。启用控制面/模型
+子路由访问，并自动加载三个独立页面：模型质量、实时运行和基础监控。启用控制面/模型
 API 公网分流时，该路由自动挂到进入
 Higress 的模型 API 域名（当前为 `api.tokenvolt.net/grafana/`），不会挂到绕过
 Higress、直达 TokenVolt 控制面的 `ack.tokenvolt.net`。
@@ -167,15 +166,19 @@ ARMS 凭证。
 
 ### 大盘信息架构
 
-主大盘按 OpenRouter 的模型页思路组织，而不是把所有基础设施指标混成一组：
+“模型质量”页按 OpenRouter 的模型页思路组织，而不是把所有基础设施指标混成一组：
 
-1. 先选择一个模型，顶部展示该模型经过整个网关后的成功率、TTFT P50/P90、
-   TPOT P50/P90 和 RPM；这是客户实际感受到的网关整体质量。
+1. 只选择模型，不暴露属于网关实现细节的 route 筛选。顶部展示该模型经过整个网关
+   后的成功率、TTFT P50/P90、TPOT P50/P90 和样本量；这是客户实际感受到的整体质量。
 2. 紧接着用“模型 × 厂商”表比较成功率、TTFT、TPOT、RPM 和 TPM。表格可按任意
    列排序；不额外制造一个权重不透明的综合分数。
-3. 时序趋势、Token、缓存和合同容量用于解释排名变化。
-4. Envoy、Terway/Cilium、HPA、采集器和 Controller 属于基础设施诊断区，不参与
-   厂商质量排名。
+3. “实时运行”页把同一模型 × 厂商的 RPM、TPM、成功率、TTFT 和 TPOT 合并为一行，
+   只保留三组必要趋势图。
+4. “基础监控”页单独承载 Envoy、Terway/Cilium、HPA、采集器和 Controller；它们
+   不参与厂商质量排名。
+
+三个页面都不展示 P99。当前样本量不足以让 P99 稳定，P50 表示常态，P90 用于慢请求
+和服务质量边缘判断。
 
 价格尚未进入 Prometheus；后续厂商表需要从版本化价格目录补充输入、输出和缓存
 单价。价格是配置事实，不能从流量指标推断。

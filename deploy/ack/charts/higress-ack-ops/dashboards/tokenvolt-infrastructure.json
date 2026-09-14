@@ -1,0 +1,68 @@
+{
+  "annotations": {"list": []},
+  "description": "Higress Gateway、Envoy、HPA、Terway/Cilium、采集器和最小控制面监控。",
+  "editable": true, "graphTooltip": 1, "id": null,
+  "links": [{"title": "模型质量", "type": "link", "url": "/grafana/d/tokenvolt-model-quality"}, {"title": "实时运行", "type": "link", "url": "/grafana/d/tokenvolt-runtime"}],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}, "id": 1,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "tokenvolt:gateway_active_streams", "legendFormat": "当前 {{pod}}", "refId": "A"}, {"expr": "vector(225)", "legendFormat": "HPA 每 Pod 目标", "refId": "B"}],
+      "title": "Gateway 活跃请求", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "bytes"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}, "id": 2,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "envoy_server_memory_allocated", "legendFormat": "allocated {{pod}}", "refId": "A"}, {"expr": "envoy_server_memory_heap_size", "legendFormat": "heap {{pod}}", "refId": "B"}],
+      "title": "Envoy 内存", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}, "id": 3,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "tokenvolt:hpa_current_replicas", "legendFormat": "当前 {{horizontalpodautoscaler}}", "refId": "A"}, {"expr": "tokenvolt:hpa_desired_replicas", "legendFormat": "期望 {{horizontalpodautoscaler}}", "refId": "B"}, {"expr": "tokenvolt:hpa_max_replicas", "legendFormat": "上限 {{horizontalpodautoscaler}}", "refId": "C"}],
+      "title": "HPA 当前、期望和最大副本", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "max": 1, "min": 0, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16}, "id": 4,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "tokenvolt:terway_ct_pressure:max", "legendFormat": "{{instance}} · {{map_name}}", "refId": "A"}],
+      "title": "Terway/Cilium CT Map 压力", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 16}, "id": 5,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "prometheus_remote_storage_samples_pending", "legendFormat": "远端写入等待", "refId": "A"}, {"expr": "increase(prometheus_remote_storage_samples_failed_total[5m])", "legendFormat": "远端写入失败 / 5m", "refId": "B"}, {"expr": "prometheus_tsdb_head_series", "legendFormat": "本地序列数", "refId": "C"}],
+      "title": "指标采集器", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 16}, "id": 6,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "pilot_endpoint_not_ready", "legendFormat": "Endpoint 未就绪", "refId": "A"}, {"expr": "increase(pilot_eds_no_instances[5m])", "legendFormat": "EDS 无实例 / 5m", "refId": "B"}, {"expr": "increase(pilot_xds_expired_nonce[5m])", "legendFormat": "xDS nonce 过期 / 5m", "refId": "C"}],
+      "title": "Higress Controller 最小健康指标", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24}, "id": 7,
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
+      "targets": [{"expr": "ALERTS{alertstate=\"firing\"}", "format": "table", "instant": true, "refId": "A"}],
+      "title": "当前告警", "transformations": [{"id": "labelsToFields", "options": {}}], "type": "table"
+    }
+  ],
+  "refresh": "30s", "schemaVersion": 39, "tags": ["tokenvolt", "infrastructure"],
+  "templating": {"list": [{"current": {}, "label": "Prometheus", "name": "datasource", "query": "prometheus", "refresh": 1, "type": "datasource"}]},
+  "time": {"from": "now-1h", "to": "now"}, "timepicker": {}, "timezone": "browser",
+  "title": "TokenVolt / 基础监控", "uid": "tokenvolt-infrastructure", "version": 1
+}

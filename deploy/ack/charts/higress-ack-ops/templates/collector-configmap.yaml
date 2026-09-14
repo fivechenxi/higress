@@ -240,14 +240,10 @@ data:
             expr: histogram_quantile(0.50, sum by (le,ai_route,ai_model,ai_provider) (rate(higress_ai_ttft_milliseconds_bucket[5m])))
           - record: tokenvolt:ai_ttft_milliseconds:p90_rate5m
             expr: histogram_quantile(0.90, sum by (le,ai_route,ai_model,ai_provider) (rate(higress_ai_ttft_milliseconds_bucket[5m])))
-          - record: tokenvolt:ai_ttft_milliseconds:p99_rate5m
-            expr: histogram_quantile(0.99, sum by (le,ai_route,ai_model,ai_provider) (rate(higress_ai_ttft_milliseconds_bucket[5m])))
           - record: tokenvolt:ai_tpot_milliseconds:p50_rate5m
             expr: histogram_quantile(0.50, sum by (le,ai_route,ai_model,ai_provider) (rate(higress_ai_tpot_milliseconds_bucket[5m])))
           - record: tokenvolt:ai_tpot_milliseconds:p90_rate5m
             expr: histogram_quantile(0.90, sum by (le,ai_route,ai_model,ai_provider) (rate(higress_ai_tpot_milliseconds_bucket[5m])))
-          - record: tokenvolt:ai_tpot_milliseconds:p99_rate5m
-            expr: histogram_quantile(0.99, sum by (le,ai_route,ai_model,ai_provider) (rate(higress_ai_tpot_milliseconds_bucket[5m])))
           - record: tokenvolt:ai_service_duration_milliseconds:avg_rate5m
             expr: sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_llm_service_duration[5m])) / clamp_min(sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_llm_duration_count[5m])), 0.000001)
           - record: tokenvolt:ai_cache_token_hit_ratio:rate5m
@@ -268,14 +264,10 @@ data:
             expr: histogram_quantile(0.50, sum by (le,ai_model,ai_provider) (rate(higress_ai_ttft_milliseconds_bucket[5m])))
           - record: tokenvolt:provider_model_ttft_milliseconds:p90_rate5m
             expr: histogram_quantile(0.90, sum by (le,ai_model,ai_provider) (rate(higress_ai_ttft_milliseconds_bucket[5m])))
-          - record: tokenvolt:provider_model_ttft_milliseconds:p99_rate5m
-            expr: histogram_quantile(0.99, sum by (le,ai_model,ai_provider) (rate(higress_ai_ttft_milliseconds_bucket[5m])))
           - record: tokenvolt:provider_model_tpot_milliseconds:p50_rate5m
             expr: histogram_quantile(0.50, sum by (le,ai_model,ai_provider) (rate(higress_ai_tpot_milliseconds_bucket[5m])))
           - record: tokenvolt:provider_model_tpot_milliseconds:p90_rate5m
             expr: histogram_quantile(0.90, sum by (le,ai_model,ai_provider) (rate(higress_ai_tpot_milliseconds_bucket[5m])))
-          - record: tokenvolt:provider_model_tpot_milliseconds:p99_rate5m
-            expr: histogram_quantile(0.99, sum by (le,ai_model,ai_provider) (rate(higress_ai_tpot_milliseconds_bucket[5m])))
           {{- range .Values.monitoring.providerModelCapacity }}
           - record: tokenvolt:provider_model_rpm_limit
             expr: vector({{ .rpmLimit }})
