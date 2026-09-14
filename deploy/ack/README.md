@@ -83,9 +83,13 @@ There are two lifecycle levels:
   Service path.
 - Observability: a narrow collector remote-writes only allowlisted application
   metrics to ARMS. ACK's full metric-agent/cs-default jobs are not installed.
-  `metrics-server` supplies CPU HPA and a Helm-managed upstream Prometheus
-  Adapter supplies `higress_active_streams`; adapter failure is alerted for
-  manual handling.
+  `metrics-server` supplies controller CPU HPA; a Helm-managed Prometheus
+  Adapter supplies Gateway `higress_active_streams`. Local recording/alerting
+  rules, ARMS bridge alerts, an HPA-only state watcher, ACK K8s Event Center,
+  and an importable Grafana dashboard are included. Event Center is separate
+  from the disabled cs-default metric collection.
+  See [OBSERVABILITY_INVENTORY.md](OBSERVABILITY_INVENTORY.md) for the exact
+  metric, alert, cardinality, and known-gap boundary.
 - ACK automatic scale-down is explicitly configured with a 5-minute trigger
   delay. This affects autoscaler decisions, not deletion of an entire node pool.
 

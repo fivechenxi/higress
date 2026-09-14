@@ -307,3 +307,20 @@ variable "ack_edge_certificate_id" {
   type        = string
   default     = ""
 }
+variable "prometheus_alerts_enabled" {
+  description = "Create ARMS-side bridge alerts while the ACK workload stack is running."
+  type        = bool
+  default     = true
+}
+
+variable "prometheus_alert_dispatch_rule_id" {
+  description = "Optional ARMS notification-policy ID. Empty uses the account's default AlertManager path."
+  type        = string
+  default     = ""
+}
+
+variable "hpa_event_center_enabled" {
+  description = "Persist Kubernetes events, including HPA decisions and failures, in the ACK SLS Event Center. This does not enable cs-default Prometheus collection."
+  type        = bool
+  default     = true
+}

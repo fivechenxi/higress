@@ -51,6 +51,39 @@ resource "alicloud_arms_environment" "prometheus" {
   }
 }
 
+# Detailed rules are evaluated by the bounded in-cluster collector and their
+# ALERTS series is remote-written with the application metrics. ARMS owns two
+# bridge rules: one forwards every firing application alert, while the second
+# remains evaluable when the collector itself disappears.
+locals {
+  prometheus_bridge_alerts = {
+    application = {
+      duration   = 1
+      expression = "ALERTS{ack_cluster=\"${alicloud_cs_managed_kubernetes.this.id}\",alertstate=\"firing\",severity=~\"warning|critical\"} == 1"
+      message    = "A TokenVolt Higress application alert is firing. Inspect the alertname, component, model and provider labels."
+    }
+    collector_missing = {
+      duration   = 5
+      expression = "absent(up{ack_cluster=\"${alicloud_cs_managed_kubernetes.this.id}\",job=\"higress-metrics-collector\"} == 1)"
+      message    = "The Higress metrics collector has not remote-written its own health series for five minutes. Gateway HPA metrics may be unavailable."
+    }
+  }
+}
+
+resource "alicloud_arms_prometheus_alert_rule" "higress" {
+  for_each = var.lifecycle_mode == "running" && var.prometheus_alerts_enabled ? local.prometheus_bridge_alerts : {}
+
+  cluster_id                 = alicloud_cs_managed_kubernetes.this.id
+  duration                   = each.value.duration
+  expression                 = each.value.expression
+  message                    = each.value.message
+  prometheus_alert_rule_name = "tokenvolt-higress-${replace(each.key, "_", "-")}"
+  notify_type                = var.prometheus_alert_dispatch_rule_id == "" ? "ALERT_MANAGER" : "DISPATCH_RULE"
+  dispatch_rule_id           = var.prometheus_alert_dispatch_rule_id == "" ? null : var.prometheus_alert_dispatch_rule_id
+
+  depends_on = [alicloud_arms_environment.prometheus]
+}
+
 # ARMS V2 supports password-free Remote Write from a CIDR allowlist. The
 # provider does not yet expose these UpdatePrometheusInstance fields, so keep
 # this one API call inside the OpenTofu graph. The allowlist is the reused VPC

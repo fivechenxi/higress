@@ -60,6 +60,43 @@ monitoring:
       limits:
         cpu: 500m
         memory: 512Mi
+  alerts:
+    enabled: true
+    minRequests5m: 20
+    errorRatioWarning: 0.05
+    errorRatioCritical: 0.15
+    abortRatioWarning: 0.01
+    abortRatioCritical: 0.05
+    ttftP90WarningMilliseconds: 1000
+    tpotP90WarningMilliseconds: 100
+    providerSuccessRatioWarning: 0.99
+    gatewayMemoryWarningBytes: 805306368
+    ciliumCTPressureWarning: 0.70
+    ciliumCTPressureCritical: 0.90
+  grafana:
+    # Dashboards are packaged as ConfigMaps. Managed Grafana imports the JSON;
+    # no Grafana server or sidecar is installed into ACK by this chart.
+    dashboardsEnabled: true
+  hpaState:
+    enabled: true
+    # Only HPA objects in the Higress namespace are watched. This is not the
+    # full kube-state-metrics deployment used by cs-default.
+    image: m.daocloud.io/registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.0@sha256:6b2f0b6f2f86ac5b1aa883a033a8dd55bb96c16d191ec973393bdaadaddac914
+    namespace: higress-system
+    resources:
+      requests:
+        cpu: 20m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 96Mi
+  # Contracted capacity is a model/provider property, not a measured value.
+  # Populate it only from a provider contract or console quota page.
+  providerModelCapacity: []
+    # - provider: bailian
+    #   model: qwen-max
+    #   rpmLimit: 600
+    #   tpmLimit: 1000000
   discoveryObjectsEnabled: false
   discoveryAnnotation: "true"
   interval: 15s

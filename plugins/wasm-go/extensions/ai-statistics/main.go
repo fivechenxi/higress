@@ -92,6 +92,9 @@ const (
 	LLMDurationCount       = "llm_duration_count"
 	LLMStreamDurationCount = "llm_stream_duration_count"
 	LLMFailureCount        = "llm_failure_count"
+	LLMRateLimitedCount    = "llm_rate_limited_count"
+	ProviderRateLimitEvent = "provider_rate_limit_event"
+	RateLimitEvaluation    = "rate_limit_evaluation"
 	LLMRequestCount        = "llm_request_count"
 	LLMAbortedCount        = "llm_aborted_count"
 	LLMInflightRequest     = "llm_inflight_request"
@@ -826,8 +829,12 @@ func onHttpRequestBody(ctx wrapper.HttpContext, config AIStatisticsConfig, body 
 
 func onHttpResponseHeaders(ctx wrapper.HttpContext, config AIStatisticsConfig) types.Action {
 	contentType, _ := proxywasm.GetHttpResponseHeader("content-type")
+	statusCode, statusErr := proxywasm.GetHttpResponseHeader(":status")
+	isProviderRateLimited := statusErr == nil && statusCode == "429"
 
-	if !isContentTypeEnabled(contentType, config.enableContentTypes) {
+	// Preserve 429 observability even when a provider returns an empty or unusual
+	// content type for its error response.
+	if !isProviderRateLimited && !isContentTypeEnabled(contentType, config.enableContentTypes) {
 		log.Debugf("ai-statistics: skipping response for content type %s (not in enabled content types)", contentType)
 		// Set skip processing flag and avoid reading response body
 		ctx.SetContext(SkipProcessing, true)
@@ -837,6 +844,16 @@ func onHttpResponseHeaders(ctx wrapper.HttpContext, config AIStatisticsConfig) t
 
 	if !strings.Contains(contentType, "text/event-stream") {
 		ctx.BufferResponseBody()
+	}
+
+	// A request-local filter cannot truthfully decide whether a provider 429 is
+	// expected: the contractual RPM/TPM comparison is performed over all gateway
+	// replicas in the Prometheus five-minute window. Mark the raw request as a
+	// provider rate-limit event so an unexpected-429 alert can be correlated back
+	// to the exact SLS records without claiming a false per-pod classification.
+	if isProviderRateLimited {
+		ctx.SetUserAttribute(ProviderRateLimitEvent, true)
+		ctx.SetUserAttribute(RateLimitEvaluation, "provider_model_capacity_window")
 	}
 
 	// Retain a provider request ID even when its response body never arrives.
@@ -1690,6 +1707,8 @@ func writeMetric(ctx wrapper.HttpContext, config AIStatisticsConfig, body []byte
 	config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMRequestCount), 1)
 	failureMetric := generateMetricName(route, cluster, model, consumer, LLMFailureCount)
 	config.ensureCounter(failureMetric)
+	rateLimitedMetric := generateMetricName(route, cluster, model, consumer, LLMRateLimitedCount)
+	config.ensureCounter(rateLimitedMetric)
 
 	// Count failure before usage check, so error responses without usage info are still counted.
 	// For streaming, also check the hasStreamError flag set during onHttpStreamingBody.
@@ -1698,6 +1717,12 @@ func writeMetric(ctx wrapper.HttpContext, config AIStatisticsConfig, body []byte
 	// signal even when usage tracking is off.
 	if isErrorResponse(body) || ctx.GetBoolContext("hasStreamError", false) || ctx.GetBoolContext(interruptedContext, false) {
 		config.incrementCounter(failureMetric, 1)
+	}
+	// Keep HTTP 429 separate from the generic customer-visible failure counter.
+	// Operations can then count it as provider failure only while the measured
+	// model/provider traffic remains below the contracted RPM/TPM capacity.
+	if statusCode, err := proxywasm.GetHttpResponseHeader(":status"); err == nil && statusCode == "429" {
+		config.incrementCounter(rateLimitedMetric, 1)
 	}
 
 	if ctx.GetBoolContext(interruptedContext, false) {

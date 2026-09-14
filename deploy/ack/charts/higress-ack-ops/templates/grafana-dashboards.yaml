@@ -12,9 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-apiVersion: v2
-name: higress-ack-ops
-description: ACK autoscaling, disruption budgets, and bounded Prometheus collection for Higress
-type: application
-version: 0.1.8
-appVersion: "1"
+{{- if and .Values.monitoring.enabled .Values.monitoring.grafana.dashboardsEnabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: higress-grafana-dashboards
+  namespace: {{ .Release.Namespace }}
+  labels:
+    grafana_dashboard: "1"
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+data:
+  tokenvolt-higress-ai-gateway.json: |-
+{{ .Files.Get "dashboards/tokenvolt-higress-ai-gateway.json" | indent 4 }}
+{{- end }}
