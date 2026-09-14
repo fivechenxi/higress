@@ -454,6 +454,18 @@ resource "helm_release" "tokenvolt" {
           pluginSha256 = var.tokenvolt_ai_statistics_plugin_sha256
           paths        = ["/v1/chat/completions", "/v1/responses", "/v1/messages"]
         }
+        rateLimits = {
+          enabled = var.tokenvolt_rate_limit_redis_enabled
+          domains = compact([var.tokenvolt_data_public_host, var.tokenvolt_api_host])
+          requestPlugin = {
+            url    = var.tokenvolt_cluster_key_rate_limit_plugin_url
+            sha256 = var.tokenvolt_cluster_key_rate_limit_plugin_sha256
+          }
+          tokenPlugin = {
+            url    = var.tokenvolt_ai_token_rate_limit_plugin_url
+            sha256 = var.tokenvolt_ai_token_rate_limit_plugin_sha256
+          }
+        }
       }
       rateLimitRedis = {
         enabled = var.tokenvolt_rate_limit_redis_enabled
@@ -493,6 +505,8 @@ resource "helm_release" "tokenvolt" {
         (can(regex("^oci://.+@sha256:[0-9a-f]{64}$", var.tokenvolt_ai_statistics_plugin_url)) ||
           (can(regex("^https://[^/]+/.*/sha256/[0-9a-f]{64}\\.wasm$", var.tokenvolt_ai_statistics_plugin_url)) &&
         endswith(var.tokenvolt_ai_statistics_plugin_url, "/${var.tokenvolt_ai_statistics_plugin_sha256}.wasm"))) &&
+        endswith(var.tokenvolt_cluster_key_rate_limit_plugin_url, "/sha256/${var.tokenvolt_cluster_key_rate_limit_plugin_sha256}.wasm") &&
+        endswith(var.tokenvolt_ai_token_rate_limit_plugin_url, "/sha256/${var.tokenvolt_ai_token_rate_limit_plugin_sha256}.wasm") &&
         (!var.tokenvolt_mock_enabled || can(regex("@sha256:[0-9a-f]{64}$", var.tokenvolt_mock_image)))
       )
       error_message = "TokenVolt control-plane and both Wasm plugin references must be immutable digest references."

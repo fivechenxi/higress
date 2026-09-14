@@ -265,6 +265,30 @@ variable "tokenvolt_rate_limit_redis_image" {
   }
 }
 
+variable "tokenvolt_cluster_key_rate_limit_plugin_url" {
+  description = "Immutable checksum-addressed URL for the customer RPM protection plugin."
+  type        = string
+  default     = "https://tokenvolt-plugins-1150088752341921-cn-beijing.oss-cn-beijing.aliyuncs.com/cluster-key-rate-limit/sha256/e123e3a93970dfd48a89b8e2440a0cd6e486f18be5b93c445d7b9017888d69e6.wasm"
+}
+
+variable "tokenvolt_cluster_key_rate_limit_plugin_sha256" {
+  description = "Wasm SHA-256 for the customer RPM protection plugin."
+  type        = string
+  default     = "e123e3a93970dfd48a89b8e2440a0cd6e486f18be5b93c445d7b9017888d69e6"
+}
+
+variable "tokenvolt_ai_token_rate_limit_plugin_url" {
+  description = "Immutable checksum-addressed URL for trial and postpaid Token quota plugins."
+  type        = string
+  default     = "https://tokenvolt-plugins-1150088752341921-cn-beijing.oss-cn-beijing.aliyuncs.com/ai-token-ratelimit/sha256/3b0096af81cfa041ea886848373f8eff711ef8c2b551d673b099b1ce32ee117a.wasm"
+}
+
+variable "tokenvolt_ai_token_rate_limit_plugin_sha256" {
+  description = "Wasm SHA-256 for the trial and postpaid Token quota plugin."
+  type        = string
+  default     = "3b0096af81cfa041ea886848373f8eff711ef8c2b551d673b099b1ce32ee117a"
+}
+
 variable "tokenvolt_portal_host" {
   description = "Internal validation host routed to the TokenVolt Portal before public cutover."
   type        = string

@@ -65,6 +65,15 @@ higress:
       - /v1/chat/completions
       - /v1/responses
       - /v1/messages
+  rateLimits:
+    enabled: true
+    domains: []
+    requestPlugin:
+      url: ""
+      sha256: ""
+    tokenPlugin:
+      url: ""
+      sha256: ""
 
 # Shared counter store for Higress distributed RPM/TPM and token-quota
 # plugins. This is intentionally a low-cost, non-persistent test baseline;

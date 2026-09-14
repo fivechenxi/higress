@@ -1,0 +1,62 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.higress.rateLimits.enabled }}
+{{- $domains := required "higress.rateLimits.domains must be set" .Values.higress.rateLimits.domains }}
+{{- $redisService := printf "%s.%s.svc.cluster.local" .Values.rateLimitRedis.serviceName .Release.Namespace }}
+{{- $plugins := list
+      (dict "name" "tokenvolt-customer-rate-limit" "artifact" .Values.higress.rateLimits.requestPlugin "priority" 610 "quotaHeaders" true)
+      (dict "name" "tokenvolt-trial-token-quota" "artifact" .Values.higress.rateLimits.tokenPlugin "priority" 620 "quotaHeaders" false)
+      (dict "name" "tokenvolt-postpaid-token-quota" "artifact" .Values.higress.rateLimits.tokenPlugin "priority" 620 "quotaHeaders" false)
+}}
+{{- range $index, $plugin := $plugins }}
+{{- $existing := lookup "extensions.higress.io/v1alpha1" "WasmPlugin" $.Values.higress.namespace $plugin.name }}
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: {{ $plugin.name }}
+  namespace: {{ $.Values.higress.namespace }}
+  labels:
+    tokenvolt.ai/managed: rate-limit
+    {{- include "tokenvolt.labels" $ | nindent 4 }}
+  annotations:
+    tokenvolt.ai/rate-limit-domains: {{ $domains | toJson | quote }}
+spec:
+  url: {{ required (printf "artifact URL is required for %s" $plugin.name) $plugin.artifact.url | quote }}
+  sha256: {{ required (printf "artifact sha256 is required for %s" $plugin.name) $plugin.artifact.sha256 | quote }}
+  {{- if hasPrefix "oci://" $plugin.artifact.url }}
+  imagePullSecret: {{ $.Values.higress.imagePullSecret | quote }}
+  {{- end }}
+  imagePullPolicy: IfNotPresent
+  phase: UNSPECIFIED_PHASE
+  priority: {{ $plugin.priority }}
+  defaultConfigDisable: true
+  defaultConfig:
+    redis:
+      service_name: {{ $redisService | quote }}
+      service_port: 6379
+      timeout: 1000
+    rejected_code: 429
+    rejected_msg: TokenVolt rate limit exceeded
+    {{- if $plugin.quotaHeaders }}
+    show_limit_quota_header: true
+    {{- end }}
+  matchRules:
+    {{- if and $existing $existing.spec.matchRules }}
+    {{- toYaml $existing.spec.matchRules | nindent 4 }}
+    {{- else }} []
+    {{- end }}
+---
+{{- end }}
+{{- end }}
