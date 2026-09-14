@@ -2436,6 +2436,42 @@ func TestFailureCountMetric(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, uint64(1), durationCountValue)
 		})
+
+		t.Run("rate limited response has a separate bounded counter", func(t *testing.T) {
+			host, status := test.NewTestHost(basicConfig)
+			defer host.Reset()
+			require.Equal(t, types.OnPluginStartStatusOK, status)
+
+			host.SetRouteName("api-v1")
+			host.SetClusterName("cluster-1")
+			host.CallOnHttpRequestHeaders([][2]string{
+				{":authority", "example.com"},
+				{":path", "/api/chat"},
+				{":method", "POST"},
+				{"x-mse-consumer", "user1"},
+			})
+			host.CallOnHttpRequestBody([]byte(`{"model":"gpt-4","messages":[{"role":"user","content":"Hello"}]}`))
+			host.CallOnHttpResponseHeaders([][2]string{
+				{":status", "429"},
+				{"content-type", "application/json"},
+			})
+			host.CallOnHttpResponseBody([]byte(`{"error":{"type":"rate_limit_error"}}`))
+			host.CompleteHttp()
+
+			rateLimitedMetric := "route.api-v1.upstream.cluster-1.model.gpt-4.consumer.user1.metric.llm_rate_limited_count"
+			rateLimitedValue, err := host.GetCounterMetric(rateLimitedMetric)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), rateLimitedValue)
+
+			aiLog := getAILogAttributes(t, host)
+			require.Equal(t, true, aiLog[ProviderRateLimitEvent])
+			require.Equal(t, "provider_model_capacity_window", aiLog[RateLimitEvaluation])
+
+			failureMetric := "route.api-v1.upstream.cluster-1.model.gpt-4.consumer.user1.metric.llm_failure_count"
+			failureValue, err := host.GetCounterMetric(failureMetric)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), failureValue, "429 remains customer-visible failure")
+		})
 	})
 }
 

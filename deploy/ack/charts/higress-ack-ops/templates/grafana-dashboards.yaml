@@ -1,0 +1,33 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if and .Values.monitoring.enabled (or .Values.monitoring.grafana.dashboardsEnabled .Values.monitoring.grafana.enabled) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: higress-grafana-dashboards
+  namespace: {{ .Release.Namespace }}
+  labels:
+    grafana_dashboard: "1"
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+data:
+  tokenvolt-model-quality.json: |-
+{{ .Files.Get "dashboards/tokenvolt-model-quality.json" | indent 4 }}
+  tokenvolt-runtime.json: |-
+{{ .Files.Get "dashboards/tokenvolt-runtime.json" | indent 4 }}
+  tokenvolt-infrastructure.json: |-
+{{ .Files.Get "dashboards/tokenvolt-infrastructure.json" | indent 4 }}
+  tokenvolt-request-details.json: |-
+{{ .Files.Get "dashboards/tokenvolt-request-details.json" | indent 4 }}
+{{- end }}

@@ -21,6 +21,8 @@ header:
     - 'deploy/ack/**/_helpers.tpl'
     # Generated operational evidence is JSON data, not source code.
     - 'deploy/ack/evidence/**'
+    # Grafana dashboard JSON cannot contain a source-code license comment.
+    - 'deploy/ack/charts/higress-ack-ops/dashboards/**'
     - 'envoy/**'
     - 'istio/**'
     - 'go.mod'

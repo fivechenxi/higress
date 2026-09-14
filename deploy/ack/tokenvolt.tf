@@ -74,27 +74,29 @@ resource "alicloud_log_store_index" "tokenvolt" {
 
   dynamic "field_search" {
     for_each = {
-      "consumer"                        = "text"
-      "path"                            = "text"
-      "request_id"                      = "text"
-      "route_name"                      = "text"
-      "start_time"                      = "text"
-      "upstream_cluster"                = "text"
-      "ai_log.model"                    = "text"
-      "ai_log.requested_model"          = "text"
-      "ai_log.chat_id"                  = "text"
-      "ai_log.upstream_request_id"      = "text"
-      "ai_log.response_completed"       = "text"
-      "ai_log.response_error"           = "text"
-      "ai_log.usage_status"             = "text"
-      "response_code"                   = "long"
-      "response_flags"                  = "text"
-      "ai_log.input_token"              = "long"
-      "ai_log.output_token"             = "long"
-      "ai_log.total_token"              = "long"
-      "ai_log.cached_tokens"            = "long"
-      "ai_log.llm_first_token_duration" = "double"
-      "ai_log.llm_service_duration"     = "double"
+      "consumer"                         = "text"
+      "path"                             = "text"
+      "request_id"                       = "text"
+      "route_name"                       = "text"
+      "start_time"                       = "text"
+      "upstream_cluster"                 = "text"
+      "ai_log.model"                     = "text"
+      "ai_log.requested_model"           = "text"
+      "ai_log.chat_id"                   = "text"
+      "ai_log.upstream_request_id"       = "text"
+      "ai_log.response_completed"        = "text"
+      "ai_log.response_error"            = "text"
+      "ai_log.usage_status"              = "text"
+      "ai_log.provider_rate_limit_event" = "text"
+      "ai_log.rate_limit_evaluation"     = "text"
+      "response_code"                    = "long"
+      "response_flags"                   = "text"
+      "ai_log.input_token"               = "long"
+      "ai_log.output_token"              = "long"
+      "ai_log.total_token"               = "long"
+      "ai_log.cached_tokens"             = "long"
+      "ai_log.llm_first_token_duration"  = "double"
+      "ai_log.llm_service_duration"      = "double"
     }
     content {
       name             = field_search.key
@@ -196,6 +198,54 @@ resource "alicloud_ram_role_policy_attachment" "tokenvolt" {
 
   role_name   = alicloud_ram_role.tokenvolt[0].role_name
   policy_name = alicloud_ram_policy.tokenvolt[0].policy_name
+  policy_type = "Custom"
+}
+
+# The upstream Grafana SLS datasource does not support ACK RRSA credentials.
+# Give Grafana a dedicated read-only RAM user instead of reusing the control
+# plane role or any operator credential. The AK is stored only in Terraform
+# state and a Kubernetes Secret and is never rendered into a ConfigMap.
+resource "alicloud_ram_user" "grafana_sls" {
+  count = var.tokenvolt_enabled && var.grafana_enabled ? 1 : 0
+
+  name         = "tokenvolt-grafana-sls-${var.cluster_name}"
+  display_name = "TokenVolt Grafana SLS reader"
+  comments     = "Read-only model-access dashboard credential"
+  force        = true
+}
+
+resource "alicloud_ram_access_key" "grafana_sls" {
+  count = var.tokenvolt_enabled && var.grafana_enabled ? 1 : 0
+
+  user_name = alicloud_ram_user.grafana_sls[0].name
+}
+
+resource "alicloud_ram_policy" "grafana_sls" {
+  count = var.tokenvolt_enabled && var.grafana_enabled ? 1 : 0
+
+  policy_name = "tokenvolt-grafana-sls-${var.cluster_name}"
+  description = "Read-only access to the TokenVolt request detail Logstore"
+  force       = true
+  policy_document = jsonencode({
+    Version = "1"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["log:GetLogStoreLogs", "log:GetHistograms"]
+      Resource = ["acs:log:${var.region}:${data.alicloud_account.current.id}:project/${local.tokenvolt_sls_project}/logstore/${local.tokenvolt_sls_logstore}"]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["log:GetProject", "log:ListLogStores"]
+        Resource = ["acs:log:${var.region}:${data.alicloud_account.current.id}:project/${local.tokenvolt_sls_project}"]
+    }]
+  })
+}
+
+resource "alicloud_ram_user_policy_attachment" "grafana_sls" {
+  count = var.tokenvolt_enabled && var.grafana_enabled ? 1 : 0
+
+  user_name   = alicloud_ram_user.grafana_sls[0].name
+  policy_name = alicloud_ram_policy.grafana_sls[0].policy_name
   policy_type = "Custom"
 }
 
@@ -363,8 +413,19 @@ resource "helm_release" "tokenvolt" {
 
   values = [
     yamlencode({
+      # The Helm provider does not detect edits beneath an unchanged chart path.
+      chartContentHash = sha256(join("", [for file in sort(fileset("${path.module}/charts/tokenvolt", "**")) : filesha256("${path.module}/charts/tokenvolt/${file}")]))
       controlPlane = {
-        image                      = var.tokenvolt_control_plane_image
+        image = var.tokenvolt_control_plane_image
+        publicService = {
+          enabled = var.tokenvolt_split_public_entry
+          annotations = var.tokenvolt_split_public_entry ? {
+            "service.beta.kubernetes.io/alibaba-cloud-loadbalancer-id"                       = alicloud_slb_load_balancer.higress_public.id
+            "service.beta.kubernetes.io/alibaba-cloud-loadbalancer-force-override-listeners" = "false"
+            "service.beta.kubernetes.io/alibaba-cloud-loadbalancer-vgroup-port"              = "${try(alicloud_slb_server_group.portal_http[0].id, "")}:8000"
+            "service.beta.kubernetes.io/backend-type"                                        = "eni"
+          } : {}
+        }
         rrsaRoleName               = alicloud_ram_role.tokenvolt[0].role_name
         allowedOrigin              = var.tokenvolt_public_host != "" ? "${var.tokenvolt_public_tls_enabled ? "https" : "http"}://${var.tokenvolt_public_host}" : ""
         allowInsecureSessionCookie = var.tokenvolt_public_host != "" && !var.tokenvolt_public_tls_enabled
@@ -395,7 +456,8 @@ resource "helm_release" "tokenvolt" {
         }
       }
       portal = {
-        host = var.tokenvolt_portal_host
+        directEntry = var.tokenvolt_split_public_entry
+        host        = var.tokenvolt_portal_host
       }
       modelApi = {
         host = var.tokenvolt_api_host
@@ -409,7 +471,7 @@ resource "helm_release" "tokenvolt" {
         }
       }
       publicEntry = {
-        host          = var.tokenvolt_public_host
+        host          = var.tokenvolt_split_public_entry ? var.tokenvolt_data_public_host : var.tokenvolt_public_host
         tlsSecretName = var.tokenvolt_public_tls_enabled && !local.shared_public_edge ? kubernetes_secret_v1.tokenvolt_public_tls[0].metadata[0].name : ""
       }
       modelRouting = {

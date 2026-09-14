@@ -307,3 +307,72 @@ variable "ack_edge_certificate_id" {
   type        = string
   default     = ""
 }
+variable "prometheus_alerts_enabled" {
+  description = "Create ARMS-side bridge alerts while the ACK workload stack is running."
+  type        = bool
+  default     = true
+}
+
+variable "prometheus_alert_dispatch_rule_id" {
+  description = "Optional ARMS notification-policy ID. Empty uses the account's default AlertManager path."
+  type        = string
+  default     = ""
+}
+
+variable "prometheus_query_url" {
+  description = "ACK Prometheus intranet HTTP API URL returned by GetPrometheusInstance; used by Grafana so collector restarts do not lose dashboard history."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.prometheus_query_url == "" || startswith(var.prometheus_query_url, "http://cn-beijing-intranet.arms.aliyuncs.com:9090/")
+    error_message = "prometheus_query_url must be the cn-beijing ARMS intranet HTTP API URL."
+  }
+}
+
+variable "hpa_event_center_enabled" {
+  description = "Persist Kubernetes events, including HPA decisions and failures, in the ACK SLS Event Center. This does not enable cs-default Prometheus collection."
+  type        = bool
+  default     = true
+}
+
+variable "grafana_enabled" {
+  description = "Run a single Grafana instance behind the Higress /grafana sub-route while the workload stack is running."
+  type        = bool
+  default     = true
+}
+
+variable "grafana_admin_user" {
+  description = "Grafana administrator user stored with its generated password in a Kubernetes Secret."
+  type        = string
+  default     = "admin"
+}
+
+variable "feishu_alert_webhook_url" {
+  description = "Feishu custom-bot webhook for TokenVolt alerts. Keep empty to deploy Alertmanager with a null receiver."
+  type        = string
+  default     = ""
+  sensitive   = true
+
+  validation {
+    condition     = var.feishu_alert_webhook_url == "" || can(regex("^https://open\\.(feishu\\.cn|larksuite\\.com)/open-apis/bot/v2/hook/[A-Za-z0-9_-]+$", var.feishu_alert_webhook_url))
+    error_message = "feishu_alert_webhook_url must be an official Feishu/Lark custom-bot webhook URL."
+  }
+}
+
+variable "tokenvolt_split_public_entry" {
+  description = "Route the portal directly from CLB and expose model traffic on a separate public host."
+  type        = bool
+  default     = false
+}
+
+variable "tokenvolt_data_public_host" {
+  description = "Public model API hostname when split entry is enabled."
+  type        = string
+  default     = "api.tokenvolt.net"
+}
+
+variable "tokenvolt_data_certificate_id" {
+  description = "Trusted RSA CLB certificate for the model API hostname."
+  type        = string
+  default     = ""
+}

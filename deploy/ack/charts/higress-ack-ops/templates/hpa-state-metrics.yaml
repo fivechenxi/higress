@@ -1,0 +1,127 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if and .Values.monitoring.enabled .Values.monitoring.hpaState.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: higress-hpa-state-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+---
+{{- range $namespace := list .Values.monitoring.hpaState.namespace .Values.monitoring.hpaState.routeNamespace }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: higress-hpa-state-metrics
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: higress-hpa-state-metrics
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: higress-hpa-state-metrics
+subjects:
+  - kind: ServiceAccount
+    name: higress-hpa-state-metrics
+    namespace: {{ $.Release.Namespace }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: higress-hpa-state-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: higress-hpa-state-metrics
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: higress-hpa-state-metrics
+  template:
+    metadata:
+      labels:
+        app: higress-hpa-state-metrics
+    spec:
+      serviceAccountName: higress-hpa-state-metrics
+      containers:
+        - name: kube-state-metrics
+          image: {{ .Values.monitoring.hpaState.image | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --resources=horizontalpodautoscalers,ingresses
+            - --namespaces={{ .Values.monitoring.hpaState.namespace }},{{ .Values.monitoring.hpaState.routeNamespace }}
+            - --metric-annotations-allowlist=ingresses=[higress.io/exact-match-header-x-higress-llm-model,higress.io/exact-match-header-x-tokenvolt-provider,tokenvolt.ai/publication-id]
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: telemetry
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: telemetry
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.monitoring.hpaState.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: higress-hpa-state-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: higress-hpa-state-metrics
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+{{- end }}

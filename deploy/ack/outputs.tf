@@ -62,6 +62,16 @@ output "tokenvolt_public_host" {
   value       = var.tokenvolt_enabled ? var.tokenvolt_public_host : null
 }
 
+output "grafana_admin_credentials" {
+  description = "Grafana URL and generated administrator credentials. Reveal explicitly with: tofu output -json grafana_admin_credentials"
+  value = var.grafana_enabled ? {
+    url      = "${var.tokenvolt_public_tls_enabled ? "https" : "http"}://${local.grafana_public_host}/grafana/"
+    username = var.grafana_admin_user
+    password = random_password.grafana_admin[0].result
+  } : null
+  sensitive = true
+}
+
 output "tokenvolt_test_ca_certificate" {
   description = "Public test CA certificate to trust locally while using the self-issued ACK edge certificate."
   value       = var.tokenvolt_enabled && var.tokenvolt_public_tls_enabled ? tls_self_signed_cert.tokenvolt_test_ca[0].cert_pem : null

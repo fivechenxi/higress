@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+{{- if not .Values.portal.directEntry }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -47,6 +48,7 @@ spec:
                 name: tokenvolt-control-plane
                 port: {number: 8000}
     {{- end }}
+{{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

@@ -1,0 +1,211 @@
+{
+  "annotations": {"list": []},
+  "description": "Higress 数据面流量、连接、HTTP 总耗时、异常、HPA、Terway/Cilium、采集器和最小控制面监控。Envoy HTTP 总耗时包含流式请求的完整连接存续时间。",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {"title": "模型质量", "type": "link", "url": "/grafana/d/tokenvolt-model-quality"},
+    {"title": "请求明细", "type": "link", "url": "/grafana/d/tokenvolt-request-details"},
+    {"title": "实时运行", "type": "link", "url": "/grafana/d/tokenvolt-runtime"}
+  ],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "tokenvolt:gateway_active_streams", "legendFormat": "活跃请求 {{pod}}", "refId": "A"},
+        {"expr": "vector(225)", "legendFormat": "HPA 每 Pod 目标", "refId": "B"}
+      ],
+      "title": "Gateway 活跃请求", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "id": 8,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "tokenvolt:gateway_downstream_connections:sum", "legendFormat": "下游 HTTP 连接", "refId": "A"},
+        {"expr": "tokenvolt:gateway_listener_connections:sum", "legendFormat": "入口 Listener 连接", "refId": "B"},
+        {"expr": "tokenvolt:gateway_upstream_connections:sum", "legendFormat": "上游连接", "refId": "C"},
+        {"expr": "sum(envoy_cluster_upstream_rq_active)", "legendFormat": "上游活跃请求", "refId": "D"}
+      ],
+      "title": "Inbound / Outbound 活跃连接", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "id": 9,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "tokenvolt:gateway_upstream_pending_requests:sum", "legendFormat": "等待上游连接/容量", "refId": "A"},
+        {"expr": "sum(envoy_cluster_circuit_breakers_default_rq_pending_open)", "legendFormat": "默认优先级熔断器打开", "refId": "B"},
+        {"expr": "sum(envoy_cluster_circuit_breakers_high_rq_pending_open)", "legendFormat": "高优先级熔断器打开", "refId": "C"},
+        {"expr": "sum(envoy_cluster_http2_pending_send_bytes)", "legendFormat": "HTTP/2 待发送字节", "refId": "D"}
+      ],
+      "title": "上游排队与连接池压力", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "description": "客户端看到的 HTTP 请求完整耗时；SSE/流式请求会包含整个生成时间，不等同于 TTFT。",
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "ms"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 10,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "tokenvolt:gateway_downstream_duration_milliseconds:p50_rate5m", "legendFormat": "P50", "refId": "A"},
+        {"expr": "tokenvolt:gateway_downstream_duration_milliseconds:p90_rate5m", "legendFormat": "P90", "refId": "B"}
+      ],
+      "title": "下游 HTTP 总耗时 P50 / P90", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "description": "Envoy 到各上游 cluster 的完整请求耗时；模型 TTFT/TPOT 仍以模型质量页为准。",
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "ms"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 11,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "tokenvolt:gateway_upstream_duration_milliseconds:p50_rate5m", "legendFormat": "P50 {{ai_provider}}", "refId": "A"},
+        {"expr": "tokenvolt:gateway_upstream_duration_milliseconds:p90_rate5m", "legendFormat": "P90 {{ai_provider}}", "refId": "B"}
+      ],
+      "title": "上游 HTTP 总耗时 P50 / P90", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "fillOpacity": 25, "lineWidth": 1, "showPoints": "never"}, "min": 0, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 16},
+      "id": 12,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "sum(increase(envoy_http_downstream_rq_timeout[5m]))", "legendFormat": "请求超时", "refId": "A"},
+        {"expr": "sum(increase(envoy_http_downstream_rq_header_timeout[5m]))", "legendFormat": "Header 超时", "refId": "B"},
+        {"expr": "sum(increase(envoy_http_downstream_rq_idle_timeout[5m]))", "legendFormat": "请求空闲超时", "refId": "C"},
+        {"expr": "sum(increase(envoy_http_downstream_rq_rx_reset[5m]))", "legendFormat": "客户端接收方向 Reset", "refId": "D"},
+        {"expr": "sum(increase(envoy_http_downstream_rq_tx_reset[5m]))", "legendFormat": "客户端发送方向 Reset", "refId": "E"},
+        {"expr": "sum(increase(envoy_http_rq_reset_after_downstream_response_started[5m]))", "legendFormat": "响应开始后 Reset", "refId": "F"},
+        {"expr": "sum(increase(envoy_listener_downstream_cx_overflow[5m])) + sum(increase(envoy_listener_downstream_global_cx_overflow[5m]))", "legendFormat": "入口连接溢出", "refId": "G"},
+        {"expr": "sum(increase(envoy_http_rq_overload_local_reply[5m]))", "legendFormat": "过载本地拒绝", "refId": "H"}
+      ],
+      "title": "下游异常事件 / 5 分钟", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "fillOpacity": 25, "lineWidth": 1, "showPoints": "never"}, "min": 0, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 16},
+      "id": 13,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "sum(increase(envoy_cluster_upstream_cx_connect_fail[5m]))", "legendFormat": "连接失败", "refId": "A"},
+        {"expr": "sum(increase(envoy_cluster_upstream_cx_connect_timeout[5m]))", "legendFormat": "连接超时", "refId": "B"},
+        {"expr": "sum(increase(envoy_cluster_upstream_rq_timeout[5m]))", "legendFormat": "请求超时", "refId": "C"},
+        {"expr": "sum(increase(envoy_cluster_upstream_rq_rx_reset[5m]))", "legendFormat": "上游接收方向 Reset", "refId": "D"},
+        {"expr": "sum(increase(envoy_cluster_upstream_rq_tx_reset[5m]))", "legendFormat": "上游发送方向 Reset", "refId": "E"},
+        {"expr": "sum(increase(envoy_cluster_upstream_rq_pending_overflow[5m])) + sum(increase(envoy_cluster_upstream_cx_pool_overflow[5m]))", "legendFormat": "排队/连接池溢出", "refId": "F"},
+        {"expr": "sum(increase(envoy_cluster_upstream_rq_cancelled[5m]))", "legendFormat": "请求取消", "refId": "G"},
+        {"expr": "sum(increase(envoy_cluster_upstream_rq_retry_limit_exceeded[5m]))", "legendFormat": "重试上限", "refId": "H"}
+      ],
+      "title": "上游异常事件 / 5 分钟", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "fillOpacity": 20, "lineWidth": 1, "showPoints": "never"}, "min": 0, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 25},
+      "id": 14,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "sum(increase(envoy_cluster_http2_rx_reset[5m]))", "legendFormat": "HTTP/2 RX Reset", "refId": "A"},
+        {"expr": "sum(increase(envoy_cluster_http2_tx_reset[5m]))", "legendFormat": "HTTP/2 TX Reset", "refId": "B"},
+        {"expr": "sum(increase(envoy_cluster_http2_header_overflow[5m]))", "legendFormat": "Header 溢出", "refId": "C"},
+        {"expr": "sum(increase(envoy_cluster_http2_keepalive_timeout[5m]))", "legendFormat": "Keepalive 超时", "refId": "D"},
+        {"expr": "sum(increase(envoy_envoy_overload_actions_reset_high_memory_stream_count[5m]))", "legendFormat": "高内存主动 Reset", "refId": "E"}
+      ],
+      "title": "HTTP/2 与过载保护 / 5 分钟", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "bytes"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 25},
+      "id": 2,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "envoy_server_memory_allocated", "legendFormat": "allocated {{pod}}", "refId": "A"},
+        {"expr": "envoy_server_memory_heap_size", "legendFormat": "heap {{pod}}", "refId": "B"},
+        {"expr": "envoy_server_memory_physical_size", "legendFormat": "physical {{pod}}", "refId": "C"}
+      ],
+      "title": "Envoy 内存", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 33},
+      "id": 3,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "tokenvolt:hpa_current_replicas", "legendFormat": "当前 {{horizontalpodautoscaler}}", "refId": "A"},
+        {"expr": "tokenvolt:hpa_desired_replicas", "legendFormat": "期望 {{horizontalpodautoscaler}}", "refId": "B"},
+        {"expr": "tokenvolt:hpa_max_replicas", "legendFormat": "上限 {{horizontalpodautoscaler}}", "refId": "C"}
+      ],
+      "title": "HPA 当前、期望和最大副本", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "max": 1, "min": 0, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 41},
+      "id": 4,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "tokenvolt:terway_ct_pressure:max", "legendFormat": "{{instance}} · {{map_name}}", "refId": "A"}],
+      "title": "Terway/Cilium CT Map 压力", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 41},
+      "id": 5,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "prometheus_remote_storage_samples_pending", "legendFormat": "远端写入等待", "refId": "A"},
+        {"expr": "increase(prometheus_remote_storage_samples_failed_total[5m])", "legendFormat": "远端写入失败 / 5m", "refId": "B"},
+        {"expr": "prometheus_tsdb_head_series", "legendFormat": "本地序列数", "refId": "C"}
+      ],
+      "title": "指标采集器", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 41},
+      "id": 6,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "pilot_endpoint_not_ready", "legendFormat": "Endpoint 未就绪", "refId": "A"},
+        {"expr": "increase(pilot_eds_no_instances[5m])", "legendFormat": "EDS 无实例 / 5m", "refId": "B"},
+        {"expr": "increase(pilot_xds_expired_nonce[5m])", "legendFormat": "xDS nonce 过期 / 5m", "refId": "C"}
+      ],
+      "title": "Higress Controller 最小健康指标", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 49},
+      "id": 7,
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
+      "targets": [{"expr": "ALERTS{alertstate=\"firing\"}", "format": "table", "instant": true, "refId": "A"}],
+      "title": "当前告警", "transformations": [{"id": "labelsToFields", "options": {}}], "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["tokenvolt", "infrastructure"],
+  "templating": {"list": [{"current": {}, "label": "Prometheus", "name": "datasource", "query": "prometheus", "refresh": 1, "type": "datasource"}]},
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "TokenVolt / 基础监控",
+  "uid": "tokenvolt-infrastructure",
+  "version": 2
+}

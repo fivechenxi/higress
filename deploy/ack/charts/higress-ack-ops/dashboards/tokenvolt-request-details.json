@@ -1,0 +1,69 @@
+{
+  "annotations": {"list": []},
+  "description": "直接查询 SLS model-access。仅展示请求元数据与质量指标，不展示 prompt/response 内容。",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {"title": "模型质量", "type": "link", "url": "/grafana/d/tokenvolt-model-quality"},
+    {"title": "实时运行", "type": "link", "url": "/grafana/d/tokenvolt-runtime"},
+    {"title": "基础监控", "type": "link", "url": "/grafana/d/tokenvolt-infrastructure"}
+  ],
+  "panels": [
+    {
+      "datasource": {"type": "aliyun-log-service-datasource", "uid": "tokenvolt-sls"},
+      "description": "按时间倒序显示最近请求。厂商筛选值是 upstream_cluster 搜索表达式，默认 *。",
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 11, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
+      "targets": [{"refId": "A", "type": "logstore", "logStore": "model-access", "queryType": "range", "xcol": "table", "ycol": "time,request_id,tenant,model,provider,response_code,response_flags,ttft_ms,tpot_ms,input_tokens,output_tokens,cached_tokens", "powerSql": true, "query": "\"ai_log.model\": ${model} AND upstream_cluster: ${provider} AND consumer: ${tenant} AND request_id: ${request_id} | SELECT date_format(from_unixtime(__time__), '%Y-%m-%d %H:%i:%s') AS time, request_id, consumer AS tenant, \"ai_log.model\" AS model, regexp_extract(upstream_cluster, 'tokenvolt-([^.]+)', 1) AS provider, response_code, response_flags, \"ai_log.llm_first_token_duration\" AS ttft_ms, CASE WHEN \"ai_log.output_token\" > 1 AND \"ai_log.llm_service_duration\" >= \"ai_log.llm_first_token_duration\" THEN round((\"ai_log.llm_service_duration\" - \"ai_log.llm_first_token_duration\") / (\"ai_log.output_token\" - 1), 2) ELSE NULL END AS tpot_ms, \"ai_log.input_token\" AS input_tokens, \"ai_log.output_token\" AS output_tokens, \"ai_log.cached_tokens\" AS cached_tokens WHERE \"ai_log.model\" IS NOT NULL AND \"ai_log.model\" <> '' AND \"ai_log.model\" <> 'dashboard-mock' AND regexp_like(upstream_cluster, 'tokenvolt-[^.]+[.]dns') ORDER BY __time__ DESC LIMIT 200"}],
+      "title": "最近请求明细", "type": "table"
+    },
+    {
+      "datasource": {"type": "aliyun-log-service-datasource", "uid": "tokenvolt-sls"},
+      "description": "按单请求 TTFT 从高到低排序，用于定位首 token 长尾。",
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 11}, "id": 2,
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
+      "targets": [{"refId": "A", "type": "logstore", "logStore": "model-access", "queryType": "range", "xcol": "table", "ycol": "time,request_id,tenant,model,provider,response_code,ttft_ms", "powerSql": true, "query": "\"ai_log.model\": ${model} AND upstream_cluster: ${provider} AND consumer: ${tenant} AND request_id: ${request_id} | SELECT date_format(from_unixtime(__time__), '%Y-%m-%d %H:%i:%s') AS time, request_id, consumer AS tenant, \"ai_log.model\" AS model, regexp_extract(upstream_cluster, 'tokenvolt-([^.]+)', 1) AS provider, response_code, \"ai_log.llm_first_token_duration\" AS ttft_ms WHERE \"ai_log.model\" IS NOT NULL AND \"ai_log.model\" <> '' AND \"ai_log.model\" <> 'dashboard-mock' AND regexp_like(upstream_cluster, 'tokenvolt-[^.]+[.]dns') AND \"ai_log.llm_first_token_duration\" IS NOT NULL ORDER BY \"ai_log.llm_first_token_duration\" DESC LIMIT 100"}],
+      "title": "TTFT 最慢请求 Top 100", "type": "table"
+    },
+    {
+      "datasource": {"type": "aliyun-log-service-datasource", "uid": "tokenvolt-sls"},
+      "description": "TPOT=(完整服务时长-TTFT)/(输出 token-1)，输出 token 少于 2 时不计算。",
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 11}, "id": 3,
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
+      "targets": [{"refId": "A", "type": "logstore", "logStore": "model-access", "queryType": "range", "xcol": "table", "ycol": "time,request_id,tenant,model,provider,response_code,tpot_ms,ttft_ms,output_tokens", "powerSql": true, "query": "\"ai_log.model\": ${model} AND upstream_cluster: ${provider} AND consumer: ${tenant} AND request_id: ${request_id} | SELECT date_format(from_unixtime(__time__), '%Y-%m-%d %H:%i:%s') AS time, request_id, consumer AS tenant, \"ai_log.model\" AS model, regexp_extract(upstream_cluster, 'tokenvolt-([^.]+)', 1) AS provider, response_code, round((\"ai_log.llm_service_duration\" - \"ai_log.llm_first_token_duration\") / (\"ai_log.output_token\" - 1), 2) AS tpot_ms, \"ai_log.llm_first_token_duration\" AS ttft_ms, \"ai_log.output_token\" AS output_tokens WHERE \"ai_log.model\" IS NOT NULL AND \"ai_log.model\" <> '' AND \"ai_log.model\" <> 'dashboard-mock' AND regexp_like(upstream_cluster, 'tokenvolt-[^.]+[.]dns') AND \"ai_log.output_token\" > 1 AND \"ai_log.llm_service_duration\" >= \"ai_log.llm_first_token_duration\" ORDER BY tpot_ms DESC LIMIT 100"}],
+      "title": "TPOT 最慢请求 Top 100", "type": "table"
+    },
+    {
+      "datasource": {"type": "aliyun-log-service-datasource", "uid": "tokenvolt-sls"},
+      "description": "网关最终返回 5xx 的请求，按时间倒序。",
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 21}, "id": 4,
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
+      "targets": [{"refId": "A", "type": "logstore", "logStore": "model-access", "queryType": "range", "xcol": "table", "ycol": "time,request_id,upstream_request_id,tenant,model,provider,response_code,response_flags,response_error", "powerSql": true, "query": "\"ai_log.model\": ${model} AND upstream_cluster: ${provider} AND consumer: ${tenant} AND request_id: ${request_id} | SELECT date_format(from_unixtime(__time__), '%Y-%m-%d %H:%i:%s') AS time, request_id, \"ai_log.upstream_request_id\" AS upstream_request_id, consumer AS tenant, \"ai_log.model\" AS model, regexp_extract(upstream_cluster, 'tokenvolt-([^.]+)', 1) AS provider, response_code, response_flags, \"ai_log.response_error\" AS response_error WHERE \"ai_log.model\" IS NOT NULL AND \"ai_log.model\" <> '' AND \"ai_log.model\" <> 'dashboard-mock' AND regexp_like(upstream_cluster, 'tokenvolt-[^.]+[.]dns') AND response_code >= 500 ORDER BY __time__ DESC LIMIT 100"}],
+      "title": "5xx 请求明细", "type": "table"
+    },
+    {
+      "datasource": {"type": "aliyun-log-service-datasource", "uid": "tokenvolt-sls"},
+      "description": "所有厂商 429 证据。是否为非预期，要结合告警发生时同模型×厂商 RPM/TPM 是否低于合同容量判断。",
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 21}, "id": 5,
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
+      "targets": [{"refId": "A", "type": "logstore", "logStore": "model-access", "queryType": "range", "xcol": "table", "ycol": "time,request_id,upstream_request_id,tenant,model,provider,response_code,rate_limit_evaluation", "powerSql": true, "query": "\"ai_log.model\": ${model} AND upstream_cluster: ${provider} AND consumer: ${tenant} AND request_id: ${request_id} | SELECT date_format(from_unixtime(__time__), '%Y-%m-%d %H:%i:%s') AS time, request_id, \"ai_log.upstream_request_id\" AS upstream_request_id, consumer AS tenant, \"ai_log.model\" AS model, regexp_extract(upstream_cluster, 'tokenvolt-([^.]+)', 1) AS provider, response_code, \"ai_log.rate_limit_evaluation\" AS rate_limit_evaluation WHERE \"ai_log.model\" IS NOT NULL AND \"ai_log.model\" <> '' AND \"ai_log.model\" <> 'dashboard-mock' AND regexp_like(upstream_cluster, 'tokenvolt-[^.]+[.]dns') AND response_code = 429 ORDER BY __time__ DESC LIMIT 100"}],
+      "title": "429 请求证据明细", "type": "table"
+    }
+  ],
+  "refresh": "1m", "schemaVersion": 39, "tags": ["tokenvolt", "request-details", "sls"],
+  "templating": {"list": [
+    {"allValue": "*", "current": {"text": "All", "value": "$__all"}, "datasource": {"type": "aliyun-log-service-datasource", "uid": "tokenvolt-sls"}, "definition": "* | SELECT DISTINCT \"ai_log.model\" AS model WHERE \"ai_log.model\" IS NOT NULL AND \"ai_log.model\" <> '' AND \"ai_log.model\" <> 'dashboard-mock' AND regexp_like(upstream_cluster, 'tokenvolt-[^.]+[.]dns') LIMIT 100", "includeAll": true, "label": "模型", "multi": false, "name": "model", "query": {"query": "* | SELECT DISTINCT \"ai_log.model\" AS model WHERE \"ai_log.model\" IS NOT NULL AND \"ai_log.model\" <> '' AND \"ai_log.model\" <> 'dashboard-mock' AND regexp_like(upstream_cluster, 'tokenvolt-[^.]+[.]dns') LIMIT 100", "type": "logstore", "logStore": "model-access", "refId": "model-variable"}, "refresh": 2, "sort": 1, "type": "query"},
+    {"current": {"text": "*", "value": "*"}, "label": "厂商/上游表达式", "name": "provider", "options": [{"selected": true, "text": "*", "value": "*"}], "query": "*", "type": "textbox"},
+    {"current": {"text": "*", "value": "*"}, "label": "租户", "name": "tenant", "options": [{"selected": true, "text": "*", "value": "*"}], "query": "*", "type": "textbox"},
+    {"current": {"text": "*", "value": "*"}, "label": "请求 ID", "name": "request_id", "options": [{"selected": true, "text": "*", "value": "*"}], "query": "*", "type": "textbox"}
+  ]},
+  "time": {"from": "now-6h", "to": "now"}, "timepicker": {}, "timezone": "browser",
+  "title": "TokenVolt / 请求明细", "uid": "tokenvolt-request-details", "version": 1
+}

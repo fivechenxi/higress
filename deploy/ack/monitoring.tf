@@ -51,6 +51,39 @@ resource "alicloud_arms_environment" "prometheus" {
   }
 }
 
+# Detailed rules are evaluated by the bounded in-cluster collector and their
+# ALERTS series is remote-written with the application metrics. ARMS owns two
+# bridge rules: one forwards every firing application alert, while the second
+# remains evaluable when the collector itself disappears.
+locals {
+  prometheus_bridge_alerts = {
+    application = {
+      duration   = 1
+      expression = "ALERTS{ack_cluster=\"${alicloud_cs_managed_kubernetes.this.id}\",alertstate=\"firing\",severity=~\"warning|critical\"} == 1"
+      message    = "A TokenVolt Higress application alert is firing. Inspect the alertname, component, model and provider labels."
+    }
+    collector_missing = {
+      duration   = 5
+      expression = "absent(up{ack_cluster=\"${alicloud_cs_managed_kubernetes.this.id}\",job=\"higress-metrics-collector\"} == 1)"
+      message    = "The Higress metrics collector has not remote-written its own health series for five minutes. Gateway HPA metrics may be unavailable."
+    }
+  }
+}
+
+resource "alicloud_arms_prometheus_alert_rule" "higress" {
+  for_each = var.lifecycle_mode == "running" && var.prometheus_alerts_enabled ? local.prometheus_bridge_alerts : {}
+
+  cluster_id                 = alicloud_cs_managed_kubernetes.this.id
+  duration                   = each.value.duration
+  expression                 = each.value.expression
+  message                    = each.value.message
+  prometheus_alert_rule_name = "tokenvolt-higress-${replace(each.key, "_", "-")}"
+  notify_type                = var.prometheus_alert_dispatch_rule_id == "" ? "ALERT_MANAGER" : "DISPATCH_RULE"
+  dispatch_rule_id           = var.prometheus_alert_dispatch_rule_id == "" ? null : var.prometheus_alert_dispatch_rule_id
+
+  depends_on = [alicloud_arms_environment.prometheus]
+}
+
 # ARMS V2 supports password-free Remote Write from a CIDR allowlist. The
 # provider does not yet expose these UpdatePrometheusInstance fields, so keep
 # this one API call inside the OpenTofu graph. The allowlist is the reused VPC
@@ -72,6 +105,34 @@ resource "terraform_data" "prometheus_auth_free_write" {
         SourceVpc = [var.vpc_id]
       })
       ALICLOUD_PROFILE = var.alicloud_profile
+    }
+  }
+
+  depends_on = [alicloud_arms_environment.prometheus]
+}
+
+# Fetch the ARMS query token without putting it in Terraform state, then write
+# only the Authorization header into a namespaced Kubernetes Secret. Grafana
+# can query the managed history without weakening ARMS read authentication.
+resource "terraform_data" "prometheus_query_credentials" {
+  triggers_replace = [
+    alicloud_cs_managed_kubernetes.this.id,
+    var.region,
+  ]
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -eu
+      kubeconfig_file=$(mktemp)
+      trap 'rm -f "$kubeconfig_file"' EXIT
+      printf '%s' "$KUBECONFIG_CONTENT" > "$kubeconfig_file"
+      prometheus_token=$(aliyun arms GetPrometheusApiToken --RegionId "$PROM_REGION" --region "$PROM_REGION" --profile "$ALICLOUD_PROFILE" | jq -er '.Token')
+      kubectl --kubeconfig "$kubeconfig_file" -n higress-system create secret generic higress-prometheus-query --from-literal=authorization="Bearer $prometheus_token" --dry-run=client -o yaml | kubectl --kubeconfig "$kubeconfig_file" apply -f -
+    EOT
+    environment = {
+      PROM_REGION        = var.region
+      ALICLOUD_PROFILE   = var.alicloud_profile
+      KUBECONFIG_CONTENT = data.alicloud_cs_cluster_credential.this.kube_config
     }
   }
 

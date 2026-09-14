@@ -81,15 +81,14 @@ resource "alicloud_slb_listener" "public_http" {
 }
 
 resource "alicloud_slb_rule" "ecs" {
-  for_each         = var.ecs_public_sites
+  for_each         = { for name, site in var.ecs_public_sites : name => site if name != var.ecs_default_site }
   load_balancer_id = alicloud_slb_load_balancer.higress_public.id
   frontend_port    = 443
   name             = "tokenvolt-${each.key}-ecs"
   domain           = each.value.domain
   server_group_id  = alicloud_slb_server_group.ecs[each.key].id
-  # New API inherits GET checks from the HTTPS listener. Its status endpoint
-  # returns 404 for HEAD, and per-rule APIs cannot select the check method.
-  listener_sync             = each.key == var.ecs_default_site ? "on" : "off"
+  # The default site uses the listener directly; these are non-default sites.
+  listener_sync             = "off"
   sticky_session            = "off"
   scheduler                 = "wrr"
   health_check              = "on"
@@ -106,7 +105,7 @@ resource "alicloud_slb_rule" "ecs" {
 }
 
 resource "alicloud_slb_domain_extension" "ecs" {
-  for_each              = var.ecs_public_sites
+  for_each              = { for name, site in var.ecs_public_sites : name => site if name != var.ecs_default_site }
   load_balancer_id      = alicloud_slb_load_balancer.higress_public.id
   frontend_port         = 443
   domain                = each.value.domain
@@ -153,9 +152,9 @@ resource "alicloud_slb_rule" "ack" {
   count                  = local.shared_public_edge && var.tokenvolt_enabled ? 1 : 0
   load_balancer_id       = alicloud_slb_load_balancer.higress_public.id
   frontend_port          = 443
-  name                   = "tokenvolt-ack-higress"
+  name                   = var.tokenvolt_split_public_entry ? "tokenvolt-ack-control-plane" : "tokenvolt-ack-higress"
   domain                 = var.tokenvolt_public_host
-  server_group_id        = alicloud_slb_server_group.ack_http[0].id
+  server_group_id        = var.tokenvolt_split_public_entry ? alicloud_slb_server_group.portal_http[0].id : alicloud_slb_server_group.ack_http[0].id
   listener_sync          = "off"
   sticky_session         = "off"
   health_check           = "on"
@@ -166,11 +165,58 @@ resource "alicloud_slb_rule" "ack" {
   health_check_timeout   = 5
   healthy_threshold      = 2
   unhealthy_threshold    = 3
-  depends_on             = [alicloud_slb_listener.public_https]
+  depends_on             = [alicloud_slb_listener.public_https, helm_release.tokenvolt]
   lifecycle {
     precondition {
       condition     = var.tokenvolt_public_tls_enabled && var.tokenvolt_public_host != "" && var.ack_edge_certificate_id != ""
       error_message = "Shared ACK edge requires a public host, a trusted RSA CLB certificate ID and tokenvolt_public_tls_enabled=true."
+    }
+  }
+}
+
+# Each Kubernetes Service owns only its dedicated group's membership.
+resource "alicloud_slb_server_group" "portal_http" {
+  count            = local.shared_public_edge && var.tokenvolt_split_public_entry ? 1 : 0
+  load_balancer_id = alicloud_slb_load_balancer.higress_public.id
+  name             = "tokenvolt-ack-control-plane"
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [servers]
+  }
+}
+
+resource "alicloud_slb_domain_extension" "model_api" {
+  count                 = local.shared_public_edge && var.tokenvolt_split_public_entry ? 1 : 0
+  load_balancer_id      = alicloud_slb_load_balancer.higress_public.id
+  frontend_port         = 443
+  domain                = var.tokenvolt_data_public_host
+  server_certificate_id = var.tokenvolt_data_certificate_id
+  depends_on            = [alicloud_slb_listener.public_https]
+}
+
+resource "alicloud_slb_rule" "model_api" {
+  count                     = local.shared_public_edge && var.tokenvolt_split_public_entry ? 1 : 0
+  load_balancer_id          = alicloud_slb_load_balancer.higress_public.id
+  frontend_port             = 443
+  name                      = "tokenvolt-api-higress"
+  domain                    = var.tokenvolt_data_public_host
+  server_group_id           = alicloud_slb_server_group.ack_http[0].id
+  listener_sync             = "off"
+  sticky_session            = "off"
+  health_check              = "on"
+  health_check_uri          = "/healthz/ready"
+  health_check_connect_port = 15020
+  health_check_domain       = var.tokenvolt_data_public_host
+  health_check_http_code    = "http_2xx"
+  health_check_interval     = 3
+  health_check_timeout      = 5
+  healthy_threshold         = 2
+  unhealthy_threshold       = 3
+  depends_on                = [alicloud_slb_listener.public_https, helm_release.tokenvolt]
+  lifecycle {
+    precondition {
+      condition     = var.tokenvolt_data_public_host != var.tokenvolt_public_host && var.tokenvolt_data_certificate_id != ""
+      error_message = "Split entry requires distinct portal/model hosts and a trusted model API certificate."
     }
   }
 }

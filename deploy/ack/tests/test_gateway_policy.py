@@ -14,6 +14,7 @@
 # limitations under the License.
 
 """Helm contract tests: uv run --with pyyaml python deploy/ack/tests/test_gateway_policy.py"""
+import json
 import re
 import subprocess
 import unittest
@@ -89,6 +90,92 @@ class GatewayPolicyTest(unittest.TestCase):
         for setting in ['prometheusAdapter.enabled=false', 'autoscaling.gateway.activeStreams.enabled=false']:
             with self.subTest(setting=setting), self.assertRaisesRegex(RuntimeError, 'Gateway autoscaling requires'):
                 render('deploy/ack/charts/higress-ack-ops', '--set', 'monitoring.enabled=false', '--set', setting)
+
+    def test_grafana_uses_secret_subroute_and_local_bounded_prometheus(self):
+        objects = render(
+            'deploy/ack/charts/higress-ack-ops',
+            '--set', 'monitoring.remoteWriteUrl=http://example.invalid/api/v1/write',
+            '--set', 'monitoring.clusterId=test-cluster',
+        )
+        by_kind_name = {(o['kind'], o['metadata']['name']): o for o in objects}
+
+        deployment = by_kind_name[('Deployment', 'higress-grafana')]
+        container = deployment['spec']['template']['spec']['containers'][0]
+        self.assertIn('@sha256:', container['image'])
+        env = {item['name']: item for item in container['env']}
+        self.assertEqual(
+            env['GF_SECURITY_ADMIN_PASSWORD']['valueFrom']['secretKeyRef'],
+            {'name': 'higress-grafana-admin', 'key': 'admin-password'},
+        )
+        self.assertEqual(env['GF_SERVER_SERVE_FROM_SUB_PATH']['value'], 'true')
+        self.assertEqual(
+            env['GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH']['value'],
+            '/var/lib/grafana/dashboards/tokenvolt-model-quality.json',
+        )
+        data_volume = next(volume for volume in deployment['spec']['template']['spec']['volumes']
+                           if volume['name'] == 'data')
+        self.assertEqual(data_volume['emptyDir']['sizeLimit'], '512Mi')
+
+        ingress = by_kind_name[('Ingress', 'higress-grafana')]
+        self.assertEqual(ingress['spec']['ingressClassName'], 'higress')
+        rule = ingress['spec']['rules'][0]
+        self.assertEqual(rule['host'], 'ack.tokenvolt.net')
+        self.assertEqual(rule['http']['paths'][0]['path'], '/grafana')
+
+        provisioning = by_kind_name[('ConfigMap', 'higress-grafana-provisioning')]['data']
+        self.assertIn('http://higress-metrics-collector.higress-system.svc:9090', provisioning['datasource.yaml'])
+        self.assertIn('/var/lib/grafana/dashboards', provisioning['dashboards.yaml'])
+        dashboard_data = by_kind_name[('ConfigMap', 'higress-grafana-dashboards')]['data']
+        self.assertEqual(set(dashboard_data), {
+            'tokenvolt-model-quality.json',
+            'tokenvolt-runtime.json',
+            'tokenvolt-infrastructure.json',
+        })
+        dashboard = json.loads(dashboard_data['tokenvolt-model-quality.json'])
+        ranking = next(panel for panel in dashboard['panels'] if panel['id'] == 10)
+        self.assertEqual(ranking['type'], 'table')
+        self.assertEqual(ranking['transformations'][0]['id'], 'joinByLabels')
+        self.assertEqual(ranking['transformations'][0]['options']['join'], ['ai_provider'])
+        self.assertNotIn('route', {item['name'] for item in dashboard['templating']['list']})
+        self.assertNotIn('p99', json.dumps(dashboard).lower())
+
+        runtime = json.loads(dashboard_data['tokenvolt-runtime.json'])
+        runtime_table = runtime['panels'][0]
+        self.assertEqual(runtime_table['transformations'][0]['options']['join'],
+                         ['ai_model', 'ai_provider'])
+        self.assertNotIn('route', {item['name'] for item in runtime['templating']['list']})
+        self.assertNotIn('p99', json.dumps(runtime).lower())
+
+        collector = by_kind_name[('ConfigMap', 'higress-metrics-collector')]['data']['prometheus.yml']
+        config = yaml.safe_load(collector)
+        self.assertNotIn('p99_rate5m',
+                         by_kind_name[('ConfigMap', 'higress-metrics-collector')]['data']['recording-rules.yml'])
+        self.assertNotIn('p99',
+                         by_kind_name[('ConfigMap', 'higress-ack-promql')]['data'])
+        gateway_scrape = next(job for job in config['scrape_configs']
+                              if job['job_name'] == 'higress-gateway')
+        gateway_relabels = gateway_scrape['metric_relabel_configs']
+        self.assertIn(
+            {'source_labels': ['cluster_name'], 'regex': '(.+)',
+             'target_label': 'ai_provider', 'replacement': '$1'},
+            gateway_relabels,
+        )
+        self.assertNotIn('envoy_cluster_name', collector)
+        self.assertIn('rq_time_(bucket|sum|count)', collector)
+        self.assertIn('upstream_rq_time_(bucket|sum|count)', collector)
+        infrastructure = json.loads(dashboard_data['tokenvolt-infrastructure.json'])
+        infrastructure_titles = {panel['title'] for panel in infrastructure['panels']}
+        self.assertIn('Inbound / Outbound 活跃连接', infrastructure_titles)
+        self.assertIn('下游 HTTP 总耗时 P50 / P90', infrastructure_titles)
+        self.assertIn('上游异常事件 / 5 分钟', infrastructure_titles)
+        self.assertNotIn(
+            {'regex': '^ai_consumer$', 'action': 'labeldrop'},
+            gateway_relabels,
+        )
+        self.assertIn(
+            {'source_labels': ['ai_consumer'], 'regex': '.+', 'action': 'drop'},
+            config['remote_write'][0]['write_relabel_configs'],
+        )
 
 
 if __name__ == '__main__':

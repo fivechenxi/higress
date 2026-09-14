@@ -1,0 +1,268 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if and .Values.monitoring.enabled .Values.monitoring.grafana.enabled }}
+{{- $grafana := .Values.monitoring.grafana }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: higress-grafana-provisioning
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+data:
+  datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Higress Prometheus
+        uid: higress-prometheus
+        type: prometheus
+        access: proxy
+        url: {{ default (printf "http://higress-metrics-collector.%s.svc:9090" .Release.Namespace) $grafana.prometheusUrl | quote }}
+        isDefault: true
+        editable: false
+        jsonData:
+          httpMethod: POST
+          timeInterval: {{ .Values.monitoring.interval | quote }}
+          {{- if $grafana.prometheusAuth.existingSecret }}
+          httpHeaderName1: Authorization
+          {{- end }}
+        {{- if $grafana.prometheusAuth.existingSecret }}
+        secureJsonData:
+          httpHeaderValue1: $PROMETHEUS_AUTH_HEADER
+        {{- end }}
+      {{- if $grafana.sls.enabled }}
+      - name: TokenVolt Request Logs
+        uid: tokenvolt-sls
+        type: aliyun-log-service-datasource
+        access: proxy
+        url: {{ $grafana.sls.endpoint | quote }}
+        isDefault: false
+        editable: false
+        jsonData:
+          project: {{ required "monitoring.grafana.sls.project must be set" $grafana.sls.project | quote }}
+          logstore: {{ $grafana.sls.logstore | quote }}
+        secureJsonData:
+          accessKeyId: $SLS_ACCESS_KEY_ID
+          accessKeySecret: $SLS_ACCESS_KEY_SECRET
+      {{- end }}
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: TokenVolt
+        folder: TokenVolt
+        type: file
+        disableDeletion: false
+        allowUiUpdates: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: higress-grafana
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: higress-grafana
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: higress-grafana
+  template:
+    metadata:
+      labels:
+        app: higress-grafana
+      annotations:
+        checksum/provisioning: {{ printf "%s:%s" (toYaml $grafana) .Values.monitoring.interval | sha256sum }}
+        checksum/dashboards: {{ printf "%s:%s:%s:%s" (.Files.Get "dashboards/tokenvolt-model-quality.json") (.Files.Get "dashboards/tokenvolt-runtime.json") (.Files.Get "dashboards/tokenvolt-infrastructure.json") (.Files.Get "dashboards/tokenvolt-request-details.json") | sha256sum }}
+    spec:
+      securityContext:
+        fsGroup: 472
+        seccompProfile:
+          type: RuntimeDefault
+      {{- if $grafana.sls.enabled }}
+      initContainers:
+        - name: install-sls-datasource
+          image: {{ $grafana.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              archive=/tmp/sls-plugin.tar.gz
+              source=/tmp/sls-plugin-source
+              target=/var/lib/grafana/plugins/aliyun-log-service-datasource
+              wget -q -O "$archive" "https://github.com/aliyun/aliyun-log-grafana-datasource-plugin/archive/{{ $grafana.sls.plugin.commit }}.tar.gz"
+              echo "{{ $grafana.sls.plugin.archiveSha256 }}  $archive" | sha256sum -c -
+              mkdir -p "$source" "$target"
+              tar -xzf "$archive" -C "$source" --strip-components=1
+              cp -R "$source/dist/." "$target/"
+              find "$target" -maxdepth 1 -type f -name 'gpx_*' ! -name 'gpx_log-service-datasource_linux_amd64' -delete
+              chmod 0755 "$target/gpx_log-service-datasource_linux_amd64"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsNonRoot: true
+            runAsUser: 472
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+      {{- end }}
+      containers:
+        - name: grafana
+          image: {{ $grafana.image | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            {{- if $grafana.prometheusAuth.existingSecret }}
+            - name: PROMETHEUS_AUTH_HEADER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $grafana.prometheusAuth.existingSecret | quote }}
+                  key: {{ $grafana.prometheusAuth.authorizationKey | quote }}
+            {{- end }}
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $grafana.existingSecret | quote }}
+                  key: {{ $grafana.adminUserKey | quote }}
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $grafana.existingSecret | quote }}
+                  key: {{ $grafana.adminPasswordKey | quote }}
+            - name: GF_SERVER_ROOT_URL
+              value: {{ $grafana.rootUrl | quote }}
+            - name: GF_SERVER_SERVE_FROM_SUB_PATH
+              value: "true"
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: "false"
+            - name: GF_ANALYTICS_CHECK_FOR_UPDATES
+              value: "false"
+            {{- if $grafana.sls.enabled }}
+            - name: GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS
+              value: aliyun-log-service-datasource
+            - name: SLS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $grafana.sls.existingSecret | quote }}
+                  key: {{ $grafana.sls.accessKeyIdKey | quote }}
+            - name: SLS_ACCESS_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $grafana.sls.existingSecret | quote }}
+                  key: {{ $grafana.sls.accessKeySecretKey | quote }}
+            {{- end }}
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: /var/lib/grafana/dashboards/tokenvolt-model-quality.json
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsNonRoot: true
+            runAsUser: 472
+          resources:
+            {{- toYaml $grafana.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+            - name: provisioning
+              mountPath: /etc/grafana/provisioning/datasources/datasource.yaml
+              subPath: datasource.yaml
+              readOnly: true
+            - name: provisioning
+              mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
+              subPath: dashboards.yaml
+              readOnly: true
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+              readOnly: true
+      volumes:
+        - name: data
+          emptyDir:
+            # Grafana 13 copies roughly 292 MiB of bundled plugins into its
+            # writable data directory before creating its database.
+            sizeLimit: 512Mi
+        - name: provisioning
+          configMap:
+            name: higress-grafana-provisioning
+        - name: dashboards
+          configMap:
+            name: higress-grafana-dashboards
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: higress-grafana
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: higress-grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: higress-grafana
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  ingressClassName: {{ $grafana.ingressClassName | quote }}
+  rules:
+    - host: {{ required "monitoring.grafana.host must be set" $grafana.host | quote }}
+      http:
+        paths:
+          - path: {{ $grafana.path | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: higress-grafana
+                port:
+                  number: 3000
+{{- end }}

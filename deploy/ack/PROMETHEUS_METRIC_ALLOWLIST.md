@@ -57,6 +57,7 @@ Keep these metric families:
 - `higress_ai_tpot_milliseconds_bucket` (10 cumulative buckets after collector relabeling)
 - `route_upstream_model_consumer_metric_llm_request_count`
 - `route_upstream_model_consumer_metric_llm_failure_count`
+- `route_upstream_model_consumer_metric_llm_rate_limited_count`
 - `route_upstream_model_consumer_metric_llm_aborted_count`
 - `route_upstream_model_consumer_metric_llm_inflight_request`
 - `route_upstream_model_consumer_metric_input_token`
@@ -69,18 +70,20 @@ Keep these metric families:
 Keep the bounded `ai_route`, `ai_cluster`, and `ai_model` dimensions. The
 collector copies `ai_cluster` to `ai_provider`, giving one reusable raw data
 set for gateway-wide aggregation, model drill-down, and model/provider
-drill-down. It does not emit three duplicate metric sets. Provider values are
-resolved Envoy cluster names and must be normalized against the configured
-catalog (for example, the approved GLM/Kimi/DeepSeek provider aliases). Drop
-`ai_consumer` from this infrastructure-capacity scrape for now; per-customer
-observability needs its own cardinality and cost budget.
+drill-down. It does not emit three duplicate metric sets. TokenVolt cluster
+names matching `tokenvolt-<provider>.dns` are normalized to `<provider>`; the
+raw cluster value remains the fallback for unmatched clusters. Keep
+`ai_consumer` only in the bounded one-hour in-cluster Prometheus so distinct
+API-key series cannot collide. Recording rules aggregate it away, and remote
+write drops every raw series that still carries the label. Per-customer
+observability remains in SLS and has its own cardinality and cost budget.
 
 TTFT buckets are `100,250,500,1000,2000,5000,10000,30000,60000,+Inf` ms. TPOT
 buckets are `5,10,20,30,50,100,250,500,1000,+Inf` ms. The plugin emits fixed
 cumulative counters because the current Proxy-Wasm SDK has counter and gauge
 primitives but no histogram primitive; collector relabeling converts them into
-canonical Prometheus bucket series. The Helm query catalog calculates P50 and
-P90 at all three aggregation levels.
+canonical Prometheus bucket series. Helm recording rules calculate P50, P90,
+and P99 at the retained route/model/provider aggregation level.
 
 TPOT is the request-level mean inter-token time:
 `(service duration - TTFT) / (output tokens - 1)`. It is emitted only for a
@@ -96,17 +99,15 @@ protocol-specific distinction is implemented.
 `cache_hit_token` includes OpenAI `cached_tokens`, Anthropic
 `cache_read_input_tokens`, and Gemini `cached_content_token_count`. Anthropic
 `cache_creation_input_tokens` is intentionally not a hit. The token hit ratio
-uses `(total_token - output_token)` as normalized prompt tokens because the
-Anthropic total includes cache read/create tokens while OpenAI/Gemini totals
-already include their full prompt. Request hit ratio divides hit requests by
+uses the provider-reported input-token counter as its denominator. Request hit
+ratio divides hit requests by
 `cache_reported_request_count`, not all requests, so a provider that does not
 report cache details is not silently treated as 0% hit rate.
 
-This change adds 10 logical raw families. Due to the two fixed histograms, it
-adds 28 concrete exported series names per active
-route/provider/model/consumer/Pod tuple: eight scalar series and twenty bucket
-series. Together with the previous eight series, that tuple has 36. The
-collector drops consumer before remote write. Cardinality must still be
+The allowlist now contains 19 logical AI families. Due to the two fixed
+histograms, this is 37 concrete exported series names per active
+route/provider/model/consumer/Pod tuple: 17 scalar series and 20 bucket series.
+The collector drops consumer before remote write. Cardinality must still be
 measured with the real model/provider catalog before production rollout.
 
 ### Data availability
@@ -114,6 +115,7 @@ measured with the real model/provider catalog before production rollout.
 | KPI | Plugin can calculate | Required upstream/runtime data |
 | --- | --- | --- |
 | RPM, error ratio, aborted requests | Yes, independent of usage tokens | AI route must be bound to this plugin; response status/body or stream termination |
+| Model/provider HTTP 429 | Yes, independent of usage tokens | Forked plugin build containing `llm_rate_limited_count`; configured contractual RPM/TPM produces separate expected and unexpected 429 RPM series |
 | LLM in-flight requests | Yes | Request body must reach the plugin so model can be extracted |
 | Input/output/total TPM | Yes, conditionally | Provider must return final usage fields; streaming APIs must include final usage |
 | TTFT P50/P90 | Yes | Streaming response; current semantic is first upstream chunk |
@@ -123,11 +125,23 @@ measured with the real model/provider catalog before production rollout.
 | Model dimension | Yes | Request or response model field |
 | Provider dimension | Yes, as selected upstream cluster | One normalized provider per Envoy cluster; shared/opaque cluster names need catalog cleanup |
 
-The stock `ai-statistics:2.0.2` image does not contain these additions. Code,
-collector configuration, and PromQL are ready in this fork, but a custom WASM
-artifact must be published and referenced by the `WasmPlugin` before the new
-families appear in the live ACK Prometheus instance. Also, no series are
-created while the plugin is unbound or its target AI Ingress does not exist.
+The stock `ai-statistics:2.0.2` image does not contain these additions. The ACK
+deployment pins this fork's immutable HTTPS Wasm artifact through the TokenVolt
+chart. No series are created while the plugin is unbound or its target AI
+Ingress does not exist.
+
+The newly added model/provider 429 counter is newer than the currently pinned
+Wasm digest. Its Prometheus rule remains empty until a new immutable plugin
+artifact is built, tested, and pinned; the existing Envoy provider-level 429
+series remains available meanwhile.
+
+Every raw 429 request is marked in SLS with
+`ai_log.provider_rate_limit_event=true` and carries the gateway and upstream
+request identifiers. The expected/unexpected decision is deliberately made by
+the global five-minute recording rule, because a request-local Wasm instance
+cannot see traffic handled by the other gateway replicas. Alert labels and the
+alert time window are therefore the join key for retrieving the exact marked
+requests from SLS.
 
 Feature-specific additions are conditional:
 
@@ -230,17 +244,25 @@ averaging already aggregated quantiles.
 
 ## ACK resource and host network evidence
 
-Do not remote-write apiserver, etcd, kubelet/cAdvisor, kube-state-metrics,
-CoreDNS, or node-exporter metrics from this application-owned collector. ACK
+Do not remote-write apiserver, etcd, kubelet/cAdvisor, general
+kube-state-metrics, CoreDNS, or node-exporter metrics from this
+application-owned collector. The Helm release runs a separate HPA-only
+kube-state-metrics watcher scoped to `higress-system`; only its bounded HPA
+status families are retained. ACK
 operates the managed control plane, and the project does not accept the cost of
-full Kubernetes monitoring. Native HPA continues to read CPU from
-`metrics-server`; `kubectl top` and HPA events are captured as test evidence but
-are not stored in the application Prometheus instance.
+full Kubernetes monitoring. `metrics-server` remains installed for controller
+CPU HPA and `kubectl top`; those data and HPA events are test evidence but are
+not stored in the application Prometheus instance.
 
 The application collector feeds upstream `prometheus-adapter`, exposing the
 filtered outbound request gauge as `higress_active_streams`. Gateway HPA uses
-225 streams per Pod together with 65% CPU; adapter availability is alerted for
-manual handling.
+only 225 active streams per Pod. It deliberately has no CPU fallback; adapter
+availability is therefore a critical alert.
+
+ACK's official K8s Event Center persists HPA decisions and failures in SLS.
+This is independent from the disabled cs-default Prometheus jobs. Under the
+published Event Center policy, the default 90-day retention remains free while
+daily event ingestion stays below 256 MB; verify current pricing before rollout.
 
 The disposable cluster must use Terway DataPath V2. This removes kube-proxy
 IPVS/iptables and Linux Netfilter `nf_conntrack` from the Pod Service datapath,
@@ -298,6 +320,9 @@ The load step is valid only when all are visible on the same time axis:
    and model/provider split;
 8. Controller xDS connection count and push/convergence only during a
    concurrent configuration change.
+
+The complete raw-to-derived-to-dashboard-to-alert mapping and known gaps are in
+[OBSERVABILITY_INVENTORY.md](OBSERVABILITY_INVENTORY.md).
 
 ## Billing references
 

@@ -83,6 +83,19 @@ resource "alicloud_cs_kubernetes_addon" "pod_identity" {
   })
 }
 
+# ACK's kube-eventer persists HPA and workload Events in the K8s Event Center.
+# Manage it after cluster creation so adding event history to an existing ACK
+# cluster cannot broaden the cluster-create addons diff or replace the cluster.
+# This component is independent from the disabled cs-default metric jobs.
+resource "alicloud_cs_kubernetes_addon" "event_center" {
+  count      = var.tokenvolt_enabled && var.hpa_event_center_enabled ? 1 : 0
+  cluster_id = alicloud_cs_managed_kubernetes.this.id
+  name       = "ack-node-problem-detector"
+  config = jsonencode({
+    sls_project_name = alicloud_log_project.tokenvolt[0].project_name
+  })
+}
+
 resource "alicloud_key_pair" "workers" {
   key_pair_name = "${var.cluster_name}-workers"
   tags          = var.tags

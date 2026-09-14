@@ -29,10 +29,24 @@ data:
       external_labels:
         ack_cluster: {{ $clusterId | quote }}
     rule_files:
+      - /etc/prometheus/recording-rules.yml
       - /etc/prometheus/alerts.yml
+    {{- if .Values.monitoring.alerting.enabled }}
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: ['higress-alertmanager.{{ .Release.Namespace }}.svc:9093']
+    {{- end }}
     remote_write:
       - url: {{ $remoteWriteUrl | quote }}
         remote_timeout: 10s
+        # Keep the customer/API-key discriminator only in this bounded,
+        # one-hour local Prometheus. Recording rules aggregate it away before
+        # remote write; raw customer-labelled samples must not leave ACK.
+        write_relabel_configs:
+          - source_labels: [ai_consumer]
+            regex: '.+'
+            action: drop
         queue_config:
           capacity: 2500
           min_shards: 1
@@ -62,12 +76,39 @@ data:
         metric_relabel_configs:
           - source_labels: [__name__]
             action: keep
-            regex: '^(route_upstream_model_consumer_metric_(llm_first_token_duration(_bucket_le_(100|250|500|1000|2000|5000|10000|30000|60000|inf))?|llm_stream_duration_count|llm_service_duration|llm_duration_count|llm_failure_count|llm_request_count|llm_aborted_count|llm_inflight_request|llm_tpot_duration(_bucket_le_(5|10|20|30|50|100|250|500|1000|inf))?|llm_tpot_count|cache_hit_token|cache_reported_request_count|cache_hit_request_count|input_token|output_token|total_token)|ai_endpoint_picker_(decisions_total|fallback_total|missing_signal_total|feedback_total|inflight)|ai_sec_(request_deny|response_deny)|envoy_http_downstream_(rq_active|cx_active|rq|rq_timeout|rq_rx_reset|rq_tx_reset|rq_too_many_premature_resets|cx_delayed_close_timeout|cx_idle_timeout)|envoy_http_rq_reset_after_downstream_response_started|envoy_listener_downstream_(cx_active|cx_overflow|global_cx_overflow|cx_transport_socket_connect_timeout|pre_cx_timeout)|envoy_cluster_(upstream_rq_active|upstream_cx_active|upstream_rq_pending_active|upstream_rq|external_upstream_rq|upstream_cx_connect_fail|upstream_cx_connect_timeout|upstream_cx_overflow|upstream_cx_pool_overflow|upstream_rq_pending_overflow|upstream_rq_retry_overflow|upstream_rq_timeout|upstream_rq_per_try_timeout|upstream_rq_per_try_idle_timeout|upstream_rq_rx_reset|upstream_rq_tx_reset|http2_header_overflow|http2_rx_reset|http2_tx_reset|http2_keepalive_timeout|http2_tx_flush_timeout)|envoy_server_memory_(allocated|heap_size)|envoy_envoy_overload_actions_reset_high_memory_stream_count)$'
+            regex: '^(route_upstream_model_consumer_metric_(llm_first_token_duration(_bucket_le_(100|250|500|1000|2000|5000|10000|30000|60000|inf))?|llm_stream_duration_count|llm_service_duration|llm_duration_count|llm_failure_count|llm_rate_limited_count|llm_request_count|llm_aborted_count|llm_inflight_request|llm_tpot_duration(_bucket_le_(5|10|20|30|50|100|250|500|1000|inf))?|llm_tpot_count|cache_hit_token|cache_reported_request_count|cache_hit_request_count|input_token|output_token|total_token)|ai_endpoint_picker_(decisions_total|fallback_total|missing_signal_total|feedback_total|inflight)|ai_sec_(request_deny|response_deny)|envoy_http_downstream_(rq_active|cx_active|rq|rq_time_(bucket|sum|count)|rq_timeout|rq_header_timeout|rq_idle_timeout|rq_max_duration_reached|rq_rx_reset|rq_tx_reset|rq_too_many_premature_resets|rq_response_before_rq_complete|rq_too_large|rq_overload_close|cx_delayed_close_timeout|cx_idle_timeout|cx_max_duration_reached|cx_overload_disable_keepalive)|envoy_http_(rq_reset_after_downstream_response_started|rq_overload_local_reply)|envoy_listener_downstream_(cx_active|cx_overflow|global_cx_overflow|cx_overload_reject|cx_transport_socket_connect_timeout|pre_cx_timeout)|envoy_cluster_(upstream_rq_active|upstream_cx_active|upstream_rq_pending_active|upstream_rq(_429)?|external_upstream_rq|upstream_rq_time_(bucket|sum|count)|upstream_cx_connect_fail|upstream_cx_connect_timeout|upstream_cx_idle_timeout|upstream_cx_max_duration_reached|upstream_cx_overflow|upstream_cx_pool_overflow|upstream_rq_cancelled|upstream_rq_max_duration_reached|upstream_rq_pending_overflow|upstream_rq_retry_overflow|upstream_rq_retry_limit_exceeded|upstream_rq_timeout|upstream_rq_per_try_timeout|upstream_rq_per_try_idle_timeout|upstream_rq_rx_reset|upstream_rq_tx_reset|http2_header_overflow|http2_pending_send_bytes|http2_rx_reset|http2_tx_reset|http2_keepalive_timeout|http2_tx_flush_timeout|circuit_breakers_(default_remaining_pending|default_rq_pending_open|high_rq_pending_open))|envoy_server_memory_(allocated|heap_size|physical_size)|envoy_envoy_overload_actions_reset_high_memory_stream_count)$'
+          # Keep only the public data-plane listener/HTTP connection manager;
+          # admin, stats and readiness listeners otherwise duplicate noise.
+          - source_labels: [__name__, http_conn_manager_prefix]
+            regex: 'envoy_http_downstream_.*;(admin|agent|stats)'
+            action: drop
+          - source_labels: [__name__, listener_address]
+            regex: 'envoy_listener_downstream_.*;0[.]0[.]0[.]0_(15021|15090)'
+            action: drop
+          # Internal xDS/agent/scrape clusters are not user traffic.
+          - source_labels: [__name__, cluster_name]
+            regex: 'envoy_cluster_.*;(agent|prometheus_stats|xds-grpc)'
+            action: drop
           # ai_cluster is Envoy's resolved upstream cluster. Expose the same
           # value under the business-facing provider label for model/provider
           # drill-down while retaining ai_cluster for troubleshooting.
           - source_labels: [ai_cluster]
             regex: '(.+)'
+            target_label: ai_provider
+            replacement: '$1'
+          - source_labels: [cluster_name]
+            regex: '(.+)'
+            target_label: ai_provider
+            replacement: '$1'
+          # TokenVolt names managed DNS clusters tokenvolt-<provider>.dns.
+          # Replace the troubleshooting-oriented cluster name with the stable
+          # provider ID on both AI-plugin and Envoy attempt metrics.
+          - source_labels: [ai_cluster]
+            regex: '.*[|][|]tokenvolt-([^.]+)[.]dns.*'
+            target_label: ai_provider
+            replacement: '$1'
+          - source_labels: [cluster_name]
+            regex: '.*[|][|]tokenvolt-([^.]+)[.]dns.*'
             target_label: ai_provider
             replacement: '$1'
           # Convert the fixed cumulative counters emitted by Proxy-Wasm into
@@ -96,8 +137,6 @@ data:
             regex: 'route_upstream_model_consumer_metric_llm_tpot_duration_bucket_le_.+'
             target_label: __name__
             replacement: 'higress_ai_tpot_milliseconds_bucket'
-          - regex: '^ai_consumer$'
-            action: labeldrop
 
       - job_name: higress-controller
         metrics_path: {{ .Values.monitoring.controller.path }}
@@ -108,6 +147,17 @@ data:
           - source_labels: [__name__]
             action: keep
             regex: '^(pilot_(xds|xds_expired_nonce|endpoint_not_ready|eds_no_instances)|pilot_(xds_push_time|proxy_convergence_time)(_bucket|_sum|_count))$'
+
+      {{- if .Values.monitoring.hpaState.enabled }}
+      - job_name: higress-hpa-state
+        static_configs:
+          - targets:
+              - 'higress-hpa-state-metrics.{{ .Release.Namespace }}.svc:8080'
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            action: keep
+            regex: '^(kube_horizontalpodautoscaler_(info|spec_(min_replicas|max_replicas|target_metric)|status_(current_replicas|desired_replicas|target_metric|condition))|kube_ingress_annotations)$'
+      {{- end }}
 
       - job_name: terway-cilium
         metrics_path: {{ .Values.monitoring.terway.path }}
@@ -174,17 +224,602 @@ data:
             action: keep
             regex: '^(apiserver_request_total|process_resident_memory_bytes|process_cpu_seconds_total)$'
       {{- end }}
-  alerts.yml: |
+      - job_name: higress-metrics-collector
+        static_configs:
+          - targets: ['127.0.0.1:9090']
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            action: keep
+            regex: '^(prometheus_remote_storage_(samples_failed_total|samples_dropped_total|samples_pending|retries_total|highest_timestamp_in_seconds)|prometheus_rule_evaluation_failures_total|prometheus_tsdb_head_series|process_resident_memory_bytes|process_cpu_seconds_total)$'
+  recording-rules.yml: |
     groups:
-      - name: higress-custom-metrics
+      - name: tokenvolt-ai-derived
+        interval: 30s
+        rules:
+          - record: tokenvolt:configured_provider_model:info
+            expr: label_replace(label_replace(max by (annotation_higress_io_exact_match_header_x_higress_llm_model,annotation_higress_io_exact_match_header_x_tokenvolt_provider) (kube_ingress_annotations{namespace={{ .Values.monitoring.hpaState.routeNamespace | quote }},annotation_higress_io_exact_match_header_x_higress_llm_model!="",annotation_higress_io_exact_match_header_x_tokenvolt_provider!=""}), "ai_model", "$1", "annotation_higress_io_exact_match_header_x_higress_llm_model", "(.+)"), "ai_provider", "$1", "annotation_higress_io_exact_match_header_x_tokenvolt_provider", "(.+)")
+          - record: tokenvolt:ai_requests_per_second:rate5m
+            expr: sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_llm_request_count[5m]))
+          - record: tokenvolt:ai_failures_per_second:rate5m
+            expr: sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_llm_failure_count[5m]))
+          # Remote-safe cumulative series. Raw gateway series carry
+          # ai_consumer and are intentionally excluded from remote_write.
+          - record: tokenvolt:ai_requests_total
+            expr: sum by (ai_model,ai_provider) (route_upstream_model_consumer_metric_llm_request_count)
+          - record: tokenvolt:ai_failures_total
+            expr: sum by (ai_model,ai_provider) (route_upstream_model_consumer_metric_llm_failure_count)
+          - record: tokenvolt:ai_input_tokens_total
+            expr: sum by (ai_model,ai_provider) (route_upstream_model_consumer_metric_input_token)
+          - record: tokenvolt:ai_output_tokens_total
+            expr: sum by (ai_model,ai_provider) (route_upstream_model_consumer_metric_output_token)
+          - record: tokenvolt:ai_ttft_milliseconds_bucket
+            expr: sum by (le,ai_model,ai_provider) (higress_ai_ttft_milliseconds_bucket)
+          - record: tokenvolt:ai_tpot_milliseconds_bucket
+            expr: sum by (le,ai_model,ai_provider) (higress_ai_tpot_milliseconds_bucket)
+          - record: tokenvolt:ai_aborts_per_second:rate5m
+            expr: sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_llm_aborted_count[5m]))
+          - record: tokenvolt:ai_rpm:rate5m
+            expr: tokenvolt:ai_requests_per_second:rate5m * 60
+          - record: tokenvolt:ai_input_tpm:rate5m
+            expr: sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_input_token[5m])) * 60
+          - record: tokenvolt:ai_output_tpm:rate5m
+            expr: sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_output_token[5m])) * 60
+          - record: tokenvolt:ai_total_tpm:rate5m
+            expr: sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_total_token[5m])) * 60
+          - record: tokenvolt:ai_cache_hit_tpm:rate5m
+            expr: sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_cache_hit_token[5m])) * 60
+          - record: tokenvolt:ai_inflight_requests
+            expr: sum by (ai_route,ai_model,ai_provider) (route_upstream_model_consumer_metric_llm_inflight_request)
+          - record: tokenvolt:ai_ttft_milliseconds:p50_rate5m
+            expr: histogram_quantile(0.50, sum by (le,ai_route,ai_model,ai_provider) (rate(higress_ai_ttft_milliseconds_bucket[5m])))
+          - record: tokenvolt:ai_ttft_milliseconds:p90_rate5m
+            expr: histogram_quantile(0.90, sum by (le,ai_route,ai_model,ai_provider) (rate(higress_ai_ttft_milliseconds_bucket[5m])))
+          - record: tokenvolt:ai_tpot_milliseconds:p50_rate5m
+            expr: histogram_quantile(0.50, sum by (le,ai_route,ai_model,ai_provider) (rate(higress_ai_tpot_milliseconds_bucket[5m])))
+          - record: tokenvolt:ai_tpot_milliseconds:p90_rate5m
+            expr: histogram_quantile(0.90, sum by (le,ai_route,ai_model,ai_provider) (rate(higress_ai_tpot_milliseconds_bucket[5m])))
+          - record: tokenvolt:ai_service_duration_milliseconds:avg_rate5m
+            expr: sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_llm_service_duration[5m])) / clamp_min(sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_llm_duration_count[5m])), 0.000001)
+          - record: tokenvolt:ai_cache_token_hit_ratio:rate5m
+            expr: sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_cache_hit_token[5m])) / clamp_min(sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_input_token[5m])), 0.000001)
+          - record: tokenvolt:ai_cache_request_hit_ratio:rate5m
+            expr: sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_cache_hit_request_count[5m])) / clamp_min(sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_cache_reported_request_count[5m])), 0.000001)
+          - record: tokenvolt:ai_cache_reporting_ratio:rate5m
+            expr: sum by (ai_route,ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_cache_reported_request_count[5m])) / clamp_min(tokenvolt:ai_requests_per_second:rate5m, 0.000001)
+          - record: tokenvolt:provider_model_logical_rpm:rate5m
+            expr: sum by (ai_model,ai_provider) (tokenvolt:ai_rpm:rate5m) and on (ai_model,ai_provider) tokenvolt:configured_provider_model:info
+          - record: tokenvolt:provider_model_failure_rpm:rate5m
+            expr: (sum by (ai_model,ai_provider) (tokenvolt:ai_failures_per_second:rate5m) * 60) and on (ai_model,ai_provider) tokenvolt:configured_provider_model:info
+          - record: tokenvolt:provider_model_429_rpm:rate5m
+            expr: (sum by (ai_model,ai_provider) (rate(route_upstream_model_consumer_metric_llm_rate_limited_count[5m])) * 60) and on (ai_model,ai_provider) tokenvolt:configured_provider_model:info
+          - record: tokenvolt:provider_model_total_tpm:rate5m
+            expr: sum by (ai_model,ai_provider) (tokenvolt:ai_total_tpm:rate5m) and on (ai_model,ai_provider) tokenvolt:configured_provider_model:info
+          - record: tokenvolt:provider_model_ttft_milliseconds:p50_rate5m
+            expr: histogram_quantile(0.50, sum by (le,ai_model,ai_provider) (rate(higress_ai_ttft_milliseconds_bucket[5m]))) and on (ai_model,ai_provider) tokenvolt:configured_provider_model:info
+          - record: tokenvolt:provider_model_ttft_milliseconds:p90_rate5m
+            expr: histogram_quantile(0.90, sum by (le,ai_model,ai_provider) (rate(higress_ai_ttft_milliseconds_bucket[5m]))) and on (ai_model,ai_provider) tokenvolt:configured_provider_model:info
+          - record: tokenvolt:provider_model_tpot_milliseconds:p50_rate5m
+            expr: histogram_quantile(0.50, sum by (le,ai_model,ai_provider) (rate(higress_ai_tpot_milliseconds_bucket[5m]))) and on (ai_model,ai_provider) tokenvolt:configured_provider_model:info
+          - record: tokenvolt:provider_model_tpot_milliseconds:p90_rate5m
+            expr: histogram_quantile(0.90, sum by (le,ai_model,ai_provider) (rate(higress_ai_tpot_milliseconds_bucket[5m]))) and on (ai_model,ai_provider) tokenvolt:configured_provider_model:info
+          - record: tokenvolt:model_logical_rpm:rate5m
+            expr: sum by (ai_model) (tokenvolt:provider_model_logical_rpm:rate5m)
+          - record: tokenvolt:model_total_tpm:rate5m
+            expr: sum by (ai_model) (tokenvolt:provider_model_total_tpm:rate5m)
+          - record: tokenvolt:model_ttft_milliseconds:p90_rate5m
+            expr: histogram_quantile(0.90, sum by (le,ai_model) (rate(higress_ai_ttft_milliseconds_bucket[5m])))
+          - record: tokenvolt:model_tpot_milliseconds:p90_rate5m
+            expr: histogram_quantile(0.90, sum by (le,ai_model) (rate(higress_ai_tpot_milliseconds_bucket[5m])))
+          {{- range .Values.monitoring.providerModelCapacity }}
+          - record: tokenvolt:provider_model_rpm_limit
+            expr: vector({{ .rpmLimit }})
+            labels:
+              ai_provider: {{ .provider | quote }}
+              ai_model: {{ .model | quote }}
+          - record: tokenvolt:provider_model_tpm_limit
+            expr: vector({{ .tpmLimit }})
+            labels:
+              ai_provider: {{ .provider | quote }}
+              ai_model: {{ .model | quote }}
+          {{- end }}
+          - record: tokenvolt:provider_model_expected_429_rpm:rate5m
+            expr: tokenvolt:provider_model_429_rpm:rate5m and on (ai_model,ai_provider) ((tokenvolt:provider_model_logical_rpm:rate5m >= tokenvolt:provider_model_rpm_limit) or (tokenvolt:provider_model_total_tpm:rate5m >= tokenvolt:provider_model_tpm_limit))
+          - record: tokenvolt:provider_model_unexpected_429_rpm:rate5m
+            expr: tokenvolt:provider_model_429_rpm:rate5m and on (ai_model,ai_provider) (tokenvolt:provider_model_logical_rpm:rate5m < tokenvolt:provider_model_rpm_limit) and on (ai_model,ai_provider) (tokenvolt:provider_model_total_tpm:rate5m < tokenvolt:provider_model_tpm_limit)
+          - record: tokenvolt:provider_model_quality_failure_rpm:rate5m
+            expr: clamp_min(tokenvolt:provider_model_failure_rpm:rate5m - (tokenvolt:provider_model_expected_429_rpm:rate5m or tokenvolt:provider_model_failure_rpm:rate5m * 0), 0)
+          - record: tokenvolt:provider_model_success_rpm:rate5m
+            expr: clamp_min(tokenvolt:provider_model_logical_rpm:rate5m - tokenvolt:provider_model_failure_rpm:rate5m + (tokenvolt:provider_model_expected_429_rpm:rate5m or tokenvolt:provider_model_failure_rpm:rate5m * 0), 0)
+          - record: tokenvolt:provider_model_success_ratio:rate5m
+            expr: clamp_max(tokenvolt:provider_model_success_rpm:rate5m / clamp_min(tokenvolt:provider_model_logical_rpm:rate5m, 0.000001), 1)
+          - record: tokenvolt:model_success_ratio:rate5m
+            expr: sum by (ai_model) (tokenvolt:provider_model_success_rpm:rate5m) / clamp_min(sum by (ai_model) (tokenvolt:provider_model_logical_rpm:rate5m), 0.000001)
+          - record: tokenvolt:provider_model_rpm_utilization:rate5m
+            expr: tokenvolt:provider_model_logical_rpm:rate5m / tokenvolt:provider_model_rpm_limit
+          - record: tokenvolt:provider_model_tpm_utilization:rate5m
+            expr: tokenvolt:provider_model_total_tpm:rate5m / tokenvolt:provider_model_tpm_limit
+          - record: tokenvolt:model_rpm_limit
+            expr: sum by (ai_model) (tokenvolt:provider_model_rpm_limit)
+          - record: tokenvolt:model_tpm_limit
+            expr: sum by (ai_model) (tokenvolt:provider_model_tpm_limit)
+          - record: tokenvolt:model_rpm_utilization:rate5m
+            expr: tokenvolt:model_logical_rpm:rate5m / tokenvolt:model_rpm_limit
+          - record: tokenvolt:model_tpm_utilization:rate5m
+            expr: tokenvolt:model_total_tpm:rate5m / tokenvolt:model_tpm_limit
+
+      - name: tokenvolt-gateway-derived
+        interval: 30s
+        rules:
+          - record: tokenvolt:gateway_active_streams
+            expr: sum by (namespace,pod) (envoy_http_downstream_rq_active{http_conn_manager_prefix="outbound_0.0.0.0_80"})
+          - record: tokenvolt:gateway_active_streams:sum
+            expr: sum(tokenvolt:gateway_active_streams)
+          - record: tokenvolt:gateway_ready_targets:count
+            expr: count(up{job="higress-gateway"} == 1)
+          - record: tokenvolt:gateway_downstream_connections:sum
+            expr: sum(envoy_http_downstream_cx_active{http_conn_manager_prefix="outbound_0.0.0.0_80"})
+          - record: tokenvolt:gateway_listener_connections:sum
+            expr: sum(envoy_listener_downstream_cx_active{listener_address="0.0.0.0_80"})
+          - record: tokenvolt:gateway_upstream_connections
+            expr: sum by (ai_provider) (envoy_cluster_upstream_cx_active)
+          - record: tokenvolt:gateway_upstream_connections:sum
+            expr: sum(tokenvolt:gateway_upstream_connections)
+          - record: tokenvolt:gateway_upstream_pending_requests:sum
+            expr: sum(envoy_cluster_upstream_rq_pending_active)
+          - record: tokenvolt:gateway_downstream_duration_milliseconds:p50_rate5m
+            expr: histogram_quantile(0.50, sum by (le) (rate(envoy_http_downstream_rq_time_bucket{http_conn_manager_prefix="outbound_0.0.0.0_80"}[5m])))
+          - record: tokenvolt:gateway_downstream_duration_milliseconds:p90_rate5m
+            expr: histogram_quantile(0.90, sum by (le) (rate(envoy_http_downstream_rq_time_bucket{http_conn_manager_prefix="outbound_0.0.0.0_80"}[5m])))
+          - record: tokenvolt:gateway_upstream_duration_milliseconds:p50_rate5m
+            expr: histogram_quantile(0.50, sum by (le,ai_provider) (rate(envoy_cluster_upstream_rq_time_bucket[5m])))
+          - record: tokenvolt:gateway_upstream_duration_milliseconds:p90_rate5m
+            expr: histogram_quantile(0.90, sum by (le,ai_provider) (rate(envoy_cluster_upstream_rq_time_bucket[5m])))
+          - record: tokenvolt:provider_attempt_rpm:rate5m
+            expr: sum by (ai_provider) (rate(envoy_cluster_upstream_rq{cluster_name=~".*tokenvolt-.*[.]dns.*"}[5m])) * 60
+          - record: tokenvolt:provider_429_rpm:rate5m
+            expr: sum by (ai_provider) (rate(envoy_cluster_upstream_rq_429{cluster_name=~".*tokenvolt-.*[.]dns.*"}[5m])) * 60
+          - record: tokenvolt:provider_5xx_rpm:rate5m
+            expr: sum by (ai_provider) (rate(envoy_cluster_upstream_rq{cluster_name=~".*tokenvolt-.*[.]dns.*",response_code_class="5xx"}[5m])) * 60
+          - record: tokenvolt:provider_attempts_per_logical_request:rate5m
+            expr: sum(tokenvolt:provider_attempt_rpm:rate5m) / clamp_min(sum(tokenvolt:ai_rpm:rate5m), 0.000001)
+          - record: tokenvolt:terway_ct_pressure:max
+            expr: max by (instance,map_name) (cilium_bpf_map_pressure{map_name=~"ct(4|6|_any4|_any6)_global"})
+          - record: tokenvolt:terway_map_update_failures_per_second:rate5m
+            expr: sum by (instance,map_name) (rate(cilium_bpf_map_ops_total{operation="update",outcome="fail"}[5m]))
+
+      {{- if .Values.monitoring.hpaState.enabled }}
+      - name: tokenvolt-hpa-derived
+        interval: 30s
+        rules:
+          - record: tokenvolt:hpa_current_replicas
+            expr: kube_horizontalpodautoscaler_status_current_replicas
+          - record: tokenvolt:hpa_desired_replicas
+            expr: kube_horizontalpodautoscaler_status_desired_replicas
+          - record: tokenvolt:hpa_min_replicas
+            expr: kube_horizontalpodautoscaler_spec_min_replicas
+          - record: tokenvolt:hpa_max_replicas
+            expr: kube_horizontalpodautoscaler_spec_max_replicas
+          - record: tokenvolt:hpa_current_metric
+            expr: kube_horizontalpodautoscaler_status_target_metric
+          - record: tokenvolt:hpa_target_metric
+            expr: kube_horizontalpodautoscaler_spec_target_metric
+      {{- end }}
+  alerts.yml: |
+    {{ if .Values.monitoring.alerts.enabled }}
+    groups:
+      - name: tokenvolt-telemetry
         rules:
           - alert: HigressPrometheusAdapterDown
             expr: absent(up{job="prometheus-adapter"} == 1)
             for: 2m
             labels:
-              severity: warning
+              severity: critical
               component: prometheus-adapter
             annotations:
               summary: Higress custom-metrics adapter is unavailable
-              description: Gateway HPA cannot use active streams. CPU can still trigger scale-up, but scale-down is intentionally blocked while one metric is unavailable; inspect the adapter manually.
+              description: Gateway HPA has no CPU fallback and cannot make scaling decisions until the adapter recovers.
+          - alert: HigressGatewayMetricsTargetsMissing
+            expr: tokenvolt:gateway_ready_targets:count < {{ .Values.autoscaling.gateway.minReplicas }}
+            for: 5m
+            labels:
+              severity: critical
+              component: gateway
+            annotations:
+              summary: Fewer Higress gateway metrics targets than the configured minimum
+              description: Prometheus discovery, gateway availability, or the metrics endpoint is degraded.
+          {{- if .Values.monitoring.hpaState.enabled }}
+          - alert: HigressHPAStateMetricsDown
+            expr: absent(up{job="higress-hpa-state"} == 1)
+            for: 2m
+            labels:
+              severity: critical
+              component: hpa
+            annotations:
+              summary: Higress HPA state metrics are unavailable
+              description: HPA status history and condition alerts are unavailable; inspect the scoped state exporter.
+          {{- end }}
+          - alert: HigressMetricsRemoteWriteFailing
+            expr: sum(rate(prometheus_remote_storage_samples_failed_total[5m])) > 0
+            for: 5m
+            labels:
+              severity: critical
+              component: metrics-collector
+            annotations:
+              summary: Higress metrics remote write is failing
+              description: Samples are not reaching the ACK-bound ARMS Prometheus instance.
+          - alert: HigressMetricsRemoteWriteBacklog
+            expr: sum(prometheus_remote_storage_samples_pending) > 5000
+            for: 5m
+            labels:
+              severity: warning
+              component: metrics-collector
+            annotations:
+              summary: Higress metrics remote write has a sustained backlog
+              description: Inspect ARMS reachability and the collector remote-write queue before samples are dropped.
+          - alert: HigressPrometheusRuleEvaluationFailing
+            expr: increase(prometheus_rule_evaluation_failures_total[5m]) > 0
+            labels:
+              severity: critical
+              component: metrics-collector
+            annotations:
+              summary: Higress Prometheus rule evaluation failed
+              description: A recording or alerting expression is invalid or could not be evaluated.
+
+      - name: tokenvolt-ai-quality
+        rules:
+          - alert: HigressAIErrorRatioHigh
+            expr: (tokenvolt:ai_failures_per_second:rate5m / clamp_min(tokenvolt:ai_requests_per_second:rate5m, 0.000001)) > {{ .Values.monitoring.alerts.errorRatioWarning }} and (tokenvolt:ai_failures_per_second:rate5m / clamp_min(tokenvolt:ai_requests_per_second:rate5m, 0.000001)) <= {{ .Values.monitoring.alerts.errorRatioCritical }} and tokenvolt:ai_requests_per_second:rate5m * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            for: 10m
+            labels:
+              severity: warning
+              component: ai-provider
+            annotations:
+              summary: AI request error ratio is above the warning threshold
+              description: Compare the affected model/provider with fallback attempts, 429s and 5xx responses.
+          - alert: HigressAIErrorRatioCritical
+            expr: (tokenvolt:ai_failures_per_second:rate5m / clamp_min(tokenvolt:ai_requests_per_second:rate5m, 0.000001)) > {{ .Values.monitoring.alerts.errorRatioCritical }} and tokenvolt:ai_requests_per_second:rate5m * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            for: 5m
+            labels:
+              severity: critical
+              component: ai-provider
+            annotations:
+              summary: AI request error ratio is critically high
+              description: Remove or reduce the affected provider route if fallback is not containing the failure.
+          - alert: HigressAIAbortRatioHigh
+            expr: (tokenvolt:ai_aborts_per_second:rate5m / clamp_min(tokenvolt:ai_requests_per_second:rate5m, 0.000001)) > {{ .Values.monitoring.alerts.abortRatioWarning }} and (tokenvolt:ai_aborts_per_second:rate5m / clamp_min(tokenvolt:ai_requests_per_second:rate5m, 0.000001)) <= {{ .Values.monitoring.alerts.abortRatioCritical }} and tokenvolt:ai_requests_per_second:rate5m * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            for: 10m
+            labels:
+              severity: warning
+              component: ai-provider
+            annotations:
+              summary: AI stream abort ratio is above the warning threshold
+              description: Correlate client cancellation, upstream resets, gateway drain and missing final usage.
+          - alert: HigressAIAbortRatioCritical
+            expr: (tokenvolt:ai_aborts_per_second:rate5m / clamp_min(tokenvolt:ai_requests_per_second:rate5m, 0.000001)) > {{ .Values.monitoring.alerts.abortRatioCritical }} and tokenvolt:ai_requests_per_second:rate5m * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            for: 5m
+            labels:
+              severity: critical
+              component: ai-provider
+            annotations:
+              summary: AI stream abort ratio is critically high
+              description: Stop disruptive rollouts or scale-in and inspect provider/network resets.
+          - alert: HigressProviderModelTTFTP90High
+            expr: tokenvolt:provider_model_ttft_milliseconds:p90_rate5m > {{ .Values.monitoring.alerts.ttftP90WarningMilliseconds }} and tokenvolt:provider_model_ttft_milliseconds:p90_rate5m <= {{ .Values.monitoring.alerts.ttftP90CriticalMilliseconds }} and sum by (ai_model,ai_provider) (rate(higress_ai_ttft_milliseconds_bucket{le="+Inf"}[5m])) * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            for: 10m
+            labels:
+              severity: warning
+              component: ai-provider
+              scope: provider-model
+            annotations:
+              summary: Provider/model P90 TTFT is above 25 seconds
+              description: Compare provider capacity, 429s, pending requests and fallback amplification.
+          - alert: HigressProviderModelTTFTP90Critical
+            expr: tokenvolt:provider_model_ttft_milliseconds:p90_rate5m > {{ .Values.monitoring.alerts.ttftP90CriticalMilliseconds }} and sum by (ai_model,ai_provider) (rate(higress_ai_ttft_milliseconds_bucket{le="+Inf"}[5m])) * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            for: 5m
+            labels:
+              severity: critical
+              component: ai-provider
+              scope: provider-model
+            annotations:
+              summary: Provider/model P90 TTFT long tail exceeds 50 seconds
+              description: Treat this as a severe provider quality or capacity incident.
+          - alert: HigressModelTTFTP90High
+            expr: tokenvolt:model_ttft_milliseconds:p90_rate5m > {{ .Values.monitoring.alerts.ttftP90WarningMilliseconds }} and tokenvolt:model_ttft_milliseconds:p90_rate5m <= {{ .Values.monitoring.alerts.ttftP90CriticalMilliseconds }} and sum by (ai_model) (rate(higress_ai_ttft_milliseconds_bucket{le="+Inf"}[5m])) * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            for: 10m
+            labels:
+              severity: warning
+              component: ai-gateway
+              scope: model
+            annotations:
+              summary: Model-wide P90 TTFT is above 25 seconds
+              description: The user-visible quality of this model is degraded across its provider pool.
+          - alert: HigressModelTTFTP90Critical
+            expr: tokenvolt:model_ttft_milliseconds:p90_rate5m > {{ .Values.monitoring.alerts.ttftP90CriticalMilliseconds }} and sum by (ai_model) (rate(higress_ai_ttft_milliseconds_bucket{le="+Inf"}[5m])) * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            for: 5m
+            labels:
+              severity: critical
+              component: ai-gateway
+              scope: model
+            annotations:
+              summary: Model-wide P90 TTFT long tail exceeds 50 seconds
+              description: All routing outcomes for this model are breaching the long-tail threshold.
+          - alert: HigressProviderModelTPOTP90High
+            expr: tokenvolt:provider_model_tpot_milliseconds:p90_rate5m > {{ .Values.monitoring.alerts.tpotP90WarningMilliseconds }} and tokenvolt:provider_model_tpot_milliseconds:p90_rate5m <= {{ .Values.monitoring.alerts.tpotP90CriticalMilliseconds }} and sum by (ai_model,ai_provider) (rate(higress_ai_tpot_milliseconds_bucket{le="+Inf"}[5m])) * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            for: 10m
+            labels:
+              severity: warning
+              component: ai-provider
+              scope: provider-model
+            annotations:
+              summary: Provider/model P90 TPOT is above 50 milliseconds
+              description: Compare the affected provider with the same model on peer providers.
+          - alert: HigressProviderModelTPOTP90Critical
+            expr: tokenvolt:provider_model_tpot_milliseconds:p90_rate5m > {{ .Values.monitoring.alerts.tpotP90CriticalMilliseconds }} and sum by (ai_model,ai_provider) (rate(higress_ai_tpot_milliseconds_bucket{le="+Inf"}[5m])) * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            for: 5m
+            labels:
+              severity: critical
+              component: ai-provider
+              scope: provider-model
+            annotations:
+              summary: Provider/model P90 TPOT long tail exceeds 70 milliseconds
+              description: Token generation speed is severely degraded for this provider/model.
+          - alert: HigressModelTPOTP90High
+            expr: tokenvolt:model_tpot_milliseconds:p90_rate5m > {{ .Values.monitoring.alerts.tpotP90WarningMilliseconds }} and tokenvolt:model_tpot_milliseconds:p90_rate5m <= {{ .Values.monitoring.alerts.tpotP90CriticalMilliseconds }} and sum by (ai_model) (rate(higress_ai_tpot_milliseconds_bucket{le="+Inf"}[5m])) * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            for: 10m
+            labels:
+              severity: warning
+              component: ai-gateway
+              scope: model
+            annotations:
+              summary: Model-wide P90 TPOT is above 50 milliseconds
+              description: The user-visible token generation speed is degraded across the provider pool.
+          - alert: HigressModelTPOTP90Critical
+            expr: tokenvolt:model_tpot_milliseconds:p90_rate5m > {{ .Values.monitoring.alerts.tpotP90CriticalMilliseconds }} and sum by (ai_model) (rate(higress_ai_tpot_milliseconds_bucket{le="+Inf"}[5m])) * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            for: 5m
+            labels:
+              severity: critical
+              component: ai-gateway
+              scope: model
+            annotations:
+              summary: Model-wide P90 TPOT long tail exceeds 70 milliseconds
+              description: All routing outcomes for this model are breaching the long-tail threshold.
+          - alert: HigressProviderRateLimited
+            expr: tokenvolt:provider_429_rpm:rate5m > 0
+            for: 5m
+            labels:
+              severity: warning
+              component: ai-provider
+            annotations:
+              summary: An upstream model provider is returning HTTP 429
+              description: Check provider quota headroom and whether fallback contains the rate limiting.
+          - alert: HigressProviderUnexpectedRateLimited
+            expr: tokenvolt:provider_model_unexpected_429_rpm:rate5m > 0
+            for: 2m
+            labels:
+              severity: critical
+              component: ai-provider
+            annotations:
+              summary: Provider returned HTTP 429 below its contracted RPM and TPM
+              description: Use the alert model/provider and time window to query SLS for ai_log.provider_rate_limit_event=true; request_id and ai_log.upstream_request_id identify evidence for the provider.
+          - alert: HigressProvider5xx
+            expr: tokenvolt:provider_5xx_rpm:rate5m > 0
+            for: 5m
+            labels:
+              severity: warning
+              component: ai-provider
+            annotations:
+              summary: An upstream model provider is returning HTTP 5xx
+              description: Compare the failing provider with peers before changing route weight or priority.
+          - alert: HigressProviderSuccessRatioLow
+            expr: tokenvolt:provider_model_success_ratio:rate5m < {{ .Values.monitoring.alerts.successRatioWarning }} and tokenvolt:provider_model_logical_rpm:rate5m * 5 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            for: 10m
+            labels:
+              severity: warning
+              component: ai-provider
+              scope: provider-model
+            annotations:
+              summary: Upstream provider success ratio is below the quality objective
+              description: Success is calculated as HTTP success plus expected 429 divided by all logical requests.
+          - alert: HigressModelSuccessRatioLow
+            expr: tokenvolt:model_success_ratio:rate5m < {{ .Values.monitoring.alerts.successRatioWarning }} and tokenvolt:model_logical_rpm:rate5m * 5 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            for: 10m
+            labels:
+              severity: warning
+              component: ai-gateway
+              scope: model
+            annotations:
+              summary: Model-wide success ratio is below 99 percent
+              description: This aggregates all providers for the model; expected in-contract 429 is counted as successful capacity handling.
+
+      - name: tokenvolt-gateway-capacity
+        rules:
+          - alert: HigressProviderModelRPMCapacityHigh
+            expr: tokenvolt:provider_model_rpm_utilization:rate5m >= {{ .Values.monitoring.alerts.capacityWarningRatio }}
+            for: 5m
+            labels:
+              severity: warning
+              component: ai-provider
+              scope: provider-model
+            annotations:
+              summary: Provider/model RPM exceeds 80 percent of configured capacity
+              description: Shift weight or request more provider capacity before contractual RPM is exhausted.
+          - alert: HigressProviderModelTPMCapacityHigh
+            expr: tokenvolt:provider_model_tpm_utilization:rate5m >= {{ .Values.monitoring.alerts.capacityWarningRatio }}
+            for: 5m
+            labels:
+              severity: warning
+              component: ai-provider
+              scope: provider-model
+            annotations:
+              summary: Provider/model TPM exceeds 80 percent of configured capacity
+              description: Shift weight or request more provider capacity before contractual TPM is exhausted.
+          - alert: HigressModelRPMCapacityHigh
+            expr: tokenvolt:model_rpm_utilization:rate5m >= {{ .Values.monitoring.alerts.capacityWarningRatio }}
+            for: 5m
+            labels:
+              severity: warning
+              component: ai-gateway
+              scope: model
+            annotations:
+              summary: Model-wide RPM exceeds 80 percent of aggregate provider capacity
+              description: The total configured provider pool for this model is close to its RPM ceiling.
+          - alert: HigressModelTPMCapacityHigh
+            expr: tokenvolt:model_tpm_utilization:rate5m >= {{ .Values.monitoring.alerts.capacityWarningRatio }}
+            for: 5m
+            labels:
+              severity: warning
+              component: ai-gateway
+              scope: model
+            annotations:
+              summary: Model-wide TPM exceeds 80 percent of aggregate provider capacity
+              description: The total configured provider pool for this model is close to its TPM ceiling.
+          - alert: HigressGatewayStreamsSaturated
+            expr: tokenvolt:gateway_ready_targets:count >= {{ .Values.autoscaling.gateway.maxReplicas }} and tokenvolt:gateway_active_streams:sum > {{ mul (.Values.autoscaling.gateway.activeStreams.averageValue | int) .Values.autoscaling.gateway.maxReplicas }}
+            for: 5m
+            labels:
+              severity: critical
+              component: gateway
+            annotations:
+              summary: Higress gateway is above the active-stream target at maximum replicas
+              description: Raise the replica or node-pool ceiling after checking provider and network saturation.
+          - alert: HigressGatewayUpstreamPending
+            expr: tokenvolt:gateway_upstream_pending_requests:sum > 0
+            for: 2m
+            labels:
+              severity: warning
+              component: gateway
+            annotations:
+              summary: Higress gateway has requests waiting for upstream capacity
+              description: Inspect upstream connection pools, provider latency and connection exhaustion.
+          - alert: HigressGatewayConnectionOverflow
+            expr: sum(increase(envoy_listener_downstream_cx_overflow[5m])) + sum(increase(envoy_listener_downstream_global_cx_overflow[5m])) + sum(increase(envoy_cluster_upstream_cx_overflow[5m])) + sum(increase(envoy_cluster_upstream_cx_pool_overflow[5m])) > 0
+            labels:
+              severity: critical
+              component: gateway
+            annotations:
+              summary: Higress rejected connections because a connection limit was exhausted
+              description: Inspect listener, upstream pool and file-descriptor capacity immediately.
+          - alert: HigressGatewayResetSpike
+            expr: sum(increase(route_upstream_model_consumer_metric_llm_aborted_count[5m])) + sum(increase(envoy_cluster_upstream_rq_rx_reset{cluster_name=~".*[|][|]tokenvolt-[^.]+[.]dns.*"}[5m])) + sum(increase(envoy_cluster_upstream_rq_tx_reset{cluster_name=~".*[|][|]tokenvolt-[^.]+[.]dns.*"}[5m])) > {{ .Values.monitoring.alerts.gatewayResetWarning5m }}
+            for: 2m
+            labels:
+              severity: warning
+              component: gateway
+            annotations:
+              summary: Higress model stream aborts or provider resets increased
+              description: Counts AI stream aborts and upstream resets for tokenvolt provider clusters only; UI/client disconnects are excluded.
+          - alert: HigressGatewayRequestDurationP90High
+            expr: tokenvolt:gateway_downstream_duration_milliseconds:p90_rate5m > {{ .Values.monitoring.alerts.gatewayDurationP90WarningMilliseconds }}
+            for: 10m
+            labels:
+              severity: warning
+              component: gateway
+            annotations:
+              summary: Higress downstream P90 request duration is high
+              description: This includes full streaming duration; use the model TTFT and TPOT alerts to distinguish provider quality from long valid responses.
+          - alert: HigressGatewayMemoryHigh
+            expr: max(envoy_server_memory_allocated) > {{ .Values.monitoring.alerts.gatewayMemoryWarningBytes }}
+            for: 10m
+            labels:
+              severity: warning
+              component: gateway
+            annotations:
+              summary: Higress Envoy allocated memory exceeds the warning threshold
+              description: The default threshold is 75 percent of the current one-GiB gateway limit.
+
+      - name: tokenvolt-network-and-control-plane
+        rules:
+          - alert: HigressTerwayCTPressureHigh
+            expr: tokenvolt:terway_ct_pressure:max > {{ .Values.monitoring.alerts.ciliumCTPressureWarning }} and tokenvolt:terway_ct_pressure:max <= {{ .Values.monitoring.alerts.ciliumCTPressureCritical }}
+            for: 10m
+            labels:
+              severity: warning
+              component: terway-cilium
+            annotations:
+              summary: Terway Cilium connection-tracking map pressure is high
+              description: Sustained eBPF CT pressure can cause new long-lived model connections to fail.
+          - alert: HigressTerwayCTPressureCritical
+            expr: tokenvolt:terway_ct_pressure:max > {{ .Values.monitoring.alerts.ciliumCTPressureCritical }}
+            for: 2m
+            labels:
+              severity: critical
+              component: terway-cilium
+            annotations:
+              summary: Terway Cilium connection-tracking map pressure is critical
+              description: Reduce connection pressure or tune the Cilium map before it reaches capacity.
+          - alert: HigressTerwayMapUpdateFailure
+            expr: tokenvolt:terway_map_update_failures_per_second:rate5m > 0
+            labels:
+              severity: critical
+              component: terway-cilium
+            annotations:
+              summary: Terway Cilium failed to update an eBPF map
+              description: Treat any sustained CT or load-balancer map update failure as a data-plane incident.
+          - alert: HigressControllerEndpointNotReady
+            expr: sum(pilot_endpoint_not_ready) > 0
+            for: 5m
+            labels:
+              severity: warning
+              component: higress-controller
+            annotations:
+              summary: Higress controller reports endpoints not ready
+              description: Check model-provider service discovery and the most recent gateway publication.
+          - alert: HigressControllerEDSNoInstances
+            expr: increase(pilot_eds_no_instances[5m]) > 0
+            labels:
+              severity: warning
+              component: higress-controller
+            annotations:
+              summary: Higress controller published a service with no endpoints
+              description: Check the affected provider registry and DNS-backed McpBridge entry.
+          {{- if .Values.monitoring.hpaState.enabled }}
+          - alert: HigressHPAConditionFalse
+            expr: kube_horizontalpodautoscaler_status_condition{condition=~"AbleToScale|ScalingActive",status="false"} == 1
+            for: 2m
+            labels:
+              severity: critical
+              component: hpa
+            annotations:
+              summary: A Higress HPA cannot calculate or apply scaling
+              description: Inspect the HPA condition and the corresponding Kubernetes events in ACK Event Center.
+          - alert: HigressHPAReplicaConvergenceSlow
+            expr: tokenvolt:hpa_desired_replicas != tokenvolt:hpa_current_replicas
+            for: 10m
+            labels:
+              severity: warning
+              component: hpa
+            annotations:
+              summary: A Higress HPA has not converged to its desired replica count
+              description: Inspect Pending Pods, node-pool capacity, scale limits, and HPA events.
+          - alert: HigressHPANearScaleUp
+            expr: tokenvolt:hpa_current_metric / clamp_min(tokenvolt:hpa_target_metric, 0.000001) >= {{ .Values.monitoring.alerts.hpaNearScaleUpRatio }} and tokenvolt:hpa_current_replicas < tokenvolt:hpa_max_replicas
+            for: 5m
+            labels:
+              severity: info
+              component: hpa
+            annotations:
+              summary: A Higress HPA metric is near its scale-up target
+              description: Current metric is at least 80 percent of the configured target; this is an early capacity signal.
+          - alert: HigressHPAScaleDownPending
+            expr: tokenvolt:hpa_desired_replicas < tokenvolt:hpa_current_replicas
+            for: 5m
+            labels:
+              severity: info
+              component: hpa
+            annotations:
+              summary: A Higress HPA is waiting to scale down
+              description: Desired replicas are below current replicas; stabilization or termination is still in progress.
+          - alert: HigressHPANearMaxReplicas
+            expr: tokenvolt:hpa_current_replicas / clamp_min(tokenvolt:hpa_max_replicas, 1) >= {{ .Values.monitoring.alerts.hpaNearMaxReplicasRatio }}
+            for: 5m
+            labels:
+              severity: warning
+              component: hpa
+            annotations:
+              summary: A Higress HPA is near its maximum replica count
+              description: Current replicas are at least 80 percent of maxReplicas; check node and provider headroom.
+          {{- end }}
+    {{ else }}
+    groups: []
+    {{ end }}
 {{- end }}
