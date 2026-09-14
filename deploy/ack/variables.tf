@@ -248,6 +248,23 @@ variable "tokenvolt_ai_statistics_plugin_sha256" {
   }
 }
 
+variable "tokenvolt_rate_limit_redis_enabled" {
+  description = "Run the low-cost in-cluster Redis used by Higress distributed rate-limit plugins. Replace with managed Tair/Redis for production HA."
+  type        = bool
+  default     = true
+}
+
+variable "tokenvolt_rate_limit_redis_image" {
+  description = "Immutable official Redis image used by the temporary in-cluster rate-limit counter store."
+  type        = string
+  default     = "docker.io/library/redis@sha256:1db42ccef14898aa29bae778452d567534b59c107129cbc1163fb552de184d3c"
+
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.tokenvolt_rate_limit_redis_image))
+    error_message = "tokenvolt_rate_limit_redis_image must be an immutable digest reference."
+  }
+}
+
 variable "tokenvolt_portal_host" {
   description = "Internal validation host routed to the TokenVolt Portal before public cutover."
   type        = string

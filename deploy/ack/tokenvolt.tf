@@ -455,6 +455,10 @@ resource "helm_release" "tokenvolt" {
           paths        = ["/v1/chat/completions", "/v1/responses", "/v1/messages"]
         }
       }
+      rateLimitRedis = {
+        enabled = var.tokenvolt_rate_limit_redis_enabled
+        image   = var.tokenvolt_rate_limit_redis_image
+      }
       portal = {
         directEntry = var.tokenvolt_split_public_entry
         host        = var.tokenvolt_portal_host

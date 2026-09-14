@@ -1,0 +1,88 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.rateLimitRedis.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.rateLimitRedis.serviceName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: tokenvolt-rate-limit-redis
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: tokenvolt-rate-limit-redis
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tokenvolt-rate-limit-redis
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: tokenvolt-rate-limit-redis
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tokenvolt-rate-limit-redis
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tokenvolt-rate-limit-redis
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "tokenvolt.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: redis
+          image: {{ required "rateLimitRedis.image must be immutable when Redis is enabled" .Values.rateLimitRedis.image | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - redis-server
+            - --save
+            - ""
+            - --appendonly
+            - "no"
+            - --maxmemory
+            - {{ .Values.rateLimitRedis.maxmemory | quote }}
+            - --maxmemory-policy
+            - noeviction
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: [redis-cli, ping]
+            periodSeconds: 3
+          livenessProbe:
+            exec:
+              command: [redis-cli, ping]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.rateLimitRedis.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 1000
+            capabilities: {drop: [ALL]}
+{{- end }}

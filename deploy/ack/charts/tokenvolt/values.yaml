@@ -66,6 +66,18 @@ higress:
       - /v1/responses
       - /v1/messages
 
+# Shared counter store for Higress distributed RPM/TPM and token-quota
+# plugins. This is intentionally a low-cost, non-persistent test baseline;
+# move the endpoint to managed Tair/Redis before production HA is required.
+rateLimitRedis:
+  enabled: false
+  image: docker.io/library/redis@sha256:1db42ccef14898aa29bae778452d567534b59c107129cbc1163fb552de184d3c
+  serviceName: tokenvolt-rate-limit-redis
+  maxmemory: 64mb
+  resources:
+    requests: {cpu: 20m, memory: 32Mi}
+    limits: {cpu: 200m, memory: 96Mi}
+
 portal:
   directEntry: false
   host: portal.tokenvolt.internal
