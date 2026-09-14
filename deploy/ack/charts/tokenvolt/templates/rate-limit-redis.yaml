@@ -51,6 +51,10 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         {{- include "tokenvolt.labels" . | nindent 8 }}
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: redis
           image: {{ required "rateLimitRedis.image must be immutable when Redis is enabled" .Values.rateLimitRedis.image | quote }}

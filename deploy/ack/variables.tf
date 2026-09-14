@@ -255,9 +255,9 @@ variable "tokenvolt_rate_limit_redis_enabled" {
 }
 
 variable "tokenvolt_rate_limit_redis_image" {
-  description = "Immutable official Redis image used by the temporary in-cluster rate-limit counter store."
+  description = "Immutable Redis image used by the temporary in-cluster rate-limit counter store."
   type        = string
-  default     = "docker.io/library/redis@sha256:1db42ccef14898aa29bae778452d567534b59c107129cbc1163fb552de184d3c"
+  default     = "ghcr.io/fivechenxi/higress-rate-limit-test-redis@sha256:b1addbe72465a718643cff9e60a58e6df1841e29d6d7d60c9a85d8d72f08d1a7"
 
   validation {
     condition     = can(regex("@sha256:[0-9a-f]{64}$", var.tokenvolt_rate_limit_redis_image))

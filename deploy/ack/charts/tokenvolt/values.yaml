@@ -71,7 +71,9 @@ higress:
 # move the endpoint to managed Tair/Redis before production HA is required.
 rateLimitRedis:
   enabled: false
-  image: docker.io/library/redis@sha256:1db42ccef14898aa29bae778452d567534b59c107129cbc1163fb552de184d3c
+  # Immutable mirror of the official Redis 7.4.11-alpine amd64 image. ACK
+  # nodes in this VPC cannot reliably reach Docker Hub.
+  image: ghcr.io/fivechenxi/higress-rate-limit-test-redis@sha256:b1addbe72465a718643cff9e60a58e6df1841e29d6d7d60c9a85d8d72f08d1a7
   serviceName: tokenvolt-rate-limit-redis
   maxmemory: 64mb
   resources:
