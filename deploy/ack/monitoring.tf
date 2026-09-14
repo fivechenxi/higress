@@ -111,6 +111,34 @@ resource "terraform_data" "prometheus_auth_free_write" {
   depends_on = [alicloud_arms_environment.prometheus]
 }
 
+# Fetch the ARMS query token without putting it in Terraform state, then write
+# only the Authorization header into a namespaced Kubernetes Secret. Grafana
+# can query the managed history without weakening ARMS read authentication.
+resource "terraform_data" "prometheus_query_credentials" {
+  triggers_replace = [
+    alicloud_cs_managed_kubernetes.this.id,
+    var.region,
+  ]
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -eu
+      kubeconfig_file=$(mktemp)
+      trap 'rm -f "$kubeconfig_file"' EXIT
+      printf '%s' "$KUBECONFIG_CONTENT" > "$kubeconfig_file"
+      prometheus_token=$(aliyun arms GetPrometheusApiToken --RegionId "$PROM_REGION" --region "$PROM_REGION" --profile "$ALICLOUD_PROFILE" | jq -er '.Token')
+      kubectl --kubeconfig "$kubeconfig_file" -n higress-system create secret generic higress-prometheus-query --from-literal=authorization="Bearer $prometheus_token" --dry-run=client -o yaml | kubectl --kubeconfig "$kubeconfig_file" apply -f -
+    EOT
+    environment = {
+      PROM_REGION        = var.region
+      ALICLOUD_PROFILE   = var.alicloud_profile
+      KUBECONFIG_CONTENT = data.alicloud_cs_cluster_credential.this.kube_config
+    }
+  }
+
+  depends_on = [alicloud_arms_environment.prometheus]
+}
+
 # The ACK cluster-create API records CiliumArgs in the add-on metadata but does
 # not materialize it in the CNI configuration consumed by terway-cli. Terway
 # reads cilium_args from the JSON stored in 10-terway.conf (not from a top-level

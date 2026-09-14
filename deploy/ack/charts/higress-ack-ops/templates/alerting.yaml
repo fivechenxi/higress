@@ -1,0 +1,299 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if and .Values.monitoring.enabled .Values.monitoring.alerting.enabled }}
+{{- $alerting := .Values.monitoring.alerting }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: higress-alertmanager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: [alertname, component, scope, ai_model, ai_provider, horizontalpodautoscaler]
+      group_wait: {{ $alerting.alertmanager.groupWait }}
+      group_interval: {{ $alerting.alertmanager.groupInterval }}
+      repeat_interval: {{ $alerting.alertmanager.repeatInterval }}
+      receiver: {{ ternary "feishu" "null" $alerting.feishu.enabled | quote }}
+    inhibit_rules:
+      - source_matchers: ['severity="critical"']
+        target_matchers: ['severity="warning"']
+        equal: [alertname, ai_model, ai_provider, horizontalpodautoscaler]
+    receivers:
+      - name: "null"
+      {{- if $alerting.feishu.enabled }}
+      - name: feishu
+        webhook_configs:
+          - url: http://higress-feishu-alert-relay.{{ .Release.Namespace }}.svc:8080/alertmanager
+            send_resolved: true
+            max_alerts: 20
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: higress-alertmanager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: higress-alertmanager
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: higress-alertmanager
+  template:
+    metadata:
+      labels:
+        app: higress-alertmanager
+      annotations:
+        checksum/config: {{ printf "%s:%s" (toYaml $alerting) .Chart.Version | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: alertmanager
+          image: {{ $alerting.alertmanager.image | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+            - --web.listen-address=:9093
+          ports:
+            - name: http
+              containerPort: 9093
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml $alerting.alertmanager.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager/alertmanager.yml
+              subPath: alertmanager.yml
+              readOnly: true
+            - name: data
+              mountPath: /alertmanager
+      volumes:
+        - name: config
+          configMap:
+            name: higress-alertmanager
+        - name: data
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: higress-alertmanager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: higress-alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: http
+{{- if $alerting.feishu.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: higress-feishu-alert-relay
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+data:
+  relay.py: |
+    import json
+    import os
+    import urllib.parse
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    WEBHOOK = os.environ["FEISHU_WEBHOOK_URL"]
+    parsed = urllib.parse.urlparse(WEBHOOK)
+    if parsed.scheme != "https" or parsed.hostname not in {"open.feishu.cn", "open.larksuite.com"} or not parsed.path.startswith("/open-apis/bot/v2/hook/"):
+        raise RuntimeError("FEISHU_WEBHOOK_URL must be an official custom-bot webhook")
+
+    def text(alert):
+        labels = alert.get("labels", {})
+        annotations = alert.get("annotations", {})
+        state = alert.get("status", "unknown").upper()
+        fields = [
+            f"**{labels.get('alertname', 'unknown')}** · {state}",
+            f"严重度: {labels.get('severity', '-')} · 组件: {labels.get('component', '-')}",
+        ]
+        dimensions = " · ".join(filter(None, [
+            f"模型: {labels.get('ai_model')}" if labels.get("ai_model") else "",
+            f"厂商: {labels.get('ai_provider')}" if labels.get("ai_provider") else "",
+            f"HPA: {labels.get('horizontalpodautoscaler')}" if labels.get("horizontalpodautoscaler") else "",
+        ]))
+        if dimensions:
+            fields.append(dimensions)
+        if annotations.get("summary"):
+            fields.append(annotations["summary"])
+        if annotations.get("description"):
+            fields.append(annotations["description"])
+        fields.append(f"开始: {alert.get('startsAt', '-')}")
+        return "\n".join(fields)
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200 if self.path == "/healthz" else 404)
+            self.end_headers()
+
+        def do_POST(self):
+            if self.path != "/alertmanager":
+                self.send_error(404)
+                return
+            size = int(self.headers.get("Content-Length", "0"))
+            if size <= 0 or size > 1048576:
+                self.send_error(413)
+                return
+            payload = json.loads(self.rfile.read(size))
+            alerts = payload.get("alerts", [])[:20]
+            firing = sum(1 for alert in alerts if alert.get("status") == "firing")
+            color = "red" if firing else "green"
+            title = f"TokenVolt 告警 · {'FIRING' if firing else 'RESOLVED'} · {len(alerts)} 条"
+            card = {
+                "msg_type": "interactive",
+                "card": {
+                    "header": {"template": color, "title": {"tag": "plain_text", "content": title}},
+                    "elements": [{"tag": "markdown", "content": "\n\n---\n\n".join(text(a) for a in alerts)}],
+                },
+            }
+            request = urllib.request.Request(WEBHOOK, data=json.dumps(card, ensure_ascii=False).encode(), headers={"Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    result = json.loads(response.read())
+                if result.get("code", 0) != 0:
+                    raise RuntimeError(result.get("msg", "Feishu rejected alert"))
+                self.send_response(200)
+                self.end_headers()
+            except Exception as exc:
+                self.send_error(502, str(exc))
+
+        def log_message(self, fmt, *args):
+            print(fmt % args, flush=True)
+
+    ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: higress-feishu-alert-relay
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: higress-feishu-alert-relay
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: higress-feishu-alert-relay
+  template:
+    metadata:
+      labels:
+        app: higress-feishu-alert-relay
+      annotations:
+        checksum/config: {{ printf "%s:%s" (toYaml $alerting.feishu) .Chart.Version | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: relay
+          image: {{ $alerting.feishu.relayImage | quote }}
+          imagePullPolicy: IfNotPresent
+          command: [python, /app/relay.py]
+          env:
+            - name: FEISHU_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $alerting.feishu.existingSecret | quote }}
+                  key: {{ $alerting.feishu.webhookKey | quote }}
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml $alerting.feishu.resources | nindent 12 }}
+          volumeMounts:
+            - name: relay
+              mountPath: /app/relay.py
+              subPath: relay.py
+              readOnly: true
+      volumes:
+        - name: relay
+          configMap:
+            name: higress-feishu-alert-relay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: higress-feishu-alert-relay
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: higress-feishu-alert-relay
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- end }}
+{{- end }}

@@ -21,25 +21,29 @@ metadata:
   labels:
     {{- include "higress-ack-ops.labels" . | nindent 4 }}
 ---
+{{- range $namespace := list .Values.monitoring.hpaState.namespace .Values.monitoring.hpaState.routeNamespace }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: higress-hpa-state-metrics
-  namespace: {{ .Values.monitoring.hpaState.namespace }}
+  namespace: {{ $namespace }}
   labels:
-    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+    {{- include "higress-ack-ops.labels" $ | nindent 4 }}
 rules:
   - apiGroups: ["autoscaling"]
     resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: higress-hpa-state-metrics
-  namespace: {{ .Values.monitoring.hpaState.namespace }}
+  namespace: {{ $namespace }}
   labels:
-    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+    {{- include "higress-ack-ops.labels" $ | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -47,8 +51,9 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: higress-hpa-state-metrics
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ $.Release.Namespace }}
 ---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -73,8 +78,9 @@ spec:
           image: {{ .Values.monitoring.hpaState.image | quote }}
           imagePullPolicy: IfNotPresent
           args:
-            - --resources=horizontalpodautoscalers
-            - --namespaces={{ .Values.monitoring.hpaState.namespace }}
+            - --resources=horizontalpodautoscalers,ingresses
+            - --namespaces={{ .Values.monitoring.hpaState.namespace }},{{ .Values.monitoring.hpaState.routeNamespace }}
+            - --metric-annotations-allowlist=ingresses=[higress.io/exact-match-header-x-higress-llm-model,higress.io/exact-match-header-x-tokenvolt-provider,tokenvolt.ai/publication-id]
           ports:
             - name: metrics
               containerPort: 8080

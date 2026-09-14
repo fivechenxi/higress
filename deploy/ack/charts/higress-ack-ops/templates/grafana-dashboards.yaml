@@ -28,4 +28,6 @@ data:
 {{ .Files.Get "dashboards/tokenvolt-runtime.json" | indent 4 }}
   tokenvolt-infrastructure.json: |-
 {{ .Files.Get "dashboards/tokenvolt-infrastructure.json" | indent 4 }}
+  tokenvolt-request-details.json: |-
+{{ .Files.Get "dashboards/tokenvolt-request-details.json" | indent 4 }}
 {{- end }}

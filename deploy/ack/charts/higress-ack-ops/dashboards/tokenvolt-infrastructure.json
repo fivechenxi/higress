@@ -6,6 +6,7 @@
   "id": null,
   "links": [
     {"title": "模型质量", "type": "link", "url": "/grafana/d/tokenvolt-model-quality"},
+    {"title": "请求明细", "type": "link", "url": "/grafana/d/tokenvolt-request-details"},
     {"title": "实时运行", "type": "link", "url": "/grafana/d/tokenvolt-runtime"}
   ],
   "panels": [

@@ -43,6 +43,11 @@ ACK 内的一小时临时 Prometheus 以 `ai_consumer` 区分原始 AI 序列，
 因此可以继续聚合为网关整体、单模型、单厂商，也可以直接下钻到“模型 × 厂商”。
 它不是租户维度；逐租户和 API Key 查询仍以 SLS 用量事实为准。
 
+模型质量的区间统计使用不含 `ai_consumer` 的远端安全累计序列
+`tokenvolt:ai_{requests,failures,input_tokens,output_tokens}_total` 和
+`tokenvolt:ai_{ttft,tpot}_milliseconds_bucket`。这避免 Collector 或 Grafana 重启后
+最近 15 分钟归零，同时保留可正确计算 P50/P90 的聚合直方图。
+
 ## AI 服务指标
 
 除“可用条件”中特别说明的情况外，下列指标均会被采集并展示在随 Helm 提供的
@@ -54,8 +59,8 @@ Grafana 大盘中。
 | 客户可见错误率 | `...llm_failure_count`、`...llm_request_count` | 由 `tokenvolt:ai_*_per_second:rate5m` 计算 | 警告 5%，严重 15% | 包含返回给客户的 429 和被中断的流；这是网关结果口径，不用于评价厂商质量 |
 | 中断率 | `...llm_aborted_count`、`...llm_request_count` | 由已记录的速率计算 | 警告 1%，严重 5% | 包含本 fork 插件记录的响应中断 |
 | 处理中请求数 | `...llm_inflight_request` | `tokenvolt:ai_inflight_requests` | 仅大盘展示 | 可按路由、响应模型和厂商拆分 |
-| TTFT P50/P90 | 固定 TTFT 累积计数器，采集时转换为 `higress_ai_ttft_milliseconds_bucket` | `tokenvolt:ai_ttft_milliseconds:p{50,90}_rate5m` | P90 超过 1 秒 | 当前是收到首个上游数据块的时间，并非首个有语义内容的 Token |
-| TPOT P50/P90 | 固定 TPOT 累积计数器，采集时转换为 `higress_ai_tpot_milliseconds_bucket` | `tokenvolt:ai_tpot_milliseconds:p{50,90}_rate5m` | 暂定 P90 超过 100 毫秒 | 单次请求平均值 `(总耗时-TTFT)/(输出 Token-1)`；依赖最终 usage |
+| TTFT P50/P90 | 固定 TTFT 累积计数器，采集时转换为 `higress_ai_ttft_milliseconds_bucket` | `tokenvolt:ai_ttft_milliseconds:p{50,90}_rate5m` | P90 超过 25 秒警告、50 秒严重 | 当前是收到首个上游数据块的时间，并非首个有语义内容的 Token |
+| TPOT P50/P90 | 固定 TPOT 累积计数器，采集时转换为 `higress_ai_tpot_milliseconds_bucket` | `tokenvolt:ai_tpot_milliseconds:p{50,90}_rate5m` | P90 超过 50 毫秒警告、70 毫秒严重 | 单次请求平均值 `(总耗时-TTFT)/(输出 Token-1)`；依赖最终 usage |
 | 平均服务耗时 | `...llm_service_duration`、`...llm_duration_count` | `tokenvolt:ai_service_duration_milliseconds:avg_rate5m` | 仅大盘展示 | 请求平均值，不是分位数 |
 | 输入、输出、总 TPM | `...input_token`、`...output_token`、`...total_token` | `tokenvolt:ai_{input,output,total}_tpm:rate5m` | 仅大盘展示 | 依赖厂商返回最终 usage 字段 |
 | 缓存命中 TPM | `...cache_hit_token` | `tokenvolt:ai_cache_hit_tpm:rate5m` | 仅大盘展示 | 支持 OpenAI、Anthropic 和 Gemini 的缓存读取字段 |
@@ -72,15 +77,17 @@ Grafana 大盘中。
 | 厂商 HTTP 429 | `tokenvolt:provider_429_rpm:rate5m` | 持续 5 分钟非零 | 厂商配额或限速压力 |
 | 模型 × 厂商非预期 HTTP 429 | `tokenvolt:provider_model_unexpected_429_rpm:rate5m` | 持续 2 分钟非零，严重 | 同一 5 分钟窗口内实际 RPM、TPM 均低于已配置承诺值，却收到厂商 429 |
 | 厂商 HTTP 5xx | `tokenvolt:provider_5xx_rpm:rate5m` | 持续 5 分钟非零 | 厂商侧故障信号 |
-| 模型 × 厂商成功率 | `tokenvolt:provider_model_success_ratio:rate5m` | 低于 99% 且样本量足够 | 只有实测 RPM 或 TPM 达到已配置承诺值时，才从质量失败中排除该窗口的 HTTP 429；低于承诺容量的 429 仍算厂商失败 |
-| 模型 × 厂商 TTFT | `tokenvolt:provider_model_ttft_milliseconds:p{50,90,99}_rate5m` | P90 使用网关统一阈值 | 比较同一模型在不同厂商上的首包质量 |
-| 模型 × 厂商 TPOT | `tokenvolt:provider_model_tpot_milliseconds:p{50,90,99}_rate5m` | P90 使用暂定阈值 | 比较同一模型在不同厂商上的生成速度 |
-| 模型 × 厂商实际/承诺 RPM | 实际逻辑 RPM 与 `tokenvolt:provider_model_rpm_limit` | 大盘展示 | 承诺值必须从合同或厂商控制台填入 Helm，不能由流量推算 |
-| 模型 × 厂商实际/承诺 TPM | 实际总 TPM 与 `tokenvolt:provider_model_tpm_limit` | 大盘展示 | 承诺值属于配置，不是测量指标 |
+| 模型 × 厂商成功率 | `tokenvolt:provider_model_success_ratio:rate5m` | 低于 99% 且样本量足够 | `(总请求-失败+预期内 429)/总请求`；低于承诺容量的 429 仍算厂商失败 |
+| 模型整体成功率 | `tokenvolt:model_success_ratio:rate5m` | 低于 99% 且样本量足够 | 汇总该模型全部厂商，口径与模型 × 厂商一致 |
+| 模型 × 厂商及模型整体 TTFT | `tokenvolt:{provider_model,model}_ttft_milliseconds:p90_rate5m` | P90 超过 25 秒警告、50 秒严重 | 同时发现单一厂商退化与整个模型池退化 |
+| 模型 × 厂商及模型整体 TPOT | `tokenvolt:{provider_model,model}_tpot_milliseconds:p90_rate5m` | P90 超过 50 毫秒警告、70 毫秒严重 | 同时发现单一厂商退化与整个模型池退化 |
+| 模型 × 厂商实际/承诺 RPM | `tokenvolt:provider_model_rpm_utilization:rate5m` | 达到 80% | 承诺值必须从合同或厂商控制台填入 Helm，不能由流量推算 |
+| 模型 × 厂商实际/承诺 TPM | `tokenvolt:provider_model_tpm_utilization:rate5m` | 达到 80% | 承诺值属于配置，不是测量指标 |
+| 模型整体实际/承诺 RPM、TPM | `tokenvolt:model_{rpm,tpm}_utilization:rate5m` | 达到聚合容量 80% | 分母为该模型所有已配置厂商容量之和 |
 | 每 Pod 及总活跃流 | `envoy_http_downstream_rq_active` | 达到最大副本且超过每 Pod 225 条的等效容量时严重告警 | 与 Gateway HPA 使用同一个受控指标 |
 | 可采集的 Gateway 副本数 | `up{job="higress-gateway"}` | 低于配置的最小副本数 | 判断可用性及服务发现是否正常 |
 | 下游和上游连接数 | Envoy 活跃连接 Gauge | 仅大盘展示 | 长流连接和连接池分析 |
-| 下游/上游 HTTP 总耗时 P50/P90 | Envoy `*_rq_time_bucket` | 仅大盘展示 | 单位毫秒；包含流式请求的完整存续时间，不替代模型 TTFT/TPOT |
+| 下游/上游 HTTP 总耗时 P50/P90 | Envoy `*_rq_time_bucket` | 下游 P90 暂定超过 120 秒警告 | 单位毫秒；包含流式请求的完整存续时间，不替代模型 TTFT/TPOT |
 | 上游等待请求 | Envoy pending request Gauge | 持续 2 分钟非零 | 上游连接池或厂商容量压力 |
 | 连接溢出 | Envoy Listener/Cluster overflow Counter | 任意增长 | 连接或资源达到硬限制 |
 | 请求重置 | Envoy 下游和上游 reset Counter | 5 分钟内超过 3 次 | 客户端、网关、厂商或发布过程异常 |
@@ -93,16 +100,17 @@ Grafana 大盘中。
 | Terway/Cilium | CT Map 压力、Map 更新失败 | 70% 警告、90% 严重；任何 Map 更新失败均告警 |
 | Higress Controller | xDS、过期 Nonce、Endpoint 未就绪、EDS 无实例、推送与收敛直方图 | Endpoint 未就绪；EDS 发布空实例 |
 | Prometheus Adapter | Adapter `up`、请求数和进程指标 | 不可用 2 分钟；Gateway HPA 没有 CPU 兜底 |
+| HPA 边缘状态 | 当前/目标 Metric、当前/期望/最大副本数 | Metric 达目标 80% 为提示；等待缩容为提示；副本达上限 80% 为警告 |
 | HPA 状态 | 当前/期望/最小/最大副本，当前/目标指标，Scaling 条件 | 无法伸缩；期望副本持续 10 分钟未收敛 |
 | HPA 事件 | ACK 官方 K8s Event Center（SLS） | 保存扩缩容决策、取指标失败、达到上下限和调度失败等事件 |
 | Collector | Remote Write 失败、丢弃、积压、重试、最新时间戳，规则失败、序列数、进程 CPU/内存 | 写入失败或积压；规则计算失败 |
 | Collector 消失 | ARMS 侧 `absent(up{job="higress-metrics-collector"})` | 独立严重告警，不依赖 Collector 自己存活 |
 
 集群内 Prometheus 负责计算详细且基数受控的规则，并将生成的 `ALERTS` 序列
-Remote Write 到 ARMS。ARMS 中有一条桥接规则转发处于 firing 状态的警告和严重
-告警，另有一条规则独立检测 Collector 消失。设置
-`prometheus_alert_dispatch_rule_id` 可接入指定通知策略；留空则使用账号默认的
-AlertManager 路径。
+Remote Write 到 ARMS，同时把 firing/resolved 事件发送到集群内 Alertmanager。
+Alertmanager 按告警名、组件、模型、厂商和 HPA 分组，经小型转换器发送到独立飞书
+告警群。Webhook 只存在本地 `terraform.tfvars`、敏感 State 和 Kubernetes Secret，
+不进入 Helm ConfigMap 或 Git。ARMS 仍保留远端查询与独立检测 Collector 消失的能力。
 
 ## 明确不采集的内容
 
@@ -112,8 +120,8 @@ AlertManager 路径。
 - 不使用 Linux 原生 `nf_conntrack` 作为判断依据。ACK 使用 Terway DataPath V2，
   对应容量指标是 Cilium eBPF CT Map 压力。
 - 不把租户、API Key、提示词、响应内容、请求 ID、任意 Path 或时间戳放入指标标签。
-- 不在 ACK 中安装 Grafana Server 或 Sidecar。大盘以 ConfigMap 和可导入 JSON
-  的形式提供。
+- Grafana 只安装声明式大盘和数据源，不运行通用 Dashboard Sidecar；Pod 重建时从
+  Git/ConfigMap 恢复，不把页面手工修改作为正式配置。
 
 ## 仍然存在的缺口
 
@@ -158,12 +166,15 @@ Gateway 副本汇总后的 5 分钟 RPM/TPM 判断，不能由单个 Envoy Pod �
 ## Grafana 使用方式
 
 `higress-ack-ops` 在运行阶段部署单副本 Grafana，通过 Higress 的 `/grafana/`
-子路由访问，并自动加载三个独立页面：模型质量、实时运行和基础监控。启用控制面/模型
+子路由访问，并自动加载四个独立页面：模型质量、实时运行、请求明细和基础监控。启用控制面/模型
 API 公网分流时，该路由自动挂到进入
 Higress 的模型 API 域名（当前为 `api.tokenvolt.net/grafana/`），不会挂到绕过
 Higress、直达 TokenVolt 控制面的 `ack.tokenvolt.net`。
-数据源直接读取集群内受控的 `higress-metrics-collector`，无需在 Grafana 中保存
-ARMS 凭证。
+指标数据源读取 ACK 托管 Prometheus/ARMS 的内网查询 API，因此 Collector 或 Grafana
+重启不会清空大盘历史。查询 API Token 由 Terraform 写入 Kubernetes Secret，Grafana
+通过 `Authorization` Header 使用，不写入 ConfigMap 或 Git。请求明细通过阿里云官方
+SLS 插件读取 `model-access`，使用独立 RAM 用户，
+权限只包含指定 Logstore 查询以及插件健康检查所需的 Project 元数据读取。
 
 ### 大盘信息架构
 
@@ -173,13 +184,21 @@ ARMS 凭证。
    后的成功率、TTFT P50/P90、TPOT P50/P90 和样本量；这是客户实际感受到的整体质量。
 2. 紧接着用“模型 × 厂商”表比较成功率、TTFT、TPOT、RPM 和 TPM。表格可按任意
    列排序；不额外制造一个权重不透明的综合分数。
-3. “实时运行”页把同一模型 × 厂商的 RPM、TPM、成功率、TTFT 和 TPOT 合并为一行，
-   只保留三组必要趋势图。
+3. “实时运行”页把同一模型 × 厂商的 RPM、TPM、成功率、TTFT 和 TPOT 合并为一行；
+   RPM、TPM、TTFT P90、TPOT P90 使用四张独立趋势图，避免不同单位和数量级互相压扁。
 4. “基础监控”页单独承载 Envoy、Terway/Cilium、HPA、采集器和 Controller；顶部
    先展示活跃请求、Inbound/Outbound 连接、上游 pending/熔断压力，随后展示 Envoy
    下游/上游 HTTP 总耗时 P50/P90、下游异常、上游异常以及 HTTP/2/高内存保护事件。
    admin、stats、readiness、xDS 和 Prometheus 内部流量在采集时即被过滤，不参与
    厂商质量排名，也不污染数据面连接数。
+5. “请求明细”页直接查询 SLS，包含最近请求、TTFT Top 100、TPOT Top 100、5xx 和
+   429 证据五张表，可按模型、上游表达式、租户和请求 ID 筛选。所有查询统一排除
+   空模型、`dashboard-mock` 以及非 `tokenvolt-<provider>.dns` 的内部上游。
+
+模型和厂商筛选目录不是写死在大盘里的枚举。限定范围的 kube-state-metrics 从
+`tokenvolt-system` Ingress 注解读取当前已发布 CR，生成
+`tokenvolt:configured_provider_model:info`；模型质量和实时运行页面都以它作为当前
+数据面目录。数据库中尚未发布或已停用的组合不会出现在实时目录中。
 
 三个页面都不展示 P99。当前样本量不足以让 P99 稳定，P50 表示常态，P90 用于慢请求
 和服务质量边缘判断。
@@ -189,12 +208,12 @@ ARMS 凭证。
 
 ### 请求明细边界
 
-逐请求明细来自 SLS `model-access`，不进入 Prometheus。Grafana 需要安装阿里云官方
-SLS 数据源插件并使用仅允许读取该 Logstore 的身份后，才能内嵌以下三类表：
+逐请求明细来自 SLS `model-access`，不进入 Prometheus。Grafana 固定安装阿里云官方
+SLS 数据源插件 2.39.2，并使用只允许读取该 Logstore 的身份内嵌以下表：
 
-- TTFT 超过当前时间窗 P90 的请求，按 TTFT 降序；
-- TPOT 超过当前时间窗 P90 的流式请求，按 TPOT 降序；
-- HTTP 5xx 和非预期 429 的请求证据。
+- 最近请求，按时间倒序；
+- TTFT 和 TPOT 最慢的 Top 100 请求；
+- HTTP 5xx 和所有 429 的请求证据。
 
 每行只展示时间、网关请求 ID、厂商请求 ID、模型、上游集群、状态码、TTFT、TPOT
 和 Token 数，不展示 API Key、Prompt 或模型回答。TPOT 由单请求字段计算：

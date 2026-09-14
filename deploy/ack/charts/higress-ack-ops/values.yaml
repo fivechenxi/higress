@@ -63,19 +63,61 @@ monitoring:
   alerts:
     enabled: true
     minRequests5m: 20
+    capacityWarningRatio: 0.80
+    successRatioWarning: 0.99
     errorRatioWarning: 0.05
     errorRatioCritical: 0.15
     abortRatioWarning: 0.01
     abortRatioCritical: 0.05
-    ttftP90WarningMilliseconds: 1000
-    tpotP90WarningMilliseconds: 100
-    providerSuccessRatioWarning: 0.99
+    ttftP90WarningMilliseconds: 25000
+    ttftP90CriticalMilliseconds: 50000
+    tpotP90WarningMilliseconds: 50
+    tpotP90CriticalMilliseconds: 70
+    # Envoy downstream duration includes the full streaming response. This is
+    # intentionally a loose first-pass infrastructure threshold, not TTFT.
+    gatewayDurationP90WarningMilliseconds: 120000
+    hpaNearScaleUpRatio: 0.80
+    hpaNearMaxReplicasRatio: 0.80
+    gatewayResetWarning5m: 3
     gatewayMemoryWarningBytes: 805306368
     ciliumCTPressureWarning: 0.70
     ciliumCTPressureCritical: 0.90
+  alerting:
+    enabled: true
+    alertmanager:
+      image: m.daocloud.io/docker.io/prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
+      groupWait: 30s
+      groupInterval: 5m
+      repeatInterval: 2h
+      resources:
+        requests:
+          cpu: 20m
+          memory: 48Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
+    feishu:
+      enabled: false
+      existingSecret: higress-feishu-alert-webhook
+      webhookKey: webhook-url
+      relayImage: m.daocloud.io/docker.io/library/python:3.13-alpine@sha256:7415fbc3c9e4979cc717d92377ab2bc7b2b4a2af1ac03cc52b5f3f88efedaf3a
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 96Mi
   grafana:
     enabled: true
     dashboardsEnabled: true
+    # Empty keeps the in-cluster collector as the query source. ACK installs
+    # set this to the ARMS intranet HTTP API so collector rollouts do not erase
+    # the visible dashboard history.
+    prometheusUrl: ""
+    prometheusAuth:
+      existingSecret: ""
+      authorizationKey: authorization
     image: m.daocloud.io/docker.io/grafana/grafana:13.2.1@sha256:f772d434e8fab0049deb2b1b30abd43342bcfca1537614aa8d36080232cf4283
     host: ack.tokenvolt.net
     path: /grafana
@@ -84,19 +126,33 @@ monitoring:
     existingSecret: higress-grafana-admin
     adminUserKey: admin-user
     adminPasswordKey: admin-password
+    sls:
+      enabled: false
+      existingSecret: higress-grafana-sls
+      accessKeyIdKey: access-key-id
+      accessKeySecretKey: access-key-secret
+      endpoint: cn-beijing-intranet.log.aliyuncs.com
+      project: ""
+      logstore: model-access
+      plugin:
+        version: "2.39.2"
+        commit: a73857e05f2e1f8253534d909f5388553991ce93
+        archiveSha256: 8aaf97e81380553db098ef7a641689ffd2dcddb20afe0fdf6d8b2b182920ff8b
     resources:
       requests:
         cpu: 100m
-        memory: 128Mi
+        memory: 256Mi
       limits:
         cpu: 500m
-        memory: 512Mi
+        memory: 1Gi
   hpaState:
     enabled: true
-    # Only HPA objects in the Higress namespace are watched. This is not the
-    # full kube-state-metrics deployment used by cs-default.
+    # A deliberately narrow kube-state-metrics instance: Higress HPA state
+    # plus the TokenVolt route Ingress annotations used for model/provider
+    # discovery. This is not the full cs-default Kubernetes monitoring set.
     image: m.daocloud.io/registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.0@sha256:6b2f0b6f2f86ac5b1aa883a033a8dd55bb96c16d191ec973393bdaadaddac914
     namespace: higress-system
+    routeNamespace: tokenvolt-system
     resources:
       requests:
         cpu: 20m

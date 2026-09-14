@@ -29,12 +29,34 @@ data:
         uid: higress-prometheus
         type: prometheus
         access: proxy
-        url: http://higress-metrics-collector.{{ .Release.Namespace }}.svc:9090
+        url: {{ default (printf "http://higress-metrics-collector.%s.svc:9090" .Release.Namespace) $grafana.prometheusUrl | quote }}
         isDefault: true
         editable: false
         jsonData:
           httpMethod: POST
           timeInterval: {{ .Values.monitoring.interval | quote }}
+          {{- if $grafana.prometheusAuth.existingSecret }}
+          httpHeaderName1: Authorization
+          {{- end }}
+        {{- if $grafana.prometheusAuth.existingSecret }}
+        secureJsonData:
+          httpHeaderValue1: $PROMETHEUS_AUTH_HEADER
+        {{- end }}
+      {{- if $grafana.sls.enabled }}
+      - name: TokenVolt Request Logs
+        uid: tokenvolt-sls
+        type: aliyun-log-service-datasource
+        access: proxy
+        url: {{ $grafana.sls.endpoint | quote }}
+        isDefault: false
+        editable: false
+        jsonData:
+          project: {{ required "monitoring.grafana.sls.project must be set" $grafana.sls.project | quote }}
+          logstore: {{ $grafana.sls.logstore | quote }}
+        secureJsonData:
+          accessKeyId: $SLS_ACCESS_KEY_ID
+          accessKeySecret: $SLS_ACCESS_KEY_SECRET
+      {{- end }}
   dashboards.yaml: |
     apiVersion: 1
     providers:
@@ -68,17 +90,60 @@ spec:
         app: higress-grafana
       annotations:
         checksum/provisioning: {{ printf "%s:%s" (toYaml $grafana) .Values.monitoring.interval | sha256sum }}
-        checksum/dashboards: {{ printf "%s:%s:%s" (.Files.Get "dashboards/tokenvolt-model-quality.json") (.Files.Get "dashboards/tokenvolt-runtime.json") (.Files.Get "dashboards/tokenvolt-infrastructure.json") | sha256sum }}
+        checksum/dashboards: {{ printf "%s:%s:%s:%s" (.Files.Get "dashboards/tokenvolt-model-quality.json") (.Files.Get "dashboards/tokenvolt-runtime.json") (.Files.Get "dashboards/tokenvolt-infrastructure.json") (.Files.Get "dashboards/tokenvolt-request-details.json") | sha256sum }}
     spec:
       securityContext:
         fsGroup: 472
         seccompProfile:
           type: RuntimeDefault
+      {{- if $grafana.sls.enabled }}
+      initContainers:
+        - name: install-sls-datasource
+          image: {{ $grafana.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              archive=/tmp/sls-plugin.tar.gz
+              source=/tmp/sls-plugin-source
+              target=/var/lib/grafana/plugins/aliyun-log-service-datasource
+              wget -q -O "$archive" "https://github.com/aliyun/aliyun-log-grafana-datasource-plugin/archive/{{ $grafana.sls.plugin.commit }}.tar.gz"
+              echo "{{ $grafana.sls.plugin.archiveSha256 }}  $archive" | sha256sum -c -
+              mkdir -p "$source" "$target"
+              tar -xzf "$archive" -C "$source" --strip-components=1
+              cp -R "$source/dist/." "$target/"
+              find "$target" -maxdepth 1 -type f -name 'gpx_*' ! -name 'gpx_log-service-datasource_linux_amd64' -delete
+              chmod 0755 "$target/gpx_log-service-datasource_linux_amd64"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsNonRoot: true
+            runAsUser: 472
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+      {{- end }}
       containers:
         - name: grafana
           image: {{ $grafana.image | quote }}
           imagePullPolicy: IfNotPresent
           env:
+            {{- if $grafana.prometheusAuth.existingSecret }}
+            - name: PROMETHEUS_AUTH_HEADER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $grafana.prometheusAuth.existingSecret | quote }}
+                  key: {{ $grafana.prometheusAuth.authorizationKey | quote }}
+            {{- end }}
             - name: GF_SECURITY_ADMIN_USER
               valueFrom:
                 secretKeyRef:
@@ -101,6 +166,20 @@ spec:
               value: "false"
             - name: GF_ANALYTICS_CHECK_FOR_UPDATES
               value: "false"
+            {{- if $grafana.sls.enabled }}
+            - name: GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS
+              value: aliyun-log-service-datasource
+            - name: SLS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $grafana.sls.existingSecret | quote }}
+                  key: {{ $grafana.sls.accessKeyIdKey | quote }}
+            - name: SLS_ACCESS_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $grafana.sls.existingSecret | quote }}
+                  key: {{ $grafana.sls.accessKeySecretKey | quote }}
+            {{- end }}
             - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
               value: /var/lib/grafana/dashboards/tokenvolt-model-quality.json
           ports:

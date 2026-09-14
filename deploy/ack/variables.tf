@@ -319,6 +319,16 @@ variable "prometheus_alert_dispatch_rule_id" {
   default     = ""
 }
 
+variable "prometheus_query_url" {
+  description = "ACK Prometheus intranet HTTP API URL returned by GetPrometheusInstance; used by Grafana so collector restarts do not lose dashboard history."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.prometheus_query_url == "" || startswith(var.prometheus_query_url, "http://cn-beijing-intranet.arms.aliyuncs.com:9090/")
+    error_message = "prometheus_query_url must be the cn-beijing ARMS intranet HTTP API URL."
+  }
+}
+
 variable "hpa_event_center_enabled" {
   description = "Persist Kubernetes events, including HPA decisions and failures, in the ACK SLS Event Center. This does not enable cs-default Prometheus collection."
   type        = bool
@@ -335,6 +345,18 @@ variable "grafana_admin_user" {
   description = "Grafana administrator user stored with its generated password in a Kubernetes Secret."
   type        = string
   default     = "admin"
+}
+
+variable "feishu_alert_webhook_url" {
+  description = "Feishu custom-bot webhook for TokenVolt alerts. Keep empty to deploy Alertmanager with a null receiver."
+  type        = string
+  default     = ""
+  sensitive   = true
+
+  validation {
+    condition     = var.feishu_alert_webhook_url == "" || can(regex("^https://open\\.(feishu\\.cn|larksuite\\.com)/open-apis/bot/v2/hook/[A-Za-z0-9_-]+$", var.feishu_alert_webhook_url))
+    error_message = "feishu_alert_webhook_url must be an official Feishu/Lark custom-bot webhook URL."
+  }
 }
 
 variable "tokenvolt_split_public_entry" {
