@@ -154,9 +154,23 @@ class GatewayPolicyTest(unittest.TestCase):
                          by_kind_name[('ConfigMap', 'higress-ack-promql')]['data'])
         gateway_scrape = next(job for job in config['scrape_configs']
                               if job['job_name'] == 'higress-gateway')
+        gateway_relabels = gateway_scrape['metric_relabel_configs']
+        self.assertIn(
+            {'source_labels': ['cluster_name'], 'regex': '(.+)',
+             'target_label': 'ai_provider', 'replacement': '$1'},
+            gateway_relabels,
+        )
+        self.assertNotIn('envoy_cluster_name', collector)
+        self.assertIn('rq_time_(bucket|sum|count)', collector)
+        self.assertIn('upstream_rq_time_(bucket|sum|count)', collector)
+        infrastructure = json.loads(dashboard_data['tokenvolt-infrastructure.json'])
+        infrastructure_titles = {panel['title'] for panel in infrastructure['panels']}
+        self.assertIn('Inbound / Outbound 活跃连接', infrastructure_titles)
+        self.assertIn('下游 HTTP 总耗时 P50 / P90', infrastructure_titles)
+        self.assertIn('上游异常事件 / 5 分钟', infrastructure_titles)
         self.assertNotIn(
             {'regex': '^ai_consumer$', 'action': 'labeldrop'},
-            gateway_scrape['metric_relabel_configs'],
+            gateway_relabels,
         )
         self.assertIn(
             {'source_labels': ['ai_consumer'], 'regex': '.+', 'action': 'drop'},

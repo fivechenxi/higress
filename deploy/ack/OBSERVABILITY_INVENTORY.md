@@ -80,6 +80,7 @@ Grafana 大盘中。
 | 每 Pod 及总活跃流 | `envoy_http_downstream_rq_active` | 达到最大副本且超过每 Pod 225 条的等效容量时严重告警 | 与 Gateway HPA 使用同一个受控指标 |
 | 可采集的 Gateway 副本数 | `up{job="higress-gateway"}` | 低于配置的最小副本数 | 判断可用性及服务发现是否正常 |
 | 下游和上游连接数 | Envoy 活跃连接 Gauge | 仅大盘展示 | 长流连接和连接池分析 |
+| 下游/上游 HTTP 总耗时 P50/P90 | Envoy `*_rq_time_bucket` | 仅大盘展示 | 单位毫秒；包含流式请求的完整存续时间，不替代模型 TTFT/TPOT |
 | 上游等待请求 | Envoy pending request Gauge | 持续 2 分钟非零 | 上游连接池或厂商容量压力 |
 | 连接溢出 | Envoy Listener/Cluster overflow Counter | 任意增长 | 连接或资源达到硬限制 |
 | 请求重置 | Envoy 下游和上游 reset Counter | 5 分钟内超过 3 次 | 客户端、网关、厂商或发布过程异常 |
@@ -125,7 +126,7 @@ AlertManager 路径。
 | 不受厂商响应影响的稳定公共模型标签 | 暂时使用 `ai_route`，`ai_model` 保留响应模型语义 | 增加可信且低基数的公共模型标签 |
 | Pod CPU、容器内存历史 | 压测时使用 `kubectl top`；HPA 自身状态和事件已经持久化 | 确有长期存储价值时再增加窄范围采集，不能打开全量 kubelet/cAdvisor |
 | 厂商集群标签归一化 | Collector 正则并保留原始 `ai_cluster` | 启动环境后用一次真实 Scrape 验证 |
-| Envoy 上游调用指标的响应码标签 | 静态配置按 Envoy 标准标签编写 | 启动环境后用一次真实 Scrape 验证 429/5xx 查询 |
+| Envoy 上游调用指标的响应码标签 | 已按真实 Scrape 修正为 `cluster_name`、`response_code_class`；精确 429 使用固定指标 `envoy_cluster_upstream_rq_429` | 已验证，禁止使用不存在的 `envoy_cluster_name`/`envoy_response_code` 标签 |
 
 前两个是目前 Prometheus 中真正缺少的基础 AI 记账质量指标。它们需要发布新的
 Wasm 产物，应作为独立的数据面改动，通过 Mock 和真实流式请求验证。
@@ -174,8 +175,11 @@ ARMS 凭证。
    列排序；不额外制造一个权重不透明的综合分数。
 3. “实时运行”页把同一模型 × 厂商的 RPM、TPM、成功率、TTFT 和 TPOT 合并为一行，
    只保留三组必要趋势图。
-4. “基础监控”页单独承载 Envoy、Terway/Cilium、HPA、采集器和 Controller；它们
-   不参与厂商质量排名。
+4. “基础监控”页单独承载 Envoy、Terway/Cilium、HPA、采集器和 Controller；顶部
+   先展示活跃请求、Inbound/Outbound 连接、上游 pending/熔断压力，随后展示 Envoy
+   下游/上游 HTTP 总耗时 P50/P90、下游异常、上游异常以及 HTTP/2/高内存保护事件。
+   admin、stats、readiness、xDS 和 Prometheus 内部流量在采集时即被过滤，不参与
+   厂商质量排名，也不污染数据面连接数。
 
 三个页面都不展示 P99。当前样本量不足以让 P99 稳定，P50 表示常态，P90 用于慢请求
 和服务质量边缘判断。

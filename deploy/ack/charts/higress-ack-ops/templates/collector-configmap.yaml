@@ -70,7 +70,19 @@ data:
         metric_relabel_configs:
           - source_labels: [__name__]
             action: keep
-            regex: '^(route_upstream_model_consumer_metric_(llm_first_token_duration(_bucket_le_(100|250|500|1000|2000|5000|10000|30000|60000|inf))?|llm_stream_duration_count|llm_service_duration|llm_duration_count|llm_failure_count|llm_rate_limited_count|llm_request_count|llm_aborted_count|llm_inflight_request|llm_tpot_duration(_bucket_le_(5|10|20|30|50|100|250|500|1000|inf))?|llm_tpot_count|cache_hit_token|cache_reported_request_count|cache_hit_request_count|input_token|output_token|total_token)|ai_endpoint_picker_(decisions_total|fallback_total|missing_signal_total|feedback_total|inflight)|ai_sec_(request_deny|response_deny)|envoy_http_downstream_(rq_active|cx_active|rq|rq_timeout|rq_rx_reset|rq_tx_reset|rq_too_many_premature_resets|cx_delayed_close_timeout|cx_idle_timeout)|envoy_http_rq_reset_after_downstream_response_started|envoy_listener_downstream_(cx_active|cx_overflow|global_cx_overflow|cx_transport_socket_connect_timeout|pre_cx_timeout)|envoy_cluster_(upstream_rq_active|upstream_cx_active|upstream_rq_pending_active|upstream_rq|external_upstream_rq|upstream_cx_connect_fail|upstream_cx_connect_timeout|upstream_cx_overflow|upstream_cx_pool_overflow|upstream_rq_pending_overflow|upstream_rq_retry_overflow|upstream_rq_timeout|upstream_rq_per_try_timeout|upstream_rq_per_try_idle_timeout|upstream_rq_rx_reset|upstream_rq_tx_reset|http2_header_overflow|http2_rx_reset|http2_tx_reset|http2_keepalive_timeout|http2_tx_flush_timeout)|envoy_server_memory_(allocated|heap_size)|envoy_envoy_overload_actions_reset_high_memory_stream_count)$'
+            regex: '^(route_upstream_model_consumer_metric_(llm_first_token_duration(_bucket_le_(100|250|500|1000|2000|5000|10000|30000|60000|inf))?|llm_stream_duration_count|llm_service_duration|llm_duration_count|llm_failure_count|llm_rate_limited_count|llm_request_count|llm_aborted_count|llm_inflight_request|llm_tpot_duration(_bucket_le_(5|10|20|30|50|100|250|500|1000|inf))?|llm_tpot_count|cache_hit_token|cache_reported_request_count|cache_hit_request_count|input_token|output_token|total_token)|ai_endpoint_picker_(decisions_total|fallback_total|missing_signal_total|feedback_total|inflight)|ai_sec_(request_deny|response_deny)|envoy_http_downstream_(rq_active|cx_active|rq|rq_time_(bucket|sum|count)|rq_timeout|rq_header_timeout|rq_idle_timeout|rq_max_duration_reached|rq_rx_reset|rq_tx_reset|rq_too_many_premature_resets|rq_response_before_rq_complete|rq_too_large|rq_overload_close|cx_delayed_close_timeout|cx_idle_timeout|cx_max_duration_reached|cx_overload_disable_keepalive)|envoy_http_(rq_reset_after_downstream_response_started|rq_overload_local_reply)|envoy_listener_downstream_(cx_active|cx_overflow|global_cx_overflow|cx_overload_reject|cx_transport_socket_connect_timeout|pre_cx_timeout)|envoy_cluster_(upstream_rq_active|upstream_cx_active|upstream_rq_pending_active|upstream_rq(_429)?|external_upstream_rq|upstream_rq_time_(bucket|sum|count)|upstream_cx_connect_fail|upstream_cx_connect_timeout|upstream_cx_idle_timeout|upstream_cx_max_duration_reached|upstream_cx_overflow|upstream_cx_pool_overflow|upstream_rq_cancelled|upstream_rq_max_duration_reached|upstream_rq_pending_overflow|upstream_rq_retry_overflow|upstream_rq_retry_limit_exceeded|upstream_rq_timeout|upstream_rq_per_try_timeout|upstream_rq_per_try_idle_timeout|upstream_rq_rx_reset|upstream_rq_tx_reset|http2_header_overflow|http2_pending_send_bytes|http2_rx_reset|http2_tx_reset|http2_keepalive_timeout|http2_tx_flush_timeout|circuit_breakers_(default_remaining_pending|default_rq_pending_open|high_rq_pending_open))|envoy_server_memory_(allocated|heap_size|physical_size)|envoy_envoy_overload_actions_reset_high_memory_stream_count)$'
+          # Keep only the public data-plane listener/HTTP connection manager;
+          # admin, stats and readiness listeners otherwise duplicate noise.
+          - source_labels: [__name__, http_conn_manager_prefix]
+            regex: 'envoy_http_downstream_.*;(admin|agent|stats)'
+            action: drop
+          - source_labels: [__name__, listener_address]
+            regex: 'envoy_listener_downstream_.*;0[.]0[.]0[.]0_(15021|15090)'
+            action: drop
+          # Internal xDS/agent/scrape clusters are not user traffic.
+          - source_labels: [__name__, cluster_name]
+            regex: 'envoy_cluster_.*;(agent|prometheus_stats|xds-grpc)'
+            action: drop
           # ai_cluster is Envoy's resolved upstream cluster. Expose the same
           # value under the business-facing provider label for model/provider
           # drill-down while retaining ai_cluster for troubleshooting.
@@ -78,7 +90,7 @@ data:
             regex: '(.+)'
             target_label: ai_provider
             replacement: '$1'
-          - source_labels: [envoy_cluster_name]
+          - source_labels: [cluster_name]
             regex: '(.+)'
             target_label: ai_provider
             replacement: '$1'
@@ -89,7 +101,7 @@ data:
             regex: '.*[|][|]tokenvolt-([^.]+)[.]dns.*'
             target_label: ai_provider
             replacement: '$1'
-          - source_labels: [envoy_cluster_name]
+          - source_labels: [cluster_name]
             regex: '.*[|][|]tokenvolt-([^.]+)[.]dns.*'
             target_label: ai_provider
             replacement: '$1'
@@ -301,17 +313,29 @@ data:
           - record: tokenvolt:gateway_ready_targets:count
             expr: count(up{job="higress-gateway"} == 1)
           - record: tokenvolt:gateway_downstream_connections:sum
-            expr: sum(envoy_http_downstream_cx_active)
+            expr: sum(envoy_http_downstream_cx_active{http_conn_manager_prefix="outbound_0.0.0.0_80"})
+          - record: tokenvolt:gateway_listener_connections:sum
+            expr: sum(envoy_listener_downstream_cx_active{listener_address="0.0.0.0_80"})
+          - record: tokenvolt:gateway_upstream_connections
+            expr: sum by (ai_provider) (envoy_cluster_upstream_cx_active)
           - record: tokenvolt:gateway_upstream_connections:sum
-            expr: sum(envoy_cluster_upstream_cx_active{envoy_cluster_name=~".*tokenvolt-.*[.]dns.*"})
+            expr: sum(tokenvolt:gateway_upstream_connections)
           - record: tokenvolt:gateway_upstream_pending_requests:sum
-            expr: sum(envoy_cluster_upstream_rq_pending_active{envoy_cluster_name=~".*tokenvolt-.*[.]dns.*"})
+            expr: sum(envoy_cluster_upstream_rq_pending_active)
+          - record: tokenvolt:gateway_downstream_duration_milliseconds:p50_rate5m
+            expr: histogram_quantile(0.50, sum by (le) (rate(envoy_http_downstream_rq_time_bucket{http_conn_manager_prefix="outbound_0.0.0.0_80"}[5m])))
+          - record: tokenvolt:gateway_downstream_duration_milliseconds:p90_rate5m
+            expr: histogram_quantile(0.90, sum by (le) (rate(envoy_http_downstream_rq_time_bucket{http_conn_manager_prefix="outbound_0.0.0.0_80"}[5m])))
+          - record: tokenvolt:gateway_upstream_duration_milliseconds:p50_rate5m
+            expr: histogram_quantile(0.50, sum by (le,ai_provider) (rate(envoy_cluster_upstream_rq_time_bucket[5m])))
+          - record: tokenvolt:gateway_upstream_duration_milliseconds:p90_rate5m
+            expr: histogram_quantile(0.90, sum by (le,ai_provider) (rate(envoy_cluster_upstream_rq_time_bucket[5m])))
           - record: tokenvolt:provider_attempt_rpm:rate5m
-            expr: sum by (ai_provider) (rate(envoy_cluster_upstream_rq{envoy_cluster_name=~".*tokenvolt-.*[.]dns.*"}[5m])) * 60
+            expr: sum by (ai_provider) (rate(envoy_cluster_upstream_rq{cluster_name=~".*tokenvolt-.*[.]dns.*"}[5m])) * 60
           - record: tokenvolt:provider_429_rpm:rate5m
-            expr: sum by (ai_provider) (rate(envoy_cluster_upstream_rq{envoy_cluster_name=~".*tokenvolt-.*[.]dns.*",envoy_response_code="429"}[5m])) * 60
+            expr: sum by (ai_provider) (rate(envoy_cluster_upstream_rq_429{cluster_name=~".*tokenvolt-.*[.]dns.*"}[5m])) * 60
           - record: tokenvolt:provider_5xx_rpm:rate5m
-            expr: sum by (ai_provider) (rate(envoy_cluster_upstream_rq{envoy_cluster_name=~".*tokenvolt-.*[.]dns.*",envoy_response_code=~"5.."}[5m])) * 60
+            expr: sum by (ai_provider) (rate(envoy_cluster_upstream_rq{cluster_name=~".*tokenvolt-.*[.]dns.*",response_code_class="5xx"}[5m])) * 60
           - record: tokenvolt:provider_attempts_per_logical_request:rate5m
             expr: sum(tokenvolt:provider_attempt_rpm:rate5m) / clamp_min(sum(tokenvolt:ai_rpm:rate5m), 0.000001)
           - record: tokenvolt:terway_ct_pressure:max
