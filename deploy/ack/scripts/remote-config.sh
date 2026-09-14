@@ -156,10 +156,7 @@ prepare() {
     :
   else
     FETCH_STATUS=$?
-    if test "$FETCH_STATUS" -eq 1; then
-      printf 'Remote tfvars is absent; keeping the local file.\n'
-      return
-    fi
+    if test "$FETCH_STATUS" -eq 1; then printf 'Remote tfvars is absent; publish an approved baseline with config-push before deploying.\n' >&2; fi
     exit "$FETCH_STATUS"
   fi
   LOCAL_HASH=$(file_hash "$CONFIG_FILE")
@@ -168,8 +165,8 @@ prepare() {
   if test "$LOCAL_HASH" = "$REMOTE_HASH"; then save_base "$LOCAL_HASH"; return; fi
   if test -n "$BASE_HASH" && test "$LOCAL_HASH" = "$BASE_HASH"; then pull --force; return; fi
   if test -n "$BASE_HASH" && test "$REMOTE_HASH" = "$BASE_HASH"; then
-    printf 'Using locally changed terraform.tfvars; it will be pushed only after a successful apply.\n'
-    return
+    printf 'Local terraform.tfvars differs from the OSS baseline; run config-push explicitly before deploying, or config-pull to discard it.\n' >&2
+    exit 1
   fi
   printf 'Both local and remote tfvars changed; resolve the conflict before deploying.\n' >&2
   exit 1

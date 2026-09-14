@@ -18,6 +18,22 @@ set -eu
 TOFU_BIN=${TOFU_BIN:-tofu}
 PROFILE=${ALICLOUD_PROFILE:-tokenvolt}
 
+# OSS terraform.tfvars is the deployment source of truth. Protect direct
+# tofu.sh plan/apply/destroy calls as well as the Makefile entry points so a
+# stale local file cannot silently roll an ACK workload back. Bootstrap
+# invocations use -chdir and deliberately manage a different state/config.
+NEEDS_CONFIG_GUARD=false
+SKIP_CONFIG_GUARD=false
+for ARG in "$@"; do
+  case "$ARG" in
+    -chdir=*) SKIP_CONFIG_GUARD=true ;;
+    plan|apply|destroy) NEEDS_CONFIG_GUARD=true ;;
+  esac
+done
+if test "$NEEDS_CONFIG_GUARD" = true && test "$SKIP_CONFIG_GUARD" = false; then
+  "$(dirname -- "$0")/remote-config.sh" prepare
+fi
+
 # The Alibaba Cloud provider understands CLI OAuth profiles, while OpenTofu's
 # OSS backend expects standard AK/STS environment variables. Export the current
 # short-lived credentials without printing or persisting them.
