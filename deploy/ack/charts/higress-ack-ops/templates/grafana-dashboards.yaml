@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-{{- if and .Values.monitoring.enabled .Values.monitoring.grafana.dashboardsEnabled }}
+{{- if and .Values.monitoring.enabled (or .Values.monitoring.grafana.dashboardsEnabled .Values.monitoring.grafana.enabled) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

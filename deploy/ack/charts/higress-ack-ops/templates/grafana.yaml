@@ -1,0 +1,186 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if and .Values.monitoring.enabled .Values.monitoring.grafana.enabled }}
+{{- $grafana := .Values.monitoring.grafana }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: higress-grafana-provisioning
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+data:
+  datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Higress Prometheus
+        uid: higress-prometheus
+        type: prometheus
+        access: proxy
+        url: http://higress-metrics-collector.{{ .Release.Namespace }}.svc:9090
+        isDefault: true
+        editable: false
+        jsonData:
+          httpMethod: POST
+          timeInterval: {{ .Values.monitoring.interval | quote }}
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: TokenVolt
+        folder: TokenVolt
+        type: file
+        disableDeletion: true
+        allowUiUpdates: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: higress-grafana
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: higress-grafana
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: higress-grafana
+  template:
+    metadata:
+      labels:
+        app: higress-grafana
+      annotations:
+        checksum/provisioning: {{ printf "%s:%s" (toYaml $grafana) .Values.monitoring.interval | sha256sum }}
+        checksum/dashboards: {{ .Files.Get "dashboards/tokenvolt-higress-ai-gateway.json" | sha256sum }}
+    spec:
+      securityContext:
+        fsGroup: 472
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: grafana
+          image: {{ $grafana.image | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $grafana.existingSecret | quote }}
+                  key: {{ $grafana.adminUserKey | quote }}
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $grafana.existingSecret | quote }}
+                  key: {{ $grafana.adminPasswordKey | quote }}
+            - name: GF_SERVER_ROOT_URL
+              value: {{ $grafana.rootUrl | quote }}
+            - name: GF_SERVER_SERVE_FROM_SUB_PATH
+              value: "true"
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: "false"
+            - name: GF_ANALYTICS_CHECK_FOR_UPDATES
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsNonRoot: true
+            runAsUser: 472
+          resources:
+            {{- toYaml $grafana.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+            - name: provisioning
+              mountPath: /etc/grafana/provisioning/datasources/datasource.yaml
+              subPath: datasource.yaml
+              readOnly: true
+            - name: provisioning
+              mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
+              subPath: dashboards.yaml
+              readOnly: true
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards/tokenvolt-higress-ai-gateway.json
+              subPath: tokenvolt-higress-ai-gateway.json
+              readOnly: true
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: provisioning
+          configMap:
+            name: higress-grafana-provisioning
+        - name: dashboards
+          configMap:
+            name: higress-grafana-dashboards
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: higress-grafana
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: higress-grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: higress-grafana
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  ingressClassName: {{ $grafana.ingressClassName | quote }}
+  rules:
+    - host: {{ required "monitoring.grafana.host must be set" $grafana.host | quote }}
+      http:
+        paths:
+          - path: {{ $grafana.path | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: higress-grafana
+                port:
+                  number: 3000
+{{- end }}

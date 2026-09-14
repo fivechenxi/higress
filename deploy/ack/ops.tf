@@ -12,6 +12,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+resource "random_password" "grafana_admin" {
+  count = var.grafana_enabled ? 1 : 0
+
+  length           = 24
+  special          = true
+  override_special = "_%@-"
+}
+
+resource "kubernetes_secret_v1" "grafana_admin" {
+  count = var.lifecycle_mode == "running" && var.grafana_enabled ? 1 : 0
+
+  metadata {
+    name      = "higress-grafana-admin"
+    namespace = "higress-system"
+  }
+
+  data = {
+    "admin-user"     = var.grafana_admin_user
+    "admin-password" = random_password.grafana_admin[0].result
+  }
+
+  type = "Opaque"
+
+  depends_on = [helm_release.higress]
+}
+
 resource "helm_release" "higress_ack_ops" {
   count = var.lifecycle_mode == "running" ? 1 : 0
 
@@ -29,6 +55,12 @@ resource "helm_release" "higress_ack_ops" {
       monitoring = {
         remoteWriteUrl = local.prometheus_remote_write_url
         clusterId      = alicloud_cs_managed_kubernetes.this.id
+        grafana = {
+          enabled        = var.grafana_enabled
+          host           = var.tokenvolt_public_host
+          rootUrl        = "${var.tokenvolt_public_tls_enabled ? "https" : "http"}://${var.tokenvolt_public_host}/grafana/"
+          existingSecret = "higress-grafana-admin"
+        }
       }
     })
   ]
@@ -36,6 +68,7 @@ resource "helm_release" "higress_ack_ops" {
   depends_on = [
     terraform_data.prometheus_auth_free_write,
     kubernetes_annotations.terway_cilium_metrics_rollout,
+    kubernetes_secret_v1.grafana_admin,
     helm_release.higress,
   ]
 }

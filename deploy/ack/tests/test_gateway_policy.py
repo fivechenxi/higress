@@ -90,6 +90,35 @@ class GatewayPolicyTest(unittest.TestCase):
             with self.subTest(setting=setting), self.assertRaisesRegex(RuntimeError, 'Gateway autoscaling requires'):
                 render('deploy/ack/charts/higress-ack-ops', '--set', 'monitoring.enabled=false', '--set', setting)
 
+    def test_grafana_uses_secret_subroute_and_local_bounded_prometheus(self):
+        objects = render(
+            'deploy/ack/charts/higress-ack-ops',
+            '--set', 'monitoring.remoteWriteUrl=http://example.invalid/api/v1/write',
+            '--set', 'monitoring.clusterId=test-cluster',
+        )
+        by_kind_name = {(o['kind'], o['metadata']['name']): o for o in objects}
+
+        deployment = by_kind_name[('Deployment', 'higress-grafana')]
+        container = deployment['spec']['template']['spec']['containers'][0]
+        self.assertIn('@sha256:', container['image'])
+        env = {item['name']: item for item in container['env']}
+        self.assertEqual(
+            env['GF_SECURITY_ADMIN_PASSWORD']['valueFrom']['secretKeyRef'],
+            {'name': 'higress-grafana-admin', 'key': 'admin-password'},
+        )
+        self.assertEqual(env['GF_SERVER_SERVE_FROM_SUB_PATH']['value'], 'true')
+
+        ingress = by_kind_name[('Ingress', 'higress-grafana')]
+        self.assertEqual(ingress['spec']['ingressClassName'], 'higress')
+        rule = ingress['spec']['rules'][0]
+        self.assertEqual(rule['host'], 'ack.tokenvolt.net')
+        self.assertEqual(rule['http']['paths'][0]['path'], '/grafana')
+
+        provisioning = by_kind_name[('ConfigMap', 'higress-grafana-provisioning')]['data']
+        self.assertIn('http://higress-metrics-collector.higress-system.svc:9090', provisioning['datasource.yaml'])
+        self.assertIn('/var/lib/grafana/dashboards', provisioning['dashboards.yaml'])
+        self.assertIn(('ConfigMap', 'higress-grafana-dashboards'), by_kind_name)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -324,3 +324,15 @@ variable "hpa_event_center_enabled" {
   type        = bool
   default     = true
 }
+
+variable "grafana_enabled" {
+  description = "Run a single Grafana instance behind the Higress /grafana sub-route while the workload stack is running."
+  type        = bool
+  default     = true
+}
+
+variable "grafana_admin_user" {
+  description = "Grafana administrator user stored with its generated password in a Kubernetes Secret."
+  type        = string
+  default     = "admin"
+}

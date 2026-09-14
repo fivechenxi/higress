@@ -154,8 +154,12 @@ Gateway 副本汇总后的 5 分钟 RPM/TPM 判断，不能由单个 Envoy Pod �
 
 ## Grafana 使用方式
 
-将 `charts/higress-ack-ops/dashboards/tokenvolt-higress-ai-gateway.json`
-导入已有 Grafana，并选择绑定当前 ACK 的 ARMS Prometheus 数据源。Helm 发布也会
-创建名为 `higress-grafana-dashboards`、带有标准
-`grafana_dashboard=1` 标签的 ConfigMap，便于以后接入 Dashboard Sidecar。
-当前 Chart 不会额外部署 Grafana 运行实例。
+`higress-ack-ops` 在运行阶段部署单副本 Grafana，通过 Higress 的 `/grafana/`
+子路由访问，并自动加载
+`charts/higress-ack-ops/dashboards/tokenvolt-higress-ai-gateway.json`。数据源直接读取
+集群内受控的 `higress-metrics-collector`，无需在 Grafana 中保存 ARMS 凭证。
+
+管理员密码由 OpenTofu 生成，保存在 `higress-grafana-admin` Secret 和敏感 State
+中，不写入 Git。使用 `tofu output -json grafana_admin_credentials` 单独读取 URL、
+用户名和密码。Grafana 使用临时 SQLite；大盘由 Git/ConfigMap 声明式恢复，页面中
+手工创建的用户、数据源或大盘在 Pod 重建后不保证保留。

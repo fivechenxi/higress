@@ -74,9 +74,23 @@ monitoring:
     ciliumCTPressureWarning: 0.70
     ciliumCTPressureCritical: 0.90
   grafana:
-    # Dashboards are packaged as ConfigMaps. Managed Grafana imports the JSON;
-    # no Grafana server or sidecar is installed into ACK by this chart.
+    enabled: true
     dashboardsEnabled: true
+    image: m.daocloud.io/docker.io/grafana/grafana:13.2.1@sha256:f772d434e8fab0049deb2b1b30abd43342bcfca1537614aa8d36080232cf4283
+    host: ack.tokenvolt.net
+    path: /grafana
+    rootUrl: https://ack.tokenvolt.net/grafana/
+    ingressClassName: higress
+    existingSecret: higress-grafana-admin
+    adminUserKey: admin-user
+    adminPasswordKey: admin-password
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
   hpaState:
     enabled: true
     # Only HPA objects in the Higress namespace are watched. This is not the
