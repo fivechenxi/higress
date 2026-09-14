@@ -1,0 +1,81 @@
+name: TokenVolt cluster-key-rate-limit release
+
+on:
+  push:
+    tags:
+      - "tokenvolt-cluster-key-rate-limit-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tokenvolt-cluster-key-rate-limit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test-and-publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    env:
+      IMAGE: ghcr.io/fivechenxi/higress-cluster-key-rate-limit
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.24.4"
+          cache: true
+          cache-dependency-path: plugins/wasm-go/extensions/cluster-key-rate-limit/go.sum
+      - name: Resolve version
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#tokenvolt-cluster-key-rate-limit-v}"
+          [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+$ ]]
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+      - name: Test and build Wasm
+        working-directory: plugins/wasm-go/extensions/cluster-key-rate-limit
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          mkdir -p "${GITHUB_WORKSPACE}/dist/cluster-key-rate-limit"
+          GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build -trimpath -buildvcs=false -buildmode=c-shared -o "${GITHUB_WORKSPACE}/dist/cluster-key-rate-limit/main.wasm" .
+          cp ../../../wasm-go/examples/request-block/Dockerfile "${GITHUB_WORKSPACE}/dist/cluster-key-rate-limit/Dockerfile"
+          cd "${GITHUB_WORKSPACE}/dist/cluster-key-rate-limit"
+          sha256sum main.wasm > SHA256SUMS
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Publish Wasm OCI image
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: dist/cluster-key-rate-limit
+          file: dist/cluster-key-rate-limit/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.release.outputs.version }}
+            ${{ env.IMAGE }}:${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+      - name: Record immutable image reference
+        run: echo "${IMAGE}@${{ steps.image.outputs.digest }}" > dist/cluster-key-rate-limit/IMAGE_DIGEST.txt
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/cluster-key-rate-limit/main.wasm \
+            dist/cluster-key-rate-limit/SHA256SUMS \
+            dist/cluster-key-rate-limit/IMAGE_DIGEST.txt \
+            --verify-tag \
+            --generate-notes \
+            --title "TokenVolt cluster-key-rate-limit ${{ steps.release.outputs.version }}"
