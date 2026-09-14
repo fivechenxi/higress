@@ -275,6 +275,32 @@ var multiRuleItemsConfig = func() json.RawMessage {
 	return data
 }()
 
+// TokenVolt 场景 1：租户总 RPM 与租户×模型 RPM 同时生效。
+var tokenVoltTenantModelConfig = func() json.RawMessage {
+	data, _ := json.Marshal(map[string]interface{}{
+		"rule_name": "tokenvolt-tenant-model-rpm",
+		"rule_items": []map[string]interface{}{
+			{
+				"limit_by_header": "x-tokenvolt-tenant-id",
+				"limit_keys": []map[string]interface{}{
+					{"key": "tenant-a", "query_per_minute": 100},
+				},
+			},
+			{
+				"limit_by_header": "x-tokenvolt-tenant-model",
+				"limit_keys": []map[string]interface{}{
+					{"key": "tenant-a:glm-5.2", "query_per_minute": 20},
+				},
+			},
+		},
+		"redis": map[string]interface{}{
+			"service_name": "redis.static",
+			"service_port": 6379,
+		},
+	})
+	return data
+}()
+
 func TestParseConfig(t *testing.T) {
 	test.RunGoTest(t, func(t *testing.T) {
 		// 测试全局限流配置解析
@@ -637,6 +663,28 @@ func TestOnHttpRequestHeaders(t *testing.T) {
 			)
 			host.CallOnRedisCall(0, resp)
 
+			host.CompleteHttp()
+		})
+
+		t.Run("tokenvolt tenant and tenant-model limits both match", func(t *testing.T) {
+			host, status := test.NewTestHost(tokenVoltTenantModelConfig)
+			defer host.Reset()
+			require.Equal(t, types.OnPluginStartStatusOK, status)
+
+			action := host.CallOnHttpRequestHeaders([][2]string{
+				{":authority", "api.tokenvolt.net"},
+				{":path", "/v1/chat/completions"},
+				{":method", "POST"},
+				{"x-tokenvolt-tenant-id", "tenant-a"},
+				{"x-tokenvolt-tenant-model", "tenant-a:glm-5.2"},
+			})
+			require.Equal(t, types.HeaderStopAllIterationAndWatermark, action)
+
+			host.CallOnRedisCall(0, multiRuleResp(
+				[3]int{100, 1, 60},
+				[3]int{20, 1, 60},
+			))
+			require.Nil(t, host.GetLocalResponse())
 			host.CompleteHttp()
 		})
 

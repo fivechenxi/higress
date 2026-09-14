@@ -84,6 +84,9 @@ Plugin execution priority: `600`
 | token_per_minute      | int    | No, one of `token_per_second`, `token_per_minute`, `token_per_hour`, `token_per_day` is required | - | Allowed number of request tokens per minute   |
 | token_per_hour        | int    | No, one of `token_per_second`, `token_per_minute`, `token_per_hour`, `token_per_day` is required | - | Allowed number of request tokens per hour     |
 | token_per_day         | int    | No, one of `token_per_second`, `token_per_minute`, `token_per_hour`, `token_per_day` is required | - | Allowed number of request tokens per day      |
+| token_total           | int    | No; mutually exclusive with `token_per_*` | - | Cumulative token quota; requires `period` or `expires_at` |
+| expires_at            | string | Conditionally required | - | RFC3339 expiry time for a non-periodic quota |
+| period                | int | Conditionally required | - | Reset period in seconds; Higress rolls over with `floor(now/period)` |
 
 
 ### Description of Configuration Fields in `redis`
@@ -98,7 +101,37 @@ Plugin execution priority: `600`
 | database           | int    | No       | 0             | The database ID to use, e.g., configuring 1 corresponds to `SELECT 1`                            |
 
 
+Cumulative quotas are incremented only when the upstream returns HTTP 200 with valid usage. Non-200 responses do not consume quota.
+
 ## Configuration Example
+
+### Expiring cumulative quota by Consumer
+
+```yaml
+rule_name: trial-token-quota
+rule_items:
+  - limit_by_consumer: ""
+    limit_keys:
+      - key: tv-key-001
+        token_total: 1000000
+        expires_at: "2026-09-21T00:00:00Z"
+redis:
+  service_name: redis.static
+```
+
+### Automatically resetting cumulative quota by Header
+
+```yaml
+rule_name: postpaid-token-quota
+rule_items:
+  - limit_by_header: x-tokenvolt-tenant-id
+    limit_keys:
+      - key: tenant-a
+        token_total: 50000000
+        period: 2592000
+redis:
+  service_name: redis.static
+```
 
 ### Custom Rule Group Global Rate Limiting
 

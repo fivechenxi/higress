@@ -150,7 +150,7 @@ variable "tokenvolt_namespace" {
 variable "tokenvolt_control_plane_image" {
   description = "Immutable VPC-reachable TokenVolt control-plane image."
   type        = string
-  default     = "ghcr.io/tokenvolt-ai/tokenvolt-control-plane@sha256:0f993657cf19dcb91274cb4038200ea1cd52cc4a1df71648f804a535fc807a99"
+  default     = "ghcr.io/tokenvolt-ai/tokenvolt-control-plane@sha256:698270b236ef18033608418d1edd768d0eb474a2619c8602b10d0f63d6874121"
 }
 
 variable "tokenvolt_mock_image" {
@@ -217,15 +217,13 @@ variable "tokenvolt_oss_worm_enabled" {
 variable "tokenvolt_policy_plugin_url" {
   description = "Immutable OCI digest URL for the TokenVolt policy Wasm plugin."
   type        = string
-  default     = "oci://ghcr.io/tokenvolt-ai/tokenvolt-policy@sha256:9e2deb470acb1c110910b3e6ec34b9f7760d6d80db4945c4b33da2384d8a18b7"
+  default     = "oci://ghcr.io/tokenvolt-ai/tokenvolt-policy@sha256:f296ad58b70391c25c1a878fa2260443bc0b306b18c080feb97205c3a9a81da6"
 }
 
-# For OCI URLs Higress verifies the selected platform manifest, not plugin.wasm.
-# The release OCI index resolves to the linux/amd64 manifest below.
 variable "tokenvolt_policy_plugin_sha256" {
   description = "Optional checksum expected by Higress. For a multi-platform OCI index this is the selected linux/amd64 image manifest digest, without the sha256: prefix."
   type        = string
-  default     = "9e2deb470acb1c110910b3e6ec34b9f7760d6d80db4945c4b33da2384d8a18b7"
+  default     = "6f6abf09e93d61133cd003acb10b6af15e040db08ac8c095cba907c45365aecd"
 
   validation {
     condition     = var.tokenvolt_policy_plugin_sha256 == "" || can(regex("^[0-9a-f]{64}$", var.tokenvolt_policy_plugin_sha256))

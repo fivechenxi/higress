@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"ai-token-ratelimit/config"
 	"ai-token-ratelimit/util"
@@ -40,6 +41,7 @@ func init() {
 		"ai-token-ratelimit",
 		wrapper.ParseConfig(parseConfig),
 		wrapper.ProcessRequestHeaders(onHttpRequestHeaders),
+		wrapper.ProcessResponseHeaders(onHttpResponseHeaders),
 		wrapper.ProcessStreamingResponseBody(onHttpStreamingBody),
 	)
 }
@@ -51,15 +53,18 @@ const (
 	AiTokenGlobalRateLimitFormat = RedisKeyPrefix + ":{%s}:global_threshold:%d"
 	// AiTokenRateLimitFormat 规则限流模式 redis key 为 RedisKeyPrefix:{限流规则名称}:限流类型:时间窗口:限流key名称:限流key对应的实际值
 	AiTokenRateLimitFormat = RedisKeyPrefix + ":{%s}:%s:%d:%s:%s"
+	// AiTokenQuotaLimitFormat 累计额度模式 redis key 为规则名、限流维度、匹配值和周期编号。
+	AiTokenQuotaLimitFormat = RedisKeyPrefix + ":{%s}:quota:%s:%s:%s:%d"
 	// MultiKeyRequestPhaseScript 多规则请求阶段只读检查脚本
 	// KEYS = [key1, ..., keyN]
-	// ARGV = [threshold1, window1, threshold2, window2, ..., thresholdN, windowN]
+	// ARGV = [threshold1, window1, quota1, ..., thresholdN, windowN, quotaN]
 	// 返回嵌套数组 {{threshold_i, current_i, ttl_i}, ...}
 	MultiKeyRequestPhaseScript = `
 		local results = {}
 		for i = 1, #KEYS do
-			local threshold = tonumber(ARGV[2*i - 1])
-			local window    = tonumber(ARGV[2*i])
+			local threshold = tonumber(ARGV[3*i - 2])
+			local window    = tonumber(ARGV[3*i - 1])
+			local quota     = tonumber(ARGV[3*i])
 			local current = redis.call('get', KEYS[i])
 			local ttl = redis.call('ttl', KEYS[i])
 
@@ -67,6 +72,11 @@ const (
 			if not current then
 				table.insert(results, {threshold, 0, window})
 			else
+				-- 累计额度的 TTL 跟随当前绝对到期点/周期边界，支持策略延长或缩短。
+				if quota == 1 and ttl ~= window then
+					redis.call('expire', KEYS[i], window)
+					ttl = window
+				end
 				-- 修复异常过期时间（确保窗口有效）
 				if ttl < 0 then
 					ttl = window
@@ -79,17 +89,20 @@ const (
 	`
 	// MultiKeyResponsePhaseScript 多规则响应阶段累加脚本（仅 ai-token-ratelimit 使用）
 	// KEYS = [key1, ..., keyN]
-	// ARGV = [threshold1, window1, count1, ..., thresholdN, windowN, countN]
-	// 每条规则独立判断 current <= threshold 才累加；返回 KEYS 数量
+	// ARGV = [threshold1, window1, count1, always1, ..., thresholdN, windowN, countN, alwaysN]
+	// 累计额度始终记录已完成请求的真实 Token；旧限速规则维持超过阈值后不再累加的行为。
 	MultiKeyResponsePhaseScript = `
 		for i = 1, #KEYS do
-			local threshold = tonumber(ARGV[3*i - 2])
-			local window    = tonumber(ARGV[3*i - 1])
-			local added     = tonumber(ARGV[3*i])
+			local threshold = tonumber(ARGV[4*i - 3])
+			local window    = tonumber(ARGV[4*i - 2])
+			local added     = tonumber(ARGV[4*i - 1])
+			local always    = tonumber(ARGV[4*i])
 			local current = tonumber(redis.call('get', KEYS[i]) or "0")
-			if current <= threshold then
+			if always == 1 or current <= threshold then
 				current = redis.call('incrby', KEYS[i], added)
-				if current == added then
+				if always == 1 then
+					redis.call('expire', KEYS[i], window)
+				elseif current == added then
 					redis.call('expire', KEYS[i], window)
 				else
 					local ttl = redis.call('ttl', KEYS[i])
@@ -100,7 +113,8 @@ const (
 		return #KEYS
 	`
 
-	LimitRedisContextKey = "LimitRedisContext"
+	LimitRedisContextKey        = "LimitRedisContext"
+	ResponseCountableContextKey = "ResponseCountableContext"
 
 	CookieHeader = "cookie"
 
@@ -117,9 +131,12 @@ type LimitContext struct {
 
 // MatchedRule 表示请求阶段命中的单条限流规则（global 或 rule_item）
 type MatchedRule struct {
-	key    string // 完整 Redis key
-	count  int64  // 时间窗口内的限额（与 LimitConfigItem.Count / GlobalThreshold.Count 同义）
-	window int64  // 时间窗口大小（秒）
+	key       string // 完整 Redis key
+	count     int64  // 时间窗口内的限额（与 LimitConfigItem.Count / GlobalThreshold.Count 同义）
+	window    int64  // 时间窗口大小或距离周期边界的秒数
+	quota     bool   // 累计额度达到阈值时使用 >= 判断，且响应始终记录真实 Token
+	rejectNow bool   // 尚未生效或已经过期，无需查询 Redis
+	reset     int64  // rejectNow 时距离生效时间的秒数
 }
 
 // LimitRedisContext 暂存请求阶段命中的全部规则，供响应阶段多键 INCRBY 使用
@@ -157,13 +174,25 @@ func onHttpRequestHeaders(ctx wrapper.HttpContext, cfg config.AiTokenRateLimitCo
 		log.Debugf("ai-token-ratelimit:   rule[%d] key=%s threshold=%d window=%ds",
 			i, m.key, m.count, m.window)
 	}
+	for _, m := range matched {
+		if m.rejectNow {
+			ctx.SetUserAttribute("token_ratelimit_status", "limited")
+			_ = ctx.WriteUserAttributeToLogWithKey(wrapper.AILogKey)
+			rejected(cfg, LimitContext{count: int(m.count), remaining: 0, reset: int(m.reset)})
+			return types.ActionPause
+		}
+	}
 
 	n := len(matched)
 	keys := make([]interface{}, n)
-	args := make([]interface{}, 0, n*2)
+	args := make([]interface{}, 0, n*3)
 	for i, m := range matched {
 		keys[i] = m.key
-		args = append(args, m.count, m.window)
+		quota := int64(0)
+		if m.quota {
+			quota = 1
+		}
+		args = append(args, m.count, m.window, quota)
 	}
 
 	// 暂存命中规则，供响应阶段多键 INCRBY 使用
@@ -191,7 +220,7 @@ func onHttpRequestHeaders(ctx wrapper.HttpContext, cfg config.AiTokenRateLimitCo
 			log.Debugf("ai-token-ratelimit:   eval rule[%d] key=%s threshold=%d current=%d ttl=%ds",
 				i, matched[i].key, threshold, current, ttl)
 
-			if current > threshold {
+			if current > threshold || (matched[i].quota && current >= threshold) {
 				// 命中触发的第一条规则（按 collectMatchedRules 顺序，global 优先）
 				log.Debugf("ai-token-ratelimit: rule[%d] key=%s triggered (current=%d > threshold=%d), rejecting with code %d",
 					i, matched[i].key, current, threshold, cfg.RejectedCode)
@@ -217,7 +246,21 @@ func onHttpRequestHeaders(ctx wrapper.HttpContext, cfg config.AiTokenRateLimitCo
 	return types.HeaderStopAllIterationAndWatermark
 }
 
+func onHttpResponseHeaders(ctx wrapper.HttpContext, _ config.AiTokenRateLimitConfig) types.Action {
+	status, err := proxywasm.GetHttpResponseHeader(":status")
+	countable := err == nil && status == "200"
+	ctx.SetContext(ResponseCountableContextKey, countable)
+	if !countable {
+		ctx.DontReadResponseBody()
+	}
+	return types.ActionContinue
+}
+
 func onHttpStreamingBody(ctx wrapper.HttpContext, cfg config.AiTokenRateLimitConfig, data []byte, endOfStream bool) []byte {
+	countable, _ := ctx.GetContext(ResponseCountableContextKey).(bool)
+	if !countable {
+		return data
+	}
 	if usage := tokenusage.GetTokenUsage(ctx, data); usage.TotalToken > 0 {
 		log.Debugf("ai-token-ratelimit: token usage detected input=%d output=%d total=%d",
 			usage.InputToken, usage.OutputToken, usage.TotalToken)
@@ -256,13 +299,17 @@ func onHttpStreamingBody(ctx wrapper.HttpContext, cfg config.AiTokenRateLimitCon
 	// 多键 INCRBY：每条规则一组 (threshold, window, added)
 	n := len(limitRedisContext.rules)
 	keys := make([]interface{}, n)
-	args := make([]interface{}, 0, n*3)
+	args := make([]interface{}, 0, n*4)
 	added := inputToken + outputToken
 	log.Debugf("ai-token-ratelimit: response phase accumulating tokens input=%d output=%d total=%d across %d rule(s)",
 		inputToken, outputToken, added, n)
 	for i, r := range limitRedisContext.rules {
 		keys[i] = r.key
-		args = append(args, r.count, r.window, added)
+		alwaysIncrement := int64(0)
+		if r.quota {
+			alwaysIncrement = 1
+		}
+		args = append(args, r.count, r.window, added, alwaysIncrement)
 		log.Debugf("ai-token-ratelimit:   rule[%d] key=%s threshold=%d window=%ds added=%d",
 			i, r.key, r.count, r.window, added)
 	}
@@ -294,14 +341,39 @@ func collectMatchedRules(ctx wrapper.HttpContext, cfg config.AiTokenRateLimitCon
 	for _, ruleItem := range cfg.RuleItems {
 		val, hitRule, hitItem := hitRateRuleItem(ctx, ruleItem)
 		if hitRule != nil && hitItem != nil {
-			matched = append(matched, MatchedRule{
-				key:    fmt.Sprintf(AiTokenRateLimitFormat, cfg.RuleName, hitRule.LimitType, hitItem.TimeWindow, hitRule.Key, val),
-				count:  hitItem.Count,
-				window: hitItem.TimeWindow,
-			})
+			matched = append(matched, makeMatchedRule(cfg.RuleName, val, hitRule, hitItem, time.Now().Unix()))
 		}
 	}
 
+	return matched
+}
+
+func makeMatchedRule(ruleName, value string, rule *config.LimitRuleItem, item *config.LimitConfigItem, now int64) MatchedRule {
+	if !item.IsQuota {
+		return MatchedRule{
+			key:    fmt.Sprintf(AiTokenRateLimitFormat, ruleName, rule.LimitType, item.TimeWindow, rule.Key, value),
+			count:  item.Count,
+			window: item.TimeWindow,
+		}
+	}
+
+	matched := MatchedRule{count: item.Count, quota: true}
+	if item.ExpiresAt > 0 && now >= item.ExpiresAt {
+		matched.rejectNow = true
+		matched.reset = 0
+	}
+
+	bucket := int64(0)
+	if item.Period > 0 {
+		bucket = now / item.Period
+		matched.window = (bucket+1)*item.Period - now
+	} else {
+		matched.window = item.ExpiresAt - now
+	}
+	if matched.window < 1 {
+		matched.window = 1
+	}
+	matched.key = fmt.Sprintf(AiTokenQuotaLimitFormat, ruleName, rule.LimitType, rule.Key, value, bucket)
 	return matched
 }
 

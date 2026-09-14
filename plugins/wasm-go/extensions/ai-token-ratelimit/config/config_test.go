@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tidwall/gjson"
@@ -347,6 +348,57 @@ func TestParseAiTokenRateLimitConfig_AcceptsSupportedLimitKeyForms(t *testing.T)
 			var config AiTokenRateLimitConfig
 			raw := fmt.Sprintf(`{"rule_name":"valid-key","rule_items":[%s]}`, tt.item)
 			assert.NoError(t, ParseAiTokenRateLimitConfig(gjson.Parse(raw), &config))
+		})
+	}
+}
+
+func TestParseTokenTotalQuota(t *testing.T) {
+	t.Run("trial expiry", func(t *testing.T) {
+		var cfg AiTokenRateLimitConfig
+		err := ParseAiTokenRateLimitConfig(gjson.Parse(`{
+			"rule_name":"trial",
+			"rule_items":[{"limit_by_consumer":"","limit_keys":[{
+				"key":"tv-key-1","token_total":1000000,
+				"expires_at":"2026-09-21T00:00:00Z"
+			}]}]
+		}`), &cfg)
+		assert.NoError(t, err)
+		item := cfg.RuleItems[0].ConfigItems[0]
+		assert.True(t, item.IsQuota)
+		assert.Equal(t, int64(1000000), item.Count)
+		assert.Equal(t, time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC).Unix(), item.ExpiresAt)
+	})
+
+	t.Run("period seconds", func(t *testing.T) {
+		var cfg AiTokenRateLimitConfig
+		err := ParseAiTokenRateLimitConfig(gjson.Parse(`{
+			"rule_name":"postpaid",
+			"rule_items":[{"limit_by_header":"x-tokenvolt-tenant-id","limit_keys":[{
+				"key":"tenant-a","token_total":50000000,"period":2592000
+			}]}]
+		}`), &cfg)
+		assert.NoError(t, err)
+		item := cfg.RuleItems[0].ConfigItems[0]
+		assert.True(t, item.IsQuota)
+		assert.Equal(t, int64(2592000), item.Period)
+	})
+
+	invalid := []struct {
+		name, item, want string
+	}{
+		{"missing reset", `{"key":"k","token_total":1}`, "requires either 'period' or 'expires_at'"},
+		{"zero period", `{"key":"k","token_total":1,"period":0}`, "'period' must be a positive integer"},
+		{"mixed mode", `{"key":"k","token_total":1,"period":60,"token_per_minute":2}`, "cannot be combined"},
+		{"bad expiry", `{"key":"k","token_total":1,"expires_at":"tomorrow"}`, "must be RFC3339"},
+	}
+	for _, tc := range invalid {
+		t.Run(tc.name, func(t *testing.T) {
+			var cfg AiTokenRateLimitConfig
+			raw := fmt.Sprintf(`{"rule_name":"q","rule_items":[{"limit_by_header":"x","limit_keys":[%s]}]}`, tc.item)
+			err := ParseAiTokenRateLimitConfig(gjson.Parse(raw), &cfg)
+			if assert.Error(t, err) {
+				assert.Contains(t, err.Error(), tc.want)
+			}
 		})
 	}
 }
