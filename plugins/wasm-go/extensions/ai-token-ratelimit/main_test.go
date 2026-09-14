@@ -261,6 +261,32 @@ var periodQuotaConfig = func() json.RawMessage {
 	return data
 }()
 
+// TokenVolt 场景 2+3：同一请求同时受 API Key 累计额度和租户周期额度约束。
+var tokenVoltMixedQuotaConfig = func() json.RawMessage {
+	data, _ := json.Marshal(map[string]interface{}{
+		"rule_name": "tokenvolt-key-tenant-quota",
+		"rule_items": []map[string]interface{}{
+			{
+				"limit_by_consumer": "",
+				"limit_keys": []map[string]interface{}{
+					{"key": "tv-key-a", "token_total": 50, "expires_at": "2099-01-01T00:00:00Z"},
+				},
+			},
+			{
+				"limit_by_header": "x-tokenvolt-tenant-id",
+				"limit_keys": []map[string]interface{}{
+					{"key": "tenant-a", "token_total": 100, "period": 3600},
+				},
+			},
+		},
+		"redis": map[string]interface{}{
+			"service_name": "redis.static",
+			"service_port": 6379,
+		},
+	})
+	return data
+}()
+
 func TestParseConfig(t *testing.T) {
 	test.RunGoTest(t, func(t *testing.T) {
 		// 测试全局限流配置解析
@@ -506,6 +532,27 @@ func TestOnHttpRequestHeaders(t *testing.T) {
 			response := host.GetLocalResponse()
 			require.NotNil(t, response)
 			require.Equal(t, uint32(429), response.StatusCode)
+			host.CompleteHttp()
+		})
+
+		t.Run("tokenvolt key and tenant quotas both match", func(t *testing.T) {
+			host, status := test.NewTestHost(tokenVoltMixedQuotaConfig)
+			defer host.Reset()
+			require.Equal(t, types.OnPluginStartStatusOK, status)
+
+			action := host.CallOnHttpRequestHeaders([][2]string{
+				{":authority", "api.tokenvolt.net"},
+				{":path", "/v1/chat/completions"},
+				{":method", "POST"},
+				{"x-mse-consumer", "tv-key-a"},
+				{"x-tokenvolt-tenant-id", "tenant-a"},
+			})
+			require.Equal(t, types.HeaderStopAllIterationAndWatermark, action)
+			host.CallOnRedisCall(0, multiRuleResp(
+				[3]int{50, 1, 3600},
+				[3]int{100, 1, 1800},
+			))
+			require.Nil(t, host.GetLocalResponse())
 			host.CompleteHttp()
 		})
 
@@ -849,6 +896,32 @@ func TestOnHttpStreamingBody(t *testing.T) {
 			require.Equal(t, 1, len(host.GetRedisCalloutAttributes()),
 				"响应阶段应再发起 1 次多键 INCRBY（callout 数 0 → 1）")
 
+			host.CompleteHttp()
+		})
+
+		t.Run("tokenvolt mixed quotas increment on successful response", func(t *testing.T) {
+			host, status := test.NewTestHost(tokenVoltMixedQuotaConfig)
+			defer host.Reset()
+			require.Equal(t, types.OnPluginStartStatusOK, status)
+
+			action := host.CallOnHttpRequestHeaders([][2]string{
+				{":authority", "api.tokenvolt.net"},
+				{":path", "/v1/chat/completions"},
+				{":method", "POST"},
+				{"x-mse-consumer", "tv-key-a"},
+				{"x-tokenvolt-tenant-id", "tenant-a"},
+			})
+			require.Equal(t, types.HeaderStopAllIterationAndWatermark, action)
+			host.CallOnRedisCall(0, multiRuleResp(
+				[3]int{50, 1, 3600},
+				[3]int{100, 1, 1800},
+			))
+
+			require.Equal(t, types.ActionContinue, host.CallOnHttpResponseHeaders([][2]string{{":status", "200"}}))
+			body := []byte(`{"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
+			require.Equal(t, types.ActionContinue, host.CallOnHttpStreamingResponseBody(body, true))
+			require.Len(t, host.GetRedisCalloutAttributes(), 1,
+				"one response Eval must increment both matching quota counters")
 			host.CompleteHttp()
 		})
 
