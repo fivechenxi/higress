@@ -15,6 +15,7 @@
 package main
 
 import (
+	"ai-token-ratelimit/config"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -242,6 +243,20 @@ var multiRuleItemsConfig = func() json.RawMessage {
 			"service_name": "redis.static",
 			"service_port": 6379,
 		},
+	})
+	return data
+}()
+
+var periodQuotaConfig = func() json.RawMessage {
+	data, _ := json.Marshal(map[string]interface{}{
+		"rule_name": "postpaid-quota",
+		"rule_items": []map[string]interface{}{{
+			"limit_by_header": "x-tokenvolt-tenant-id",
+			"limit_keys": []map[string]interface{}{{
+				"key": "tenant-a", "token_total": 100, "period": 3600,
+			}},
+		}},
+		"redis": map[string]interface{}{"service_name": "redis.static"},
 	})
 	return data
 }()
@@ -475,6 +490,22 @@ func TestOnHttpRequestHeaders(t *testing.T) {
 			require.Equal(t, uint32(429), localResponse.StatusCode)
 			require.Contains(t, string(localResponse.Data), "Too many AI token requests")
 
+			host.CompleteHttp()
+		})
+
+		t.Run("quota rejects at exact total", func(t *testing.T) {
+			host, status := test.NewTestHost(periodQuotaConfig)
+			defer host.Reset()
+			require.Equal(t, types.OnPluginStartStatusOK, status)
+			action := host.CallOnHttpRequestHeaders([][2]string{
+				{":authority", "example.com"}, {":path", "/v1/chat/completions"}, {":method", "POST"},
+				{"x-tokenvolt-tenant-id", "tenant-a"},
+			})
+			require.Equal(t, types.HeaderStopAllIterationAndWatermark, action)
+			host.CallOnRedisCall(0, multiRuleResp([3]int{100, 100, 30}))
+			response := host.GetLocalResponse()
+			require.NotNil(t, response)
+			require.Equal(t, uint32(429), response.StatusCode)
 			host.CompleteHttp()
 		})
 
@@ -805,6 +836,8 @@ func TestOnHttpStreamingBody(t *testing.T) {
 			)
 			host.CallOnRedisCall(0, resp)
 
+			responseAction := host.CallOnHttpResponseHeaders([][2]string{{":status", "200"}})
+			require.Equal(t, types.ActionContinue, responseAction)
 			body := []byte(`{"choices":[{"message":{"content":"hi"}}],"usage":{"prompt_tokens":10,"completion_tokens":15,"total_tokens":25}}`)
 			// 注意：ai-token 的 onHttpStreamingBody 注册为 ProcessStreamingResponseBody，
 			// 对应测试方法 CallOnHttpStreamingResponseBody（不是 CallOnHttpStreamingRequestBody）。
@@ -816,6 +849,27 @@ func TestOnHttpStreamingBody(t *testing.T) {
 			require.Equal(t, 1, len(host.GetRedisCalloutAttributes()),
 				"响应阶段应再发起 1 次多键 INCRBY（callout 数 0 → 1）")
 
+			host.CompleteHttp()
+		})
+
+		t.Run("non-200 response does not increment", func(t *testing.T) {
+			host, status := test.NewTestHost(hybridLimitConfig)
+			defer host.Reset()
+			require.Equal(t, types.OnPluginStartStatusOK, status)
+
+			action := host.CallOnHttpRequestHeaders([][2]string{
+				{":authority", "example.com"},
+				{":path", "/api/test"},
+				{":method", "POST"},
+				{"x-api-key", "vip-key"},
+			})
+			require.Equal(t, types.HeaderStopAllIterationAndWatermark, action)
+			host.CallOnRedisCall(0, multiRuleResp([3]int{10000, 1, 60}, [3]int{100, 1, 60}))
+
+			require.Equal(t, types.ActionContinue, host.CallOnHttpResponseHeaders([][2]string{{":status", "500"}}))
+			body := []byte(`{"usage":{"prompt_tokens":10,"completion_tokens":15,"total_tokens":25}}`)
+			require.Equal(t, types.ActionContinue, host.CallOnHttpStreamingResponseBody(body, true))
+			require.Empty(t, host.GetRedisCalloutAttributes(), "non-200 response must not increment token counters")
 			host.CompleteHttp()
 		})
 
@@ -903,4 +957,18 @@ func multiRuleResp(items ...[3]int) []byte {
 		panic(fmt.Sprintf("failed to marshal multiRuleResp: %v", err))
 	}
 	return b
+}
+
+func TestMakeMatchedQuotaRule(t *testing.T) {
+	rule := &config.LimitRuleItem{LimitType: config.LimitByHeaderType, Key: "x-tokenvolt-tenant-id"}
+	item := &config.LimitConfigItem{IsQuota: true, Count: 100, Period: 60}
+	matched := makeMatchedRule("quota", "tenant-a", rule, item, 121)
+	require.True(t, matched.quota)
+	require.Equal(t, int64(59), matched.window)
+	require.Contains(t, matched.key, ":tenant-a:2")
+
+	item = &config.LimitConfigItem{IsQuota: true, Count: 100, ExpiresAt: 120}
+	matched = makeMatchedRule("quota", "tv-key-2", rule, item, 121)
+	require.True(t, matched.rejectNow)
+	require.Contains(t, matched.key, ":tv-key-2:0")
 }

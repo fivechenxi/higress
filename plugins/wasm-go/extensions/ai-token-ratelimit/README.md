@@ -79,6 +79,9 @@ description: AI Token限流插件配置参考
 | token_per_minute | int    | 否，`token_per_second`,`token_per_minute`,`token_per_hour`,`token_per_day` 中选填一项 | -      | 允许每分钟请求token数                                           |
 | token_per_hour   | int    | 否，`token_per_second`,`token_per_minute`,`token_per_hour`,`token_per_day` 中选填一项 | -      | 允许每小时请求token数                                           |
 | token_per_day    | int    | 否，`token_per_second`,`token_per_minute`,`token_per_hour`,`token_per_day` 中选填一项 | -      | 允许每天请求token数                                             |
+| token_total      | int    | 否，与 `token_per_*` 互斥 | - | 累计 Token 额度；必须同时配置 `period` 或 `expires_at` |
+| expires_at       | string | 条件必填 | - | RFC3339 到期时间，仅用于非周期额度 |
+| period           | int    | 条件必填 | - | 自动重置周期，单位秒；Higress 按 `floor(now/period)` 自动换桶 |
 
 `redis`中每一项的配置字段说明。
 
@@ -92,7 +95,37 @@ description: AI Token限流插件配置参考
 | database     | int    | 否   | 0                                                          | 使用的数据库id，例如配置为1，对应`SELECT 1`                                       |
 
 
+累计额度只对上游 HTTP 200 且响应中存在有效 usage 的请求增加计数；非 200 不计入额度。
+
 ## 配置示例
+
+### 按 Consumer 配置有到期时间的累计额度
+
+```yaml
+rule_name: trial-token-quota
+rule_items:
+  - limit_by_consumer: ""
+    limit_keys:
+      - key: tv-key-001
+        token_total: 1000000
+        expires_at: "2026-09-21T00:00:00Z"
+redis:
+  service_name: redis.static
+```
+
+### 按 Header 配置自动重置的累计额度
+
+```yaml
+rule_name: postpaid-token-quota
+rule_items:
+  - limit_by_header: x-tokenvolt-tenant-id
+    limit_keys:
+      - key: tenant-a
+        token_total: 50000000
+        period: 2592000
+redis:
+  service_name: redis.static
+```
 
 ### 自定义规则组全局限流
 

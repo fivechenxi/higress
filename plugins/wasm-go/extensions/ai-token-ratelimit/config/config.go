@@ -5,6 +5,7 @@ import (
 	"fmt"
 	re "regexp"
 	"strings"
+	"time"
 
 	"ai-token-ratelimit/util"
 	"github.com/higress-group/proxy-wasm-go-sdk/proxywasm"
@@ -92,6 +93,9 @@ type LimitConfigItem struct {
 	Regexp     *re.Regexp          // 正则表达式,仅用于itemType为regexpType
 	Count      int64               // 指定时间窗口内的token数
 	TimeWindow int64               // 时间窗口大小
+	IsQuota    bool                // 是否为累计 Token 额度
+	ExpiresAt  int64               // 到期时间，Unix 秒；0 表示不限制
+	Period     int64               // 自动重置周期，秒；0 表示不周期重置
 }
 
 func (cfg *AiTokenRateLimitConfig) IncrementCounter(metricName string, inc uint64) {
@@ -399,6 +403,45 @@ func exampleLimitKeyForType(limitType LimitRuleItemType) string {
 }
 
 func createConfigItemFromRate(item gjson.Result, itemType LimitConfigItemType, key string, ipNet *iptree.IPTree, regexp *re.Regexp) (*LimitConfigItem, error) {
+	tokenTotal := item.Get("token_total")
+	if tokenTotal.Exists() {
+		for timeWindowKey := range timeWindows {
+			if item.Get(timeWindowKey).Exists() {
+				return nil, fmt.Errorf("'token_total' cannot be combined with '%s' for key '%s'", timeWindowKey, key)
+			}
+		}
+		count := tokenTotal.Int()
+		if count <= 0 {
+			return nil, fmt.Errorf("'token_total' must be a positive integer for key '%s', got %d", key, count)
+		}
+
+		period := item.Get("period").Int()
+		if item.Get("period").Exists() && period <= 0 {
+			return nil, fmt.Errorf("'period' must be a positive integer number of seconds for key '%s', got %d", key, period)
+		}
+		expiresAt, err := parseOptionalRFC3339(item, "expires_at", key)
+		if err != nil {
+			return nil, err
+		}
+		if period > 0 && expiresAt > 0 {
+			return nil, fmt.Errorf("'period' cannot be combined with 'expires_at' for key '%s'", key)
+		}
+		if period == 0 && expiresAt == 0 {
+			return nil, fmt.Errorf("'token_total' requires either 'period' or 'expires_at' for key '%s'", key)
+		}
+
+		return &LimitConfigItem{
+			ConfigType: itemType,
+			Key:        key,
+			IpNet:      ipNet,
+			Regexp:     regexp,
+			Count:      count,
+			IsQuota:    true,
+			ExpiresAt:  expiresAt,
+			Period:     period,
+		}, nil
+	}
+
 	for timeWindowKey, duration := range timeWindows {
 		q := item.Get(timeWindowKey)
 		if q.Exists() {
@@ -416,5 +459,17 @@ func createConfigItemFromRate(item gjson.Result, itemType LimitConfigItemType, k
 			}, nil
 		}
 	}
-	return nil, errors.New("one of 'token_per_second', 'token_per_minute', 'token_per_hour', or 'token_per_day' must be set for key: " + key)
+	return nil, errors.New("one of 'token_total', 'token_per_second', 'token_per_minute', 'token_per_hour', or 'token_per_day' must be set for key: " + key)
+}
+
+func parseOptionalRFC3339(item gjson.Result, field, key string) (int64, error) {
+	value := strings.TrimSpace(item.Get(field).String())
+	if value == "" {
+		return 0, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return 0, fmt.Errorf("'%s' must be RFC3339 for key '%s'", field, key)
+	}
+	return parsed.Unix(), nil
 }
