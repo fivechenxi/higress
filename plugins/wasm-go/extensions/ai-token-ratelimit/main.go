@@ -53,7 +53,7 @@ const (
 	AiTokenGlobalRateLimitFormat = RedisKeyPrefix + ":{%s}:global_threshold:%d"
 	// AiTokenRateLimitFormat 规则限流模式 redis key 为 RedisKeyPrefix:{限流规则名称}:限流类型:时间窗口:限流key名称:限流key对应的实际值
 	AiTokenRateLimitFormat = RedisKeyPrefix + ":{%s}:%s:%d:%s:%s"
-	// AiTokenQuotaLimitFormat 累计额度模式 redis key 为规则名、限流维度、额度 ID 和周期编号。
+	// AiTokenQuotaLimitFormat 累计额度模式 redis key 为规则名、限流维度、匹配值和周期编号。
 	AiTokenQuotaLimitFormat = RedisKeyPrefix + ":{%s}:quota:%s:%s:%s:%d"
 	// MultiKeyRequestPhaseScript 多规则请求阶段只读检查脚本
 	// KEYS = [key1, ..., keyN]
