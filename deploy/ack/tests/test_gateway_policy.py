@@ -14,6 +14,7 @@
 # limitations under the License.
 
 """Helm contract tests: uv run --with pyyaml python deploy/ack/tests/test_gateway_policy.py"""
+import json
 import re
 import subprocess
 import unittest
@@ -107,6 +108,9 @@ class GatewayPolicyTest(unittest.TestCase):
             {'name': 'higress-grafana-admin', 'key': 'admin-password'},
         )
         self.assertEqual(env['GF_SERVER_SERVE_FROM_SUB_PATH']['value'], 'true')
+        data_volume = next(volume for volume in deployment['spec']['template']['spec']['volumes']
+                           if volume['name'] == 'data')
+        self.assertEqual(data_volume['emptyDir']['sizeLimit'], '512Mi')
 
         ingress = by_kind_name[('Ingress', 'higress-grafana')]
         self.assertEqual(ingress['spec']['ingressClassName'], 'higress')
@@ -118,6 +122,14 @@ class GatewayPolicyTest(unittest.TestCase):
         self.assertIn('http://higress-metrics-collector.higress-system.svc:9090', provisioning['datasource.yaml'])
         self.assertIn('/var/lib/grafana/dashboards', provisioning['dashboards.yaml'])
         self.assertIn(('ConfigMap', 'higress-grafana-dashboards'), by_kind_name)
+        dashboard = json.loads(
+            by_kind_name[('ConfigMap', 'higress-grafana-dashboards')]['data']
+            ['tokenvolt-higress-ai-gateway.json']
+        )
+        ranking = next(panel for panel in dashboard['panels'] if panel['id'] == 15)
+        self.assertEqual(ranking['type'], 'table')
+        self.assertEqual(ranking['transformations'][0]['id'], 'joinByLabels')
+        self.assertIn('provider_model_success_ratio', ranking['targets'][0]['expr'])
 
         collector = by_kind_name[('ConfigMap', 'higress-metrics-collector')]['data']['prometheus.yml']
         config = yaml.safe_load(collector)

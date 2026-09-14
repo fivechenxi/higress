@@ -165,6 +165,40 @@ Higress、直达 TokenVolt 控制面的 `ack.tokenvolt.net`。
 数据源直接读取集群内受控的 `higress-metrics-collector`，无需在 Grafana 中保存
 ARMS 凭证。
 
+### 大盘信息架构
+
+主大盘按 OpenRouter 的模型页思路组织，而不是把所有基础设施指标混成一组：
+
+1. 先选择一个模型，顶部展示该模型经过整个网关后的成功率、TTFT P50/P90、
+   TPOT P50/P90 和 RPM；这是客户实际感受到的网关整体质量。
+2. 紧接着用“模型 × 厂商”表比较成功率、TTFT、TPOT、RPM 和 TPM。表格可按任意
+   列排序；不额外制造一个权重不透明的综合分数。
+3. 时序趋势、Token、缓存和合同容量用于解释排名变化。
+4. Envoy、Terway/Cilium、HPA、采集器和 Controller 属于基础设施诊断区，不参与
+   厂商质量排名。
+
+价格尚未进入 Prometheus；后续厂商表需要从版本化价格目录补充输入、输出和缓存
+单价。价格是配置事实，不能从流量指标推断。
+
+### 请求明细边界
+
+逐请求明细来自 SLS `model-access`，不进入 Prometheus。Grafana 需要安装阿里云官方
+SLS 数据源插件并使用仅允许读取该 Logstore 的身份后，才能内嵌以下三类表：
+
+- TTFT 超过当前时间窗 P90 的请求，按 TTFT 降序；
+- TPOT 超过当前时间窗 P90 的流式请求，按 TPOT 降序；
+- HTTP 5xx 和非预期 429 的请求证据。
+
+每行只展示时间、网关请求 ID、厂商请求 ID、模型、上游集群、状态码、TTFT、TPOT
+和 Token 数，不展示 API Key、Prompt 或模型回答。TPOT 由单请求字段计算：
+`(llm_service_duration - llm_first_token_duration) / (output_token - 1)`，仅对
+`output_token > 1` 且 usage 完整的流式请求有效。
+
+“非预期 429”不是单 Pod 能在请求结束时独立判断的布尔值：先由 Prometheus 使用
+全部 Gateway 副本的模型 × 厂商五分钟 RPM/TPM 与合同容量判定异常窗口，再在该
+窗口用 `provider_rate_limit_event=true` 下钻到 SLS 请求列表。这样列表中的每条
+429 都是告警窗口证据，不会伪造错误的逐请求归因。
+
 管理员密码由 OpenTofu 生成，保存在 `higress-grafana-admin` Secret 和敏感 State
 中，不写入 Git。使用 `tofu output -json grafana_admin_credentials` 单独读取 URL、
 用户名和密码。Grafana 使用临时 SQLite；大盘由 Git/ConfigMap 声明式恢复，页面中

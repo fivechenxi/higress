@@ -140,7 +140,9 @@ spec:
       volumes:
         - name: data
           emptyDir:
-            sizeLimit: 256Mi
+            # Grafana 13 copies roughly 292 MiB of bundled plugins into its
+            # writable data directory before creating its database.
+            sizeLimit: 512Mi
         - name: provisioning
           configMap:
             name: higress-grafana-provisioning

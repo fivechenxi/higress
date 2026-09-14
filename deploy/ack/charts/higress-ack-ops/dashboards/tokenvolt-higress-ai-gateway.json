@@ -1,6 +1,6 @@
 {
   "annotations": {"list": []},
-  "description": "TokenVolt model quality, provider routing, token usage, gateway capacity and bounded telemetry.",
+  "description": "按模型查看网关整体质量，并在同一模型下比较各厂商的延迟、吞吐与可用性。",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -15,7 +15,7 @@
       "id": 1,
       "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
       "targets": [{"expr": "sum(tokenvolt:ai_rpm:rate5m{ai_route=~\"$route\",ai_model=~\"$model\",ai_provider=~\"$provider\"})", "refId": "A"}],
-      "title": "Logical RPM",
+      "title": "模型请求 RPM",
       "type": "stat"
     },
     {
@@ -25,7 +25,7 @@
       "id": 2,
       "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
       "targets": [{"expr": "1 - sum(tokenvolt:ai_failures_per_second:rate5m{ai_route=~\"$route\",ai_model=~\"$model\",ai_provider=~\"$provider\"}) / clamp_min(sum(tokenvolt:ai_requests_per_second:rate5m{ai_route=~\"$route\",ai_model=~\"$model\",ai_provider=~\"$provider\"}), 0.000001)", "refId": "A"}],
-      "title": "Customer-visible success ratio",
+      "title": "网关成功率",
       "type": "stat"
     },
     {
@@ -34,8 +34,8 @@
       "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
       "id": 3,
       "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
-      "targets": [{"expr": "histogram_quantile(0.90, sum by (le) (rate(higress_ai_ttft_milliseconds_bucket{ai_route=~\"$route\",ai_model=~\"$model\",ai_provider=~\"$provider\"}[5m])))", "refId": "A"}],
-      "title": "TTFT P90",
+      "targets": [{"expr": "histogram_quantile(0.50, sum by (le) (rate(higress_ai_ttft_milliseconds_bucket{ai_route=~\"$route\",ai_model=~\"$model\",ai_provider=~\"$provider\"}[5m])))", "refId": "A"}],
+      "title": "网关 TTFT P50",
       "type": "stat"
     },
     {
@@ -44,35 +44,62 @@
       "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
       "id": 4,
       "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
-      "targets": [{"expr": "histogram_quantile(0.90, sum by (le) (rate(higress_ai_tpot_milliseconds_bucket{ai_route=~\"$route\",ai_model=~\"$model\",ai_provider=~\"$provider\"}[5m])))", "refId": "A"}],
-      "title": "TPOT P90",
+      "targets": [{"expr": "histogram_quantile(0.90, sum by (le) (rate(higress_ai_ttft_milliseconds_bucket{ai_route=~\"$route\",ai_model=~\"$model\",ai_provider=~\"$provider\"}[5m])))", "refId": "A"}],
+      "title": "网关 TTFT P90",
       "type": "stat"
     },
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
-      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 700}, {"color": "red", "value": 900}]}, "unit": "short"}, "overrides": []},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "red", "value": 250}]}, "unit": "ms"}, "overrides": []},
       "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
       "id": 5,
       "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
-      "targets": [{"expr": "sum(tokenvolt:gateway_active_streams)", "refId": "A"}],
-      "title": "Active streams",
+      "targets": [{"expr": "histogram_quantile(0.50, sum by (le) (rate(higress_ai_tpot_milliseconds_bucket{ai_route=~\"$route\",ai_model=~\"$model\",ai_provider=~\"$provider\"}[5m])))", "refId": "A"}],
+      "title": "网关 TPOT P50",
       "type": "stat"
     },
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
-      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "decimals": 2, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1.05}, {"color": "red", "value": 1.2}]}, "unit": "short"}, "overrides": []},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "red", "value": 250}]}, "unit": "ms"}, "overrides": []},
       "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
       "id": 6,
       "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
-      "targets": [{"expr": "tokenvolt:provider_attempts_per_logical_request:rate5m", "refId": "A"}],
-      "title": "Attempts / request",
+      "targets": [{"expr": "histogram_quantile(0.90, sum by (le) (rate(higress_ai_tpot_milliseconds_bucket{ai_route=~\"$route\",ai_model=~\"$model\",ai_provider=~\"$provider\"}[5m])))", "refId": "A"}],
+      "title": "网关 TPOT P90",
       "type": "stat"
     },
-    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 4}, "id": 10, "panels": [], "title": "Model and provider quality", "type": "row"},
+    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 4}, "id": 10, "panels": [], "title": "同模型厂商质量与排名", "type": "row"},
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "description": "默认按成功率降序；可点击任意列按 TTFT、TPOT、RPM 或 TPM 排名。429 超过合同容量时从厂商失败率中排除。",
+      "fieldConfig": {
+        "defaults": {"decimals": 2},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "成功率"}, "properties": [{"id": "unit", "value": "percentunit"}]},
+          {"matcher": {"id": "byRegexp", "options": "/^TTFT|^TPOT/"}, "properties": [{"id": "unit", "value": "ms"}]},
+          {"matcher": {"id": "byName", "options": "RPM"}, "properties": [{"id": "unit", "value": "reqpm"}]}
+        ]
+      },
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 5},
+      "id": 15,
+      "options": {"cellHeight": "sm", "footer": {"countRows": false, "fields": "", "reducer": ["sum"], "show": false}, "showHeader": true, "sortBy": [{"desc": true, "displayName": "成功率"}]},
+      "targets": [
+        {"expr": "label_replace(tokenvolt:provider_model_success_ratio:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"quality_metric\", \"成功率\", \"\", \"\")", "format": "time_series", "instant": true, "legendFormat": "{{ai_model}} · {{ai_provider}}", "refId": "A"},
+        {"expr": "label_replace(tokenvolt:provider_model_ttft_milliseconds:p50_rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"quality_metric\", \"TTFT P50\", \"\", \"\")", "format": "time_series", "instant": true, "legendFormat": "{{ai_model}} · {{ai_provider}}", "refId": "B"},
+        {"expr": "label_replace(tokenvolt:provider_model_ttft_milliseconds:p90_rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"quality_metric\", \"TTFT P90\", \"\", \"\")", "format": "time_series", "instant": true, "legendFormat": "{{ai_model}} · {{ai_provider}}", "refId": "C"},
+        {"expr": "label_replace(tokenvolt:provider_model_tpot_milliseconds:p50_rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"quality_metric\", \"TPOT P50\", \"\", \"\")", "format": "time_series", "instant": true, "legendFormat": "{{ai_model}} · {{ai_provider}}", "refId": "D"},
+        {"expr": "label_replace(tokenvolt:provider_model_tpot_milliseconds:p90_rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"quality_metric\", \"TPOT P90\", \"\", \"\")", "format": "time_series", "instant": true, "legendFormat": "{{ai_model}} · {{ai_provider}}", "refId": "E"},
+        {"expr": "label_replace(tokenvolt:provider_model_logical_rpm:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"quality_metric\", \"RPM\", \"\", \"\")", "format": "time_series", "instant": true, "legendFormat": "{{ai_model}} · {{ai_provider}}", "refId": "F"},
+        {"expr": "label_replace(tokenvolt:provider_model_total_tpm:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"quality_metric\", \"TPM\", \"\", \"\")", "format": "time_series", "instant": true, "legendFormat": "{{ai_model}} · {{ai_provider}}", "refId": "G"}
+      ],
+      "title": "厂商质量排行（模型 × 厂商）",
+      "transformations": [{"id": "joinByLabels", "options": {"value": "quality_metric"}}],
+      "type": "table"
+    },
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "ms"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 15},
       "id": 11,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -86,7 +113,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "ms"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 15},
       "id": 12,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -100,7 +127,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "max": 1, "min": 0, "unit": "percentunit"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 23},
       "id": 13,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -113,18 +140,18 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "ms"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 23},
       "id": 14,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [{"expr": "tokenvolt:ai_service_duration_milliseconds:avg_rate5m{ai_route=~\"$route\",ai_model=~\"$model\",ai_provider=~\"$provider\"}", "legendFormat": "{{ai_model}} · {{ai_provider}}", "refId": "A"}],
       "title": "Mean end-to-end service duration",
       "type": "timeseries"
     },
-    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 21}, "id": 20, "panels": [], "title": "Tokens and cache", "type": "row"},
+    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 31}, "id": 20, "panels": [], "title": "Tokens and cache", "type": "row"},
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 22},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
       "id": 21,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -140,7 +167,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}, "max": 1, "min": 0, "unit": "percentunit"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 22},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
       "id": 22,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -151,11 +178,11 @@
       "title": "Cache hit and reporting coverage",
       "type": "timeseries"
     },
-    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 30}, "id": 30, "panels": [], "title": "Provider quality and contracted capacity", "type": "row"},
+    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 40}, "id": 30, "panels": [], "title": "Provider quality and contracted capacity", "type": "row"},
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}, "unit": "reqpm"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 31},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 41},
       "id": 31,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -168,7 +195,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}, "unit": "reqpm"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 31},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 41},
       "id": 32,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -183,7 +210,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}, "max": 1, "min": 0, "unit": "percentunit"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 31},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 41},
       "id": 33,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [{"expr": "tokenvolt:provider_model_success_ratio:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}", "legendFormat": "{{ai_model}} · {{ai_provider}}", "refId": "A"}],
@@ -193,7 +220,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 39},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 49},
       "id": 34,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -206,7 +233,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}, "unit": "bytes"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 39},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 49},
       "id": 35,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -219,7 +246,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 47},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 57},
       "id": 36,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -230,11 +257,11 @@
       "title": "HPA current, desired and maximum replicas",
       "type": "timeseries"
     },
-    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 55}, "id": 40, "panels": [], "title": "Telemetry, Cilium and minimal control plane", "type": "row"},
+    {"collapsed": false, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 65}, "id": 40, "panels": [], "title": "Telemetry, Cilium and minimal control plane", "type": "row"},
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}, "max": 1, "min": 0, "unit": "percentunit"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 56},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 66},
       "id": 41,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [{"expr": "tokenvolt:terway_ct_pressure:max", "legendFormat": "{{instance}} · {{map_name}}", "refId": "A"}],
@@ -244,7 +271,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 56},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 66},
       "id": 42,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -258,7 +285,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 56},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 66},
       "id": 43,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -272,7 +299,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {}, "overrides": []},
-      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 64},
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 74},
       "id": 44,
       "options": {"cellHeight": "sm", "footer": {"countRows": false, "fields": "", "reducer": ["sum"], "show": false}, "showHeader": true},
       "targets": [{"expr": "ALERTS{alertstate=\"firing\"}", "format": "table", "instant": true, "refId": "A"}],
@@ -295,7 +322,7 @@
   "time": {"from": "now-6h", "to": "now"},
   "timepicker": {},
   "timezone": "browser",
-  "title": "TokenVolt / Higress AI Gateway",
+  "title": "TokenVolt / AI 模型与厂商质量",
   "uid": "tokenvolt-higress-ai-gateway",
   "version": 1,
   "weekStart": ""
