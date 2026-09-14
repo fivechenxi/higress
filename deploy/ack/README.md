@@ -20,6 +20,10 @@ This directory creates a low-cost, single-zone ACK test environment and installs
 the repository's `helm/core` chart. It deliberately does not install Higress
 Console.
 
+Shared deployments use an encrypted OSS remote State, TableStore locking, and
+versioned tfvars synchronization. See
+[`OSS_REMOTE_STATE.md`](./OSS_REMOTE_STATE.md) for the operator commands.
+
 ## Lifecycle boundary
 
 OpenTofu creates and destroys only:
@@ -252,6 +256,7 @@ verify the state is empty:
 tofu state list
 ```
 
-The VPC/vSwitch/NAT remain by design. A local `terraform.tfstate` contains a
-short-lived kubeconfig and must be treated as sensitive; state files are ignored
-by Git. Use a remote encrypted backend before this becomes a shared environment.
+The VPC/vSwitch/NAT and the separate OSS/TableStore State backend remain by
+design. State is stored in the private encrypted OSS backend; any pre-migration
+local recovery copy still contains a short-lived kubeconfig and must be treated
+as sensitive. State files are ignored by Git.
