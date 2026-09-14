@@ -12,23 +12,48 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-TOFU ?= tofu
+TOFU ?= ./scripts/tofu.sh
+CONFIG_SYNC ?= ./scripts/remote-config.sh
 
-.PHONY: init plan start stop destroy
+.PHONY: backend-bootstrap backend-migrate init config-pull config-push config-status config-history plan start stop destroy
+
+backend-bootstrap:
+	./scripts/bootstrap-backend.sh
+
+backend-migrate:
+	./scripts/migrate-state.sh
 
 init:
 	$(TOFU) init
 
+config-pull:
+	$(CONFIG_SYNC) pull
+
+config-push:
+	$(CONFIG_SYNC) push
+
+config-status:
+	$(CONFIG_SYNC) status
+
+config-history:
+	$(CONFIG_SYNC) history
+
 plan:
+	$(CONFIG_SYNC) prepare
 	$(TOFU) plan
 
 start:
+	$(CONFIG_SYNC) prepare
 	$(TOFU) apply -auto-approve -var='lifecycle_mode=starting'
 	$(TOFU) apply -auto-approve -var='lifecycle_mode=running'
+	$(CONFIG_SYNC) push
 
 stop:
+	$(CONFIG_SYNC) prepare
 	$(TOFU) apply -auto-approve -var='lifecycle_mode=stopping'
 	$(TOFU) apply -auto-approve -var='lifecycle_mode=stopped'
+	$(CONFIG_SYNC) push
 
 destroy:
+	$(CONFIG_SYNC) prepare
 	$(TOFU) destroy
