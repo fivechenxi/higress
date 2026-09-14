@@ -221,7 +221,7 @@ variable "tokenvolt_policy_plugin_url" {
 }
 
 variable "tokenvolt_policy_plugin_sha256" {
-  description = "Optional checksum expected by Higress for the downloaded Wasm module, without the sha256: prefix."
+  description = "Optional checksum expected by Higress. For a multi-platform OCI index this is the selected linux/amd64 image manifest digest, without the sha256: prefix."
   type        = string
   default     = "6f6abf09e93d61133cd003acb10b6af15e040db08ac8c095cba907c45365aecd"
 
