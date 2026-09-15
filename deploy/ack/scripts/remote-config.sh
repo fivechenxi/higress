@@ -32,6 +32,35 @@ hcl_value() {
   awk -v key="$1" '$1 == key && $2 == "=" {gsub(/^"|"$/, "", $3); print $3; exit}' "$REMOTE_FILE"
 }
 
+tfvars_value() {
+  VALUE_FILE=${2:-$CONFIG_FILE}
+  awk -v key="$1" '$1 == key && $2 == "=" {gsub(/^"|"$/, "", $3); print $3; exit}' "$VALUE_FILE"
+}
+
+verify_deployment_baseline() {
+  BASELINE_TAG=$(tfvars_value deployment_baseline_tag)
+  test -n "$BASELINE_TAG" || {
+    printf 'Missing deployment_baseline_tag in the OSS-managed terraform.tfvars.\n' >&2
+    exit 1
+  }
+  command -v git >/dev/null
+  REPO_ROOT=$(git -C "$ACK_DIR" rev-parse --show-toplevel 2>/dev/null) || {
+    printf 'The ACK deployment must run from a Git checkout.\n' >&2
+    exit 1
+  }
+  BASELINE_COMMIT=$(git -C "$REPO_ROOT" rev-parse --verify "$BASELINE_TAG^{commit}" 2>/dev/null) || {
+    printf 'Deployment baseline tag %s is not available locally; run git fetch --tags.\n' "$BASELINE_TAG" >&2
+    exit 1
+  }
+  CURRENT_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD)
+  test "$CURRENT_COMMIT" = "$BASELINE_COMMIT" || {
+    printf 'Wrong deployment source: OSS requires %s (%s), current HEAD is %s.\n' "$BASELINE_TAG" "$BASELINE_COMMIT" "$CURRENT_COMMIT" >&2
+    printf 'Run: git switch --detach %s\n' "$BASELINE_TAG" >&2
+    exit 1
+  }
+  printf 'Deployment source verified: %s (%s).\n' "$BASELINE_TAG" "$BASELINE_COMMIT"
+}
+
 BUCKET=$(hcl_value bucket)
 OBJECT_KEY=$(hcl_value key)
 REGION=$(hcl_value region)
@@ -77,6 +106,7 @@ status() {
   test -f "$CONFIG_FILE" && LOCAL_HASH=$(file_hash "$CONFIG_FILE")
   if remote_fetch; then
     REMOTE_HASH=$(file_hash "$TMP_FILE")
+    REMOTE_BASELINE=$(tfvars_value deployment_baseline_tag "$TMP_FILE")
   else
     FETCH_STATUS=$?
     test "$FETCH_STATUS" -eq 1 || exit "$FETCH_STATUS"
@@ -94,7 +124,7 @@ status() {
   elif test -n "$BASE_HASH" && test "$LOCAL_HASH" = "$BASE_HASH"; then
     STATE=remote-changed
   fi
-  printf 'state=%s\nlocal=%s\nremote=%s\nbase=%s\n' "$STATE" "$LOCAL_HASH" "$REMOTE_HASH" "${BASE_HASH:-missing}"
+  printf 'state=%s\nlocal=%s\nremote=%s\nbase=%s\ndeployment_baseline=%s\n' "$STATE" "$LOCAL_HASH" "$REMOTE_HASH" "${BASE_HASH:-missing}" "${REMOTE_BASELINE:-missing}"
 }
 
 pull() {
@@ -125,6 +155,7 @@ pull() {
 push() {
   PUSH_FORCE=${1:-$FORCE}
   test -f "$CONFIG_FILE" || { printf 'Missing terraform.tfvars.\n' >&2; exit 1; }
+  verify_deployment_baseline
   chmod 600 "$CONFIG_FILE"
   LOCAL_HASH=$(file_hash "$CONFIG_FILE")
   BASE_HASH=$(base_hash)
@@ -151,7 +182,11 @@ push() {
 }
 
 prepare() {
-  if ! test -f "$CONFIG_FILE"; then pull; return; fi
+  if ! test -f "$CONFIG_FILE"; then
+    pull
+    verify_deployment_baseline
+    return
+  fi
   if remote_fetch; then
     :
   else
@@ -162,8 +197,16 @@ prepare() {
   LOCAL_HASH=$(file_hash "$CONFIG_FILE")
   REMOTE_HASH=$(file_hash "$TMP_FILE")
   BASE_HASH=$(base_hash)
-  if test "$LOCAL_HASH" = "$REMOTE_HASH"; then save_base "$LOCAL_HASH"; return; fi
-  if test -n "$BASE_HASH" && test "$LOCAL_HASH" = "$BASE_HASH"; then pull --force; return; fi
+  if test "$LOCAL_HASH" = "$REMOTE_HASH"; then
+    save_base "$LOCAL_HASH"
+    verify_deployment_baseline
+    return
+  fi
+  if test -n "$BASE_HASH" && test "$LOCAL_HASH" = "$BASE_HASH"; then
+    pull --force
+    verify_deployment_baseline
+    return
+  fi
   if test -n "$BASE_HASH" && test "$REMOTE_HASH" = "$BASE_HASH"; then
     printf 'Local terraform.tfvars differs from the OSS baseline; run config-push explicitly before deploying, or config-pull to discard it.\n' >&2
     exit 1

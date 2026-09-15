@@ -130,6 +130,9 @@ The encrypted OSS `terraform.tfvars` object is the deployment source of truth.
 `make plan`, lifecycle targets, and direct `scripts/tofu.sh plan/apply/destroy`
 refuse a locally changed file. Publish an intentional baseline change with
 `make config-push`, or discard it with `make config-pull`, before deployment.
+The same object records `deployment_baseline_tag`; deployment refuses to run
+unless the current Git HEAD resolves to that exact immutable tag. If the tag is
+missing or differs, fetch tags and check out the tag printed by the command.
 
 The apply is the complete pull-up operation: ACK, the worker node pool, and
 Higress are reconciled in dependency order. Provider versions are pinned in
