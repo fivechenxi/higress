@@ -14,7 +14,7 @@
 
 {{- if .Values.higress.rateLimits.enabled }}
 {{- $domains := required "higress.rateLimits.domains must be set" .Values.higress.rateLimits.domains }}
-{{- $redisService := printf "%s.%s.svc.cluster.local" .Values.rateLimitRedis.serviceName .Release.Namespace }}
+{{- $redis := .Values.higress.rateLimits.redis }}
 {{- $plugins := list
       (dict "name" "tokenvolt-customer-rate-limit" "artifact" .Values.higress.rateLimits.requestPlugin "priority" 610 "quotaHeaders" true)
       (dict "name" "tokenvolt-trial-token-quota" "artifact" .Values.higress.rateLimits.tokenPlugin "priority" 620 "quotaHeaders" false)
@@ -45,8 +45,14 @@ spec:
   defaultConfigDisable: true
   defaultConfig:
     redis:
-      service_name: {{ $redisService | quote }}
-      service_port: 6379
+      service_name: {{ required "higress.rateLimits.redis.serviceName must be set" $redis.serviceName | quote }}
+      service_port: {{ $redis.servicePort }}
+      {{- with $redis.username }}
+      username: {{ . | quote }}
+      {{- end }}
+      {{- with $redis.password }}
+      password: {{ . | quote }}
+      {{- end }}
       timeout: 1000
     rejected_code: 429
     rejected_msg: {{ default "TokenVolt rate limit exceeded" $plugin.rejectedMsg | quote }}

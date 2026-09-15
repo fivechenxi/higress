@@ -37,6 +37,8 @@ data:
     NAMESPACE = os.environ.get("HIGRESS_NAMESPACE", "higress-system")
     REDIS_HOST = os.environ.get("REDIS_HOST", "tokenvolt-rate-limit-redis.tokenvolt-system.svc.cluster.local")
     REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
+    REDIS_USERNAME = os.environ.get("REDIS_USERNAME", "")
+    REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "")
     TOKEN_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/token"
     CA_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
     API = "https://kubernetes.default.svc/apis/extensions.higress.io/v1alpha1/namespaces/%s/wasmplugins/" % NAMESPACE
@@ -71,14 +73,23 @@ data:
             return [read_resp(stream) for _ in range(int(line))]
         raise RuntimeError("Unsupported Redis response")
 
-    def redis_command(parts):
+    def redis_payload(parts):
         encoded = [str(part).encode() for part in parts]
         payload = ("*%d\r\n" % len(encoded)).encode()
         for part in encoded:
             payload += ("$%d\r\n" % len(part)).encode() + part + b"\r\n"
+        return payload
+
+    def redis_command(parts):
+        payload = redis_payload(parts)
         with socket.create_connection((REDIS_HOST, REDIS_PORT), timeout=3) as connection:
+            stream = connection.makefile("rb")
+            if REDIS_PASSWORD:
+                auth = ["AUTH", REDIS_USERNAME, REDIS_PASSWORD] if REDIS_USERNAME else ["AUTH", REDIS_PASSWORD]
+                connection.sendall(redis_payload(auth))
+                read_resp(stream)
             connection.sendall(payload)
-            return read_resp(connection.makefile("rb"))
+            return read_resp(stream)
 
     def redis_values(keys):
         if not keys:

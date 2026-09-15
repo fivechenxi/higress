@@ -87,6 +87,17 @@ output "tokenvolt_rds" {
   } : null
 }
 
+output "tokenvolt_rate_limit_redis" {
+  description = "Managed private Redis endpoint used for Higress rate-limit and quota counters."
+  value = var.tokenvolt_enabled && var.tokenvolt_managed_redis_enabled ? {
+    instance_id = alicloud_kvstore_instance.tokenvolt_rate_limit[0].id
+    endpoint    = alicloud_kvstore_instance.tokenvolt_rate_limit[0].connection_domain
+    port        = alicloud_kvstore_instance.tokenvolt_rate_limit[0].port
+    class       = alicloud_kvstore_instance.tokenvolt_rate_limit[0].instance_class
+    zone        = alicloud_kvstore_instance.tokenvolt_rate_limit[0].zone_id
+  } : null
+}
+
 output "kubeconfig_command" {
   description = "Write a short-lived kubeconfig when kubectl access is needed."
   value       = "aliyun cs GET /k8s/${alicloud_cs_managed_kubernetes.this.id}/user_config --profile ${var.alicloud_profile} --region ${var.region}"
