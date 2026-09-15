@@ -120,6 +120,9 @@ resource "helm_release" "higress_ack_ops" {
             existingSecret = "higress-feishu-alert-webhook"
           }
         }
+        quotaMetrics = {
+          enabled = var.tokenvolt_enabled && var.tokenvolt_rate_limit_redis_enabled
+        }
       }
     })
   ]

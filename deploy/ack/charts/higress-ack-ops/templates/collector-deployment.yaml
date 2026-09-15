@@ -67,6 +67,29 @@ spec:
               readOnly: true
             - name: data
               mountPath: /prometheus
+        {{- if .Values.monitoring.quotaMetrics.enabled }}
+        - name: quota-metrics
+          image: {{ .Values.monitoring.quotaMetrics.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: [python3, /opt/quota-metrics/exporter.py]
+          env:
+            - {name: HIGRESS_NAMESPACE, value: {{ .Values.monitoring.quotaMetrics.higressNamespace | quote }}}
+            - {name: REDIS_HOST, value: {{ .Values.monitoring.quotaMetrics.redisHost | quote }}}
+            - {name: REDIS_PORT, value: {{ .Values.monitoring.quotaMetrics.redisPort | quote }}}
+          ports:
+            - {name: quota-metrics, containerPort: 9109}
+          readinessProbe:
+            httpGet: {path: /healthz, port: quota-metrics}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.monitoring.quotaMetrics.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /opt/quota-metrics/exporter.py
+              subPath: quota-exporter.py
+              readOnly: true
+        {{- end }}
       volumes:
         - name: config
           configMap:

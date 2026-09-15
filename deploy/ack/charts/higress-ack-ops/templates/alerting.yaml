@@ -26,7 +26,7 @@ data:
     global:
       resolve_timeout: 5m
     route:
-      group_by: [alertname, component, scope, ai_model, ai_provider, horizontalpodautoscaler]
+      group_by: [alertname, component, scope, ai_model, ai_provider, tenant, consumer, reason, horizontalpodautoscaler]
       group_wait: {{ $alerting.alertmanager.groupWait }}
       group_interval: {{ $alerting.alertmanager.groupInterval }}
       repeat_interval: {{ $alerting.alertmanager.repeatInterval }}
@@ -162,6 +162,10 @@ data:
         dimensions = " · ".join(filter(None, [
             f"模型: {labels.get('ai_model')}" if labels.get("ai_model") else "",
             f"厂商: {labels.get('ai_provider')}" if labels.get("ai_provider") else "",
+            f"租户: {labels.get('tenant')}" if labels.get("tenant") else "",
+            f"API Key ID: {labels.get('consumer')}" if labels.get("consumer") else "",
+            f"范围: {labels.get('scope')}" if labels.get("scope") else "",
+            f"原因: {labels.get('reason')}" if labels.get("reason") else "",
             f"HPA: {labels.get('horizontalpodautoscaler')}" if labels.get("horizontalpodautoscaler") else "",
         ]))
         if dimensions:
@@ -170,6 +174,8 @@ data:
             fields.append(annotations["summary"])
         if annotations.get("description"):
             fields.append(annotations["description"])
+        if annotations.get("dashboard_url"):
+            fields.append(f"[打开大盘]({annotations['dashboard_url']})")
         fields.append(f"开始: {alert.get('startsAt', '-')}")
         return "\n".join(fields)
 

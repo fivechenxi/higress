@@ -81,9 +81,9 @@
       "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
         {"expr": "tokenvolt:provider_5xx_rpm:rate5m{ai_provider=~\"$provider\"}", "legendFormat": "5xx {{ai_provider}}", "refId": "A"},
-        {"expr": "tokenvolt:provider_model_unexpected_429_rpm:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}", "legendFormat": "非预期 429 {{ai_model}} · {{ai_provider}}", "refId": "B"}
+        {"expr": "tokenvolt:provider_model_429_rpm:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}", "legendFormat": "429 {{ai_model}} · {{ai_provider}}", "refId": "B"}
       ],
-      "title": "5xx / 非预期 429", "type": "timeseries"
+      "title": "5xx / 429", "type": "timeseries"
     }
   ],
   "refresh": "30s", "schemaVersion": 39, "tags": ["tokenvolt", "runtime"],
