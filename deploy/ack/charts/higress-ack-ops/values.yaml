@@ -167,6 +167,7 @@ monitoring:
     redisHost: tokenvolt-rate-limit-redis.tokenvolt-system.svc.cluster.local
     redisPort: 6379
     existingSecret: ""
+    credentialRevision: ""
     usernameKey: username
     passwordKey: password
     resources:

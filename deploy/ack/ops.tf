@@ -138,10 +138,11 @@ resource "helm_release" "higress_ack_ops" {
           }
         }
         quotaMetrics = {
-          enabled        = local.tokenvolt_rate_limit_enabled
-          redisHost      = local.tokenvolt_rate_limit_redis_host
-          redisPort      = local.tokenvolt_rate_limit_redis_port
-          existingSecret = var.tokenvolt_managed_redis_enabled ? "higress-rate-limit-redis-auth" : ""
+          enabled            = local.tokenvolt_rate_limit_enabled
+          redisHost          = local.tokenvolt_rate_limit_redis_host
+          redisPort          = local.tokenvolt_rate_limit_redis_port
+          existingSecret     = var.tokenvolt_managed_redis_enabled ? "higress-rate-limit-redis-auth" : ""
+          credentialRevision = var.tokenvolt_managed_redis_enabled ? nonsensitive(sha256(local.tokenvolt_rate_limit_redis_password)) : ""
         }
       }
     })
