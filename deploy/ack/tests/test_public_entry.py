@@ -24,7 +24,7 @@ import yaml
 CHART = Path(__file__).resolve().parents[1] / 'charts/tokenvolt'
 
 
-def render(split, managed_redis=False):
+def render(split, managed_redis=False, dashboard=None):
     values = {
         'controlPlane': {
             'image': 'example.invalid/control-plane@sha256:' + 'a' * 64,
@@ -67,6 +67,8 @@ def render(split, managed_redis=False):
         },
         'rateLimitRedis': {'enabled': False},
     }
+    if dashboard is not None:
+        values['controlPlane']['usageDashboard'] = dashboard
     with tempfile.NamedTemporaryFile(mode='w') as f:
         json.dump(values, f)
         f.flush()
@@ -79,6 +81,26 @@ def render(split, managed_redis=False):
 
 
 class PublicEntryTest(unittest.TestCase):
+    def test_dashboard_source_is_explicit_and_survives_chart_rendering(self):
+        for config in (None, {'environment': 'ack-test', 'source': 'legacy_usage'}):
+            objects = render(True, dashboard=config)
+            deployment = next(o for o in objects if o['kind'] == 'Deployment'
+                              and o['metadata']['name'] == 'tokenvolt-control-plane')
+            env = {e['name']: e.get('value') for e in deployment['spec']['template']['spec']['containers'][0]['env']}
+            if config is None:
+                self.assertNotIn('USAGE_DASHBOARD_ENVIRONMENT', env)
+                self.assertNotIn('USAGE_DASHBOARD_SOURCE', env)
+            else:
+                self.assertEqual(env['USAGE_DASHBOARD_ENVIRONMENT'], 'ack-test')
+                self.assertEqual(env['USAGE_DASHBOARD_SOURCE'], 'legacy_usage')
+            self.assertNotIn('INVOICE_GENERATION_ENABLED', env)
+
+    def test_partial_dashboard_config_fails_before_deployment(self):
+        for config in ({'environment': 'ack-test', 'source': ''},
+                       {'environment': '', 'source': 'legacy_usage'}):
+            with self.assertRaisesRegex(RuntimeError, 'usageDashboard'):
+                render(True, dashboard=config)
+
     def test_managed_redis_configures_plugins_without_in_cluster_redis(self):
         objects = render(True, managed_redis=True)
         self.assertFalse(any(o['kind'] == 'Deployment' and

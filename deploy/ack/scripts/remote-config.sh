@@ -78,7 +78,7 @@ file_hash() {
 remote_fetch() {
   : >"$TMP_FILE"
   : >"$ERROR_FILE"
-  if aliyun oss cp "$REMOTE_URI" "$TMP_FILE" --force --profile "$PROFILE" --region "$REGION" >/dev/null 2>"$ERROR_FILE"; then
+  if aliyun --profile "$PROFILE" --region "$REGION" oss cp "$REMOTE_URI" "$TMP_FILE" --force >/dev/null 2>"$ERROR_FILE"; then
     return 0
   fi
   if grep -Eq 'StatusCode=404|ErrorCode=NoSuchKey' "$ERROR_FILE"; then
@@ -174,7 +174,7 @@ push() {
     FETCH_STATUS=$?
     test "$FETCH_STATUS" -eq 1 || exit "$FETCH_STATUS"
   fi
-  aliyun oss cp "$CONFIG_FILE" "$REMOTE_URI" --force --profile "$PROFILE" --region "$REGION" >/dev/null
+  aliyun --profile "$PROFILE" --region "$REGION" oss cp "$CONFIG_FILE" "$REMOTE_URI" --force >/dev/null
   remote_fetch
   test "$(file_hash "$TMP_FILE")" = "$LOCAL_HASH"
   save_base "$LOCAL_HASH"
@@ -220,6 +220,6 @@ case "$ACTION" in
   pull) pull ;;
   push) push ;;
   prepare) prepare ;;
-  history) aliyun oss ls "$REMOTE_URI" --all-versions --profile "$PROFILE" --region "$REGION" ;;
+  history) aliyun --profile "$PROFILE" --region "$REGION" oss ls "$REMOTE_URI" --all-versions ;;
   *) printf 'Usage: %s {status|pull|push|prepare|history} [--force]\n' "$0" >&2; exit 2 ;;
 esac

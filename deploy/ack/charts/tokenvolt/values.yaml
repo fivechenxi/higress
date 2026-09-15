@@ -13,6 +13,10 @@
 # limitations under the License.
 
 controlPlane:
+  # Both fields are required to enable the dashboard. This does not enable billing.
+  usageDashboard:
+    environment: ""
+    source: ""
   publicService:
     enabled: false
     annotations: {}
