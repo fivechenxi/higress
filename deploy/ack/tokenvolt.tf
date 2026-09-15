@@ -61,14 +61,16 @@ resource "alicloud_kvstore_instance" "tokenvolt_rate_limit" {
   db_instance_name = "tokenvolt-rate-limit-${var.cluster_name}"
   instance_type    = "Redis"
   instance_class   = var.tokenvolt_managed_redis_class
-  engine_version   = "7.0"
-  payment_type     = "PostPaid"
-  zone_id          = var.availability_zone
-  vswitch_id       = var.vswitch_id
-  password         = random_password.tokenvolt_rate_limit_redis[0].result
-  security_ips     = [data.alicloud_vpcs.selected.vpcs[0].cidr_block]
-  ssl_enable       = "Disable"
-  tags             = merge(var.tags, { Component = "tokenvolt-rate-limit" })
+  # redis.master.small.default is the smallest postpaid master-replica class
+  # available in the selected zone. It is a local-disk class and supports 5.0.
+  engine_version = "5.0"
+  payment_type   = "PostPaid"
+  zone_id        = var.availability_zone
+  vswitch_id     = var.vswitch_id
+  password       = random_password.tokenvolt_rate_limit_redis[0].result
+  security_ips   = [data.alicloud_vpcs.selected.vpcs[0].cidr_block]
+  ssl_enable     = "Disable"
+  tags           = merge(var.tags, { Component = "tokenvolt-rate-limit" })
 }
 
 check "tokenvolt_redis_mode" {
