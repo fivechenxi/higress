@@ -19,6 +19,7 @@
       (dict "name" "tokenvolt-customer-rate-limit" "artifact" .Values.higress.rateLimits.requestPlugin "priority" 610 "quotaHeaders" true)
       (dict "name" "tokenvolt-trial-token-quota" "artifact" .Values.higress.rateLimits.tokenPlugin "priority" 620 "quotaHeaders" false)
       (dict "name" "tokenvolt-postpaid-token-quota" "artifact" .Values.higress.rateLimits.tokenPlugin "priority" 620 "quotaHeaders" false)
+      (dict "name" "tokenvolt-provider-model-tpm" "artifact" .Values.higress.rateLimits.tokenPlugin "priority" 600 "quotaHeaders" false "rejectedMsg" "{\"error\":{\"message\":\"Provider capacity is temporarily unavailable\",\"type\":\"rate_limit_error\",\"code\":\"provider_capacity_exceeded\"}}")
 }}
 {{- range $index, $plugin := $plugins }}
 {{- $existing := lookup "extensions.higress.io/v1alpha1" "WasmPlugin" $.Values.higress.namespace $plugin.name }}
@@ -48,7 +49,7 @@ spec:
       service_port: 6379
       timeout: 1000
     rejected_code: 429
-    rejected_msg: TokenVolt rate limit exceeded
+    rejected_msg: {{ default "TokenVolt rate limit exceeded" $plugin.rejectedMsg | quote }}
     {{- if $plugin.quotaHeaders }}
     show_limit_quota_header: true
     {{- end }}
