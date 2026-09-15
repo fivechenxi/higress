@@ -76,6 +76,23 @@ resource "kubernetes_secret_v1" "feishu_alert_webhook" {
   depends_on = [helm_release.higress]
 }
 
+resource "kubernetes_secret_v1" "rate_limit_redis" {
+  count = var.lifecycle_mode == "running" && var.tokenvolt_enabled && var.tokenvolt_managed_redis_enabled ? 1 : 0
+
+  metadata {
+    name      = "higress-rate-limit-redis-auth"
+    namespace = "higress-system"
+  }
+
+  data = {
+    username = ""
+    password = random_password.tokenvolt_rate_limit_redis[0].result
+  }
+
+  type       = "Opaque"
+  depends_on = [helm_release.higress]
+}
+
 resource "helm_release" "higress_ack_ops" {
   count = var.lifecycle_mode == "running" ? 1 : 0
 
@@ -121,7 +138,10 @@ resource "helm_release" "higress_ack_ops" {
           }
         }
         quotaMetrics = {
-          enabled = var.tokenvolt_enabled && var.tokenvolt_rate_limit_redis_enabled
+          enabled        = local.tokenvolt_rate_limit_enabled
+          redisHost      = local.tokenvolt_rate_limit_redis_host
+          redisPort      = local.tokenvolt_rate_limit_redis_port
+          existingSecret = var.tokenvolt_managed_redis_enabled ? "higress-rate-limit-redis-auth" : ""
         }
       }
     })
@@ -134,6 +154,7 @@ resource "helm_release" "higress_ack_ops" {
     kubernetes_secret_v1.grafana_admin,
     kubernetes_secret_v1.grafana_sls,
     kubernetes_secret_v1.feishu_alert_webhook,
+    kubernetes_secret_v1.rate_limit_redis,
     helm_release.higress,
   ]
 }

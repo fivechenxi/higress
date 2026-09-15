@@ -138,6 +138,12 @@ The apply is the complete pull-up operation: ACK, the worker node pool, and
 Higress are reconciled in dependency order. Provider versions are pinned in
 `.terraform.lock.hcl`.
 
+TokenVolt rate-limit and quota counters use a private pay-as-you-go Alibaba
+Cloud Redis instance by default (`redis.master.small.default`, Redis 7). It is
+kept while the Kubernetes workloads are stopped. The in-cluster Redis remains
+available only as an explicit fallback and must not be enabled together with
+managed Redis.
+
 To use a different cluster name or sizing, create an untracked
 `terraform.tfvars` file. For example:
 

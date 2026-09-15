@@ -31,11 +31,51 @@ resource "random_password" "tokenvolt_api_key_pepper" {
   special = false
 }
 
+resource "random_password" "tokenvolt_rate_limit_redis" {
+  count       = var.tokenvolt_enabled && var.tokenvolt_managed_redis_enabled ? 1 : 0
+  length      = 32
+  special     = false
+  min_lower   = 1
+  min_upper   = 1
+  min_numeric = 1
+}
+
 locals {
   tokenvolt_sls_project  = "tokenvolt-gateway-${data.alicloud_account.current.id}"
   tokenvolt_sls_logstore = "model-access"
   tokenvolt_oss_bucket   = "tokenvolt-billing-${data.alicloud_account.current.id}-${var.region}"
   tokenvolt_rrsa_role    = "tokenvolt-control-plane-${var.cluster_name}"
+  tokenvolt_rate_limit_enabled = (
+    var.tokenvolt_enabled &&
+    (var.tokenvolt_managed_redis_enabled || var.tokenvolt_rate_limit_redis_enabled)
+  )
+  tokenvolt_rate_limit_redis_host     = var.tokenvolt_managed_redis_enabled ? alicloud_kvstore_instance.tokenvolt_rate_limit[0].connection_domain : "tokenvolt-rate-limit-redis.${var.tokenvolt_namespace}.svc.cluster.local"
+  tokenvolt_rate_limit_service_name   = var.tokenvolt_managed_redis_enabled ? "${local.tokenvolt_rate_limit_redis_host}.dns" : local.tokenvolt_rate_limit_redis_host
+  tokenvolt_rate_limit_redis_port     = var.tokenvolt_managed_redis_enabled ? alicloud_kvstore_instance.tokenvolt_rate_limit[0].port : 6379
+  tokenvolt_rate_limit_redis_password = var.tokenvolt_managed_redis_enabled ? random_password.tokenvolt_rate_limit_redis[0].result : ""
+}
+
+resource "alicloud_kvstore_instance" "tokenvolt_rate_limit" {
+  count = var.tokenvolt_enabled && var.tokenvolt_managed_redis_enabled ? 1 : 0
+
+  db_instance_name = "tokenvolt-rate-limit-${var.cluster_name}"
+  instance_type    = "Redis"
+  instance_class   = var.tokenvolt_managed_redis_class
+  engine_version   = "7.0"
+  payment_type     = "PostPaid"
+  zone_id          = var.availability_zone
+  vswitch_id       = var.vswitch_id
+  password         = random_password.tokenvolt_rate_limit_redis[0].result
+  security_ips     = [data.alicloud_vpcs.selected.vpcs[0].cidr_block]
+  ssl_enable       = "Disable"
+  tags             = merge(var.tags, { Component = "tokenvolt-rate-limit" })
+}
+
+check "tokenvolt_redis_mode" {
+  assert {
+    condition     = !(var.tokenvolt_managed_redis_enabled && var.tokenvolt_rate_limit_redis_enabled)
+    error_message = "Enable either managed Redis or the in-cluster Redis fallback, not both."
+  }
 }
 
 resource "alicloud_log_project" "tokenvolt" {
@@ -455,8 +495,13 @@ resource "helm_release" "tokenvolt" {
           paths        = ["/v1/chat/completions", "/v1/responses", "/v1/messages"]
         }
         rateLimits = {
-          enabled = var.tokenvolt_rate_limit_redis_enabled
+          enabled = local.tokenvolt_rate_limit_enabled
           domains = compact([var.tokenvolt_data_public_host, var.tokenvolt_api_host])
+          redis = {
+            serviceName = local.tokenvolt_rate_limit_service_name
+            servicePort = local.tokenvolt_rate_limit_redis_port
+            password    = local.tokenvolt_rate_limit_redis_password
+          }
           requestPlugin = {
             url    = var.tokenvolt_cluster_key_rate_limit_plugin_url
             sha256 = var.tokenvolt_cluster_key_rate_limit_plugin_sha256
@@ -468,7 +513,7 @@ resource "helm_release" "tokenvolt" {
         }
       }
       rateLimitRedis = {
-        enabled = var.tokenvolt_rate_limit_redis_enabled
+        enabled = var.tokenvolt_rate_limit_redis_enabled && !var.tokenvolt_managed_redis_enabled
         image   = var.tokenvolt_rate_limit_redis_image
       }
       portal = {
@@ -522,5 +567,6 @@ resource "helm_release" "tokenvolt" {
     alicloud_db_account_privilege.tokenvolt,
     alicloud_db_backup_policy.tokenvolt,
     alicloud_ram_role_policy_attachment.tokenvolt,
+    alicloud_kvstore_instance.tokenvolt_rate_limit,
   ]
 }

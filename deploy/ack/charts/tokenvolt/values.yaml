@@ -74,6 +74,11 @@ higress:
     tokenPlugin:
       url: ""
       sha256: ""
+    redis:
+      serviceName: tokenvolt-rate-limit-redis.tokenvolt-system.svc.cluster.local
+      servicePort: 6379
+      username: ""
+      password: ""
 
 # Shared counter store for Higress distributed RPM/TPM and token-quota
 # plugins. This is intentionally a low-cost, non-persistent test baseline;

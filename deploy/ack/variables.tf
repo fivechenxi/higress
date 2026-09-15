@@ -259,9 +259,21 @@ variable "tokenvolt_ai_statistics_plugin_sha256" {
 }
 
 variable "tokenvolt_rate_limit_redis_enabled" {
-  description = "Run the low-cost in-cluster Redis used by Higress distributed rate-limit plugins. Replace with managed Tair/Redis for production HA."
+  description = "Run the temporary in-cluster Redis fallback. Keep false when managed Redis is enabled."
+  type        = bool
+  default     = false
+}
+
+variable "tokenvolt_managed_redis_enabled" {
+  description = "Create a private pay-as-you-go Alibaba Cloud Redis instance for Higress rate-limit and quota counters."
   type        = bool
   default     = true
+}
+
+variable "tokenvolt_managed_redis_class" {
+  description = "Alibaba Cloud Redis instance class. The default is the smallest available one-GiB master-replica class."
+  type        = string
+  default     = "redis.master.small.default"
 }
 
 variable "tokenvolt_rate_limit_redis_image" {

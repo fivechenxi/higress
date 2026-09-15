@@ -46,10 +46,19 @@ class GatewayPolicyTest(unittest.TestCase):
             '--set', 'monitoring.remoteWriteUrl=http://example.invalid/api/v1/write',
             '--set', 'monitoring.clusterId=test-cluster',
             '--set', 'monitoring.quotaMetrics.enabled=true',
+            '--set', 'monitoring.quotaMetrics.redisHost=r-test.redis.rds.aliyuncs.com.dns',
+            '--set', 'monitoring.quotaMetrics.existingSecret=higress-rate-limit-redis-auth',
             '--set', 'monitoring.alerting.feishu.enabled=true',
         )
         by_kind_name = {(item['kind'], item['metadata']['name']): item for item in objects}
         configmap = by_kind_name[('ConfigMap', 'higress-metrics-collector')]
+        collector = by_kind_name[('Deployment', 'higress-metrics-collector')]
+        quota = next(c for c in collector['spec']['template']['spec']['containers']
+                     if c['name'] == 'quota-metrics')
+        env = {item['name']: item for item in quota['env']}
+        self.assertEqual(env['REDIS_HOST']['value'], 'r-test.redis.rds.aliyuncs.com.dns')
+        self.assertEqual(env['REDIS_PASSWORD']['valueFrom']['secretKeyRef'], {
+            'name': 'higress-rate-limit-redis-auth', 'key': 'password'})
         namespace = {'__name__': 'quota_exporter_test'}
         exec(compile(configmap['data']['quota-exporter.py'], 'quota-exporter.py', 'exec'), namespace)
 

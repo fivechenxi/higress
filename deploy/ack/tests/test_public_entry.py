@@ -24,7 +24,7 @@ import yaml
 CHART = Path(__file__).resolve().parents[1] / 'charts/tokenvolt'
 
 
-def render(split):
+def render(split, managed_redis=False):
     values = {
         'controlPlane': {
             'image': 'example.invalid/control-plane@sha256:' + 'a' * 64,
@@ -47,8 +47,25 @@ def render(split):
             'policyPluginUrl': 'oci://example.invalid/policy@sha256:' + 'b' * 64,
             'gatewayConfigPublisher': {'enabled': True},
             'aiStatistics': {'pluginUrl': 'https://example.invalid/stats.wasm', 'pluginSha256': 'c' * 64},
-            'rateLimits': {'enabled': False},
+            'rateLimits': {
+                'enabled': managed_redis,
+                'domains': ['api.tokenvolt.net'],
+                'requestPlugin': {
+                    'url': 'https://example.invalid/sha256/' + 'd' * 64 + '.wasm',
+                    'sha256': 'd' * 64,
+                },
+                'tokenPlugin': {
+                    'url': 'https://example.invalid/sha256/' + 'e' * 64 + '.wasm',
+                    'sha256': 'e' * 64,
+                },
+                'redis': {
+                    'serviceName': 'r-test.redis.rds.aliyuncs.com.dns',
+                    'servicePort': 6379,
+                    'password': 'fixture-password',
+                },
+            },
         },
+        'rateLimitRedis': {'enabled': False},
     }
     with tempfile.NamedTemporaryFile(mode='w') as f:
         json.dump(values, f)
@@ -62,6 +79,20 @@ def render(split):
 
 
 class PublicEntryTest(unittest.TestCase):
+    def test_managed_redis_configures_plugins_without_in_cluster_redis(self):
+        objects = render(True, managed_redis=True)
+        self.assertFalse(any(o['kind'] == 'Deployment' and
+                             o['metadata']['name'] == 'tokenvolt-rate-limit-redis'
+                             for o in objects))
+        plugins = [o for o in objects if o['kind'] == 'WasmPlugin' and
+                   o['metadata']['labels'].get('tokenvolt.ai/managed') == 'rate-limit']
+        self.assertEqual(len(plugins), 4)
+        for plugin in plugins:
+            redis = plugin['spec']['defaultConfig']['redis']
+            self.assertEqual(redis['service_name'], 'r-test.redis.rds.aliyuncs.com.dns')
+            self.assertEqual(redis['service_port'], 6379)
+            self.assertEqual(redis['password'], 'fixture-password')
+
     def test_split_entry_exposes_only_model_paths_through_higress(self):
         objects = render(True)
         ingresses = [o for o in objects if o['kind'] == 'Ingress']

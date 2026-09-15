@@ -76,6 +76,18 @@ spec:
             - {name: HIGRESS_NAMESPACE, value: {{ .Values.monitoring.quotaMetrics.higressNamespace | quote }}}
             - {name: REDIS_HOST, value: {{ .Values.monitoring.quotaMetrics.redisHost | quote }}}
             - {name: REDIS_PORT, value: {{ .Values.monitoring.quotaMetrics.redisPort | quote }}}
+            {{- if .Values.monitoring.quotaMetrics.existingSecret }}
+            - name: REDIS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.monitoring.quotaMetrics.existingSecret | quote }}
+                  key: {{ .Values.monitoring.quotaMetrics.usernameKey | quote }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.monitoring.quotaMetrics.existingSecret | quote }}
+                  key: {{ .Values.monitoring.quotaMetrics.passwordKey | quote }}
+            {{- end }}
           ports:
             - {name: quota-metrics, containerPort: 9109}
           readinessProbe:

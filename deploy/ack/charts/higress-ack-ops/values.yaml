@@ -166,6 +166,9 @@ monitoring:
     higressNamespace: higress-system
     redisHost: tokenvolt-rate-limit-redis.tokenvolt-system.svc.cluster.local
     redisPort: 6379
+    existingSecret: ""
+    usernameKey: username
+    passwordKey: password
     resources:
       requests: {cpu: 10m, memory: 24Mi}
       limits: {cpu: 100m, memory: 64Mi}
