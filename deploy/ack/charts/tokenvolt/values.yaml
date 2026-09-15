@@ -13,6 +13,7 @@
 # limitations under the License.
 
 controlPlane:
+  quotaEnabled: false
   # Both fields are required to enable the dashboard. This does not enable billing.
   usageDashboard:
     environment: ""

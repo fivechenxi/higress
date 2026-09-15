@@ -157,6 +157,12 @@ variable "tokenvolt_namespace" {
   default     = "tokenvolt-system"
 }
 
+variable "tokenvolt_quota_enabled" {
+  description = "Enable the control-plane quota publisher; persist this switch across ACK releases."
+  type        = bool
+  default     = false
+}
+
 variable "tokenvolt_usage_dashboard" {
   description = "Explicit statistics environment/source; legacy_usage reads existing RDS summaries without enabling billing."
   type = object({

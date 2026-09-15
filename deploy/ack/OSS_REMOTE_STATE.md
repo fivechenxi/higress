@@ -120,3 +120,8 @@ tokenvolt_usage_dashboard = {
 OSS 中的 `deployment_baseline_tag` 必须对应本次部署代码的精确 Git Tag。
 更新部署代码时先提交并推送新 Tag，再更新共享 tfvars 中的 Tag 和配置，执行
 `make config-push`，审阅 Plan 后 Apply。不要从旧代码目录直接更新新版本资源。
+
+额度发布器同样必须持久配置：线上已启用额度管理时，在共享 tfvars 中设置
+`tokenvolt_quota_enabled = true`。模板显式设置 `HIGRESS_QUOTA_ENABLED`，
+避免下次部署丢失。默认关闭；启用前须部署配套的 Helm quota 插件资源。
+发布 Tag 必须推到 `fivechenxi/higress`，仅在个人 fork 有同名 Tag 不算完成。

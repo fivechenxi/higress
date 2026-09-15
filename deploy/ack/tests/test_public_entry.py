@@ -24,9 +24,10 @@ import yaml
 CHART = Path(__file__).resolve().parents[1] / 'charts/tokenvolt'
 
 
-def render(split, managed_redis=False, dashboard=None):
+def render(split, managed_redis=False, dashboard=None, quota=False):
     values = {
         'controlPlane': {
+            'quotaEnabled': quota,
             'image': 'example.invalid/control-plane@sha256:' + 'a' * 64,
             'allowedOrigin': 'https://ack.tokenvolt.net',
             'rrsaRoleName': 'fixture-role',
@@ -81,6 +82,15 @@ def render(split, managed_redis=False, dashboard=None):
 
 
 class PublicEntryTest(unittest.TestCase):
+    def test_quota_switch_survives_chart_rendering(self):
+        for enabled in (False, True):
+            objects = render(True, quota=enabled)
+            deployment = next(o for o in objects if o['kind'] == 'Deployment'
+                              and o['metadata']['name'] == 'tokenvolt-control-plane')
+            env = {e['name']: e.get('value') for e in deployment['spec']['template']['spec']['containers'][0]['env']}
+            self.assertEqual(env['HIGRESS_QUOTA_ENABLED'], str(enabled).lower())
+
+
     def test_dashboard_source_is_explicit_and_survives_chart_rendering(self):
         for config in (None, {'environment': 'ack-test', 'source': 'legacy_usage'}):
             objects = render(True, dashboard=config)

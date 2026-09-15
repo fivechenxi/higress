@@ -460,6 +460,7 @@ resource "helm_release" "tokenvolt" {
       # The Helm provider does not detect edits beneath an unchanged chart path.
       chartContentHash = sha256(join("", [for file in sort(fileset("${path.module}/charts/tokenvolt", "**")) : filesha256("${path.module}/charts/tokenvolt/${file}")]))
       controlPlane = {
+        quotaEnabled   = var.tokenvolt_quota_enabled
         usageDashboard = var.tokenvolt_usage_dashboard
         image          = var.tokenvolt_control_plane_image
         publicService = {
