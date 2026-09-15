@@ -32,6 +32,9 @@ spec:
         app: higress-metrics-collector
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/collector-configmap.yaml") . | sha256sum }}
+        {{- if .Values.monitoring.quotaMetrics.credentialRevision }}
+        checksum/redis-credentials: {{ .Values.monitoring.quotaMetrics.credentialRevision | quote }}
+        {{- end }}
     spec:
       serviceAccountName: higress-metrics-collector
       containers:
