@@ -49,9 +49,11 @@ locals {
     var.tokenvolt_enabled &&
     (var.tokenvolt_managed_redis_enabled || var.tokenvolt_rate_limit_redis_enabled)
   )
-  tokenvolt_rate_limit_redis_host     = var.tokenvolt_managed_redis_enabled ? alicloud_kvstore_instance.tokenvolt_rate_limit[0].connection_domain : "tokenvolt-rate-limit-redis.${var.tokenvolt_namespace}.svc.cluster.local"
-  tokenvolt_rate_limit_service_name   = var.tokenvolt_managed_redis_enabled ? "${local.tokenvolt_rate_limit_redis_host}.dns" : local.tokenvolt_rate_limit_redis_host
-  tokenvolt_rate_limit_redis_port     = var.tokenvolt_managed_redis_enabled ? alicloud_kvstore_instance.tokenvolt_rate_limit[0].port : 6379
+  tokenvolt_rate_limit_redis_host   = var.tokenvolt_managed_redis_enabled ? alicloud_kvstore_instance.tokenvolt_rate_limit[0].connection_domain : "tokenvolt-rate-limit-redis.${var.tokenvolt_namespace}.svc.cluster.local"
+  tokenvolt_rate_limit_service_name = var.tokenvolt_managed_redis_enabled ? "${local.tokenvolt_rate_limit_redis_host}.dns" : local.tokenvolt_rate_limit_redis_host
+  # Alibaba Cloud Redis uses 6379 by default. The provider's computed `port`
+  # may be null even after the instance reaches Running.
+  tokenvolt_rate_limit_redis_port     = 6379
   tokenvolt_rate_limit_redis_password = var.tokenvolt_managed_redis_enabled ? random_password.tokenvolt_rate_limit_redis[0].result : ""
 }
 

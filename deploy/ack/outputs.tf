@@ -92,7 +92,7 @@ output "tokenvolt_rate_limit_redis" {
   value = var.tokenvolt_enabled && var.tokenvolt_managed_redis_enabled ? {
     instance_id = alicloud_kvstore_instance.tokenvolt_rate_limit[0].id
     endpoint    = alicloud_kvstore_instance.tokenvolt_rate_limit[0].connection_domain
-    port        = alicloud_kvstore_instance.tokenvolt_rate_limit[0].port
+    port        = local.tokenvolt_rate_limit_redis_port
     class       = alicloud_kvstore_instance.tokenvolt_rate_limit[0].instance_class
     zone        = alicloud_kvstore_instance.tokenvolt_rate_limit[0].zone_id
   } : null
