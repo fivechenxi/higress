@@ -47,6 +47,7 @@ def render(split):
             'policyPluginUrl': 'oci://example.invalid/policy@sha256:' + 'b' * 64,
             'gatewayConfigPublisher': {'enabled': True},
             'aiStatistics': {'pluginUrl': 'https://example.invalid/stats.wasm', 'pluginSha256': 'c' * 64},
+            'rateLimits': {'enabled': False},
         },
     }
     with tempfile.NamedTemporaryFile(mode='w') as f:

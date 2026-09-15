@@ -23,6 +23,204 @@ metadata:
   labels:
     {{- include "higress-ack-ops.labels" . | nindent 4 }}
 data:
+  quota-exporter.py: |
+    import datetime
+    import json
+    import os
+    import socket
+    import ssl
+    import sys
+    import time
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    NAMESPACE = os.environ.get("HIGRESS_NAMESPACE", "higress-system")
+    REDIS_HOST = os.environ.get("REDIS_HOST", "tokenvolt-rate-limit-redis.tokenvolt-system.svc.cluster.local")
+    REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
+    TOKEN_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    CA_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+    API = "https://kubernetes.default.svc/apis/extensions.higress.io/v1alpha1/namespaces/%s/wasmplugins/" % NAMESPACE
+
+    def kubernetes_get(name):
+        with open(TOKEN_FILE, encoding="utf-8") as stream:
+            token = stream.read().strip()
+        request = urllib.request.Request(API + name, headers={"Authorization": "Bearer " + token})
+        context = ssl.create_default_context(cafile=CA_FILE)
+        with urllib.request.urlopen(request, context=context, timeout=3) as response:
+            return json.load(response)
+
+    def read_resp(stream):
+        prefix = stream.read(1)
+        if not prefix:
+            raise RuntimeError("Redis closed the connection")
+        line = stream.readline().rstrip(b"\r\n")
+        if prefix == b"+":
+            return line.decode()
+        if prefix == b"-":
+            raise RuntimeError("Redis error: " + line.decode())
+        if prefix == b":":
+            return int(line)
+        if prefix == b"$":
+            size = int(line)
+            if size < 0:
+                return None
+            value = stream.read(size)
+            stream.read(2)
+            return value.decode()
+        if prefix == b"*":
+            return [read_resp(stream) for _ in range(int(line))]
+        raise RuntimeError("Unsupported Redis response")
+
+    def redis_command(parts):
+        encoded = [str(part).encode() for part in parts]
+        payload = ("*%d\r\n" % len(encoded)).encode()
+        for part in encoded:
+            payload += ("$%d\r\n" % len(part)).encode() + part + b"\r\n"
+        with socket.create_connection((REDIS_HOST, REDIS_PORT), timeout=3) as connection:
+            connection.sendall(payload)
+            return read_resp(connection.makefile("rb"))
+
+    def redis_values(keys):
+        if not keys:
+            return {}
+        result = {}
+        for start in range(0, len(keys), 256):
+            chunk = keys[start:start + 256]
+            values = redis_command(["MGET"] + chunk)
+            result.update({key: int(value or 0) for key, value in zip(chunk, values)})
+        return result
+
+    def rule_items(plugin):
+        items = []
+        for match in plugin.get("spec", {}).get("matchRules", []):
+            items.extend(match.get("config", {}).get("rule_items", []))
+        return items
+
+    def limit_dimension(item):
+        for key, value in item.items():
+            if key.startswith("limit_by_") and key != "limit_keys":
+                return key, value or ("x-mse-consumer" if key == "limit_by_consumer" else "")
+        return "", ""
+
+    def quoted(value):
+        return json.dumps(str(value), ensure_ascii=True)
+
+    def sample(name, value, labels=None):
+        label_text = ""
+        if labels:
+            label_text = "{" + ",".join("%s=%s" % (key, quoted(labels[key])) for key in sorted(labels)) + "}"
+        return "%s%s %s" % (name, label_text, value)
+
+    def parse_time(value):
+        if not value:
+            return 0
+        return int(datetime.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp())
+
+    def customer_metrics(plugin):
+        definitions = []
+        keys = []
+        for item in rule_items(plugin):
+            limit_type, rule_key = limit_dimension(item)
+            for limit in item.get("limit_keys", []):
+                threshold = int(limit.get("query_per_minute", 0))
+                value = str(limit.get("key", ""))
+                if not limit_type or not rule_key or not value or threshold <= 0:
+                    continue
+                scope, tenant, model = "tenant", value, ""
+                if rule_key == "x-tokenvolt-tenant-model":
+                    tenant, separator, model = value.partition(":")
+                    if not separator:
+                        continue
+                    scope = "tenant-model"
+                redis_key = "higress-cluster-key-rate-limit:{%s}:%s:60:%s:%s" % (
+                    "tokenvolt-customer-rate-limit", limit_type, rule_key, value)
+                definitions.append((redis_key, threshold, scope, tenant, model))
+                keys.append(redis_key)
+        current = redis_values(keys)
+        lines = []
+        for redis_key, threshold, scope, tenant, model in definitions:
+            labels = {"scope": scope, "tenant": tenant, "model": model}
+            value = current.get(redis_key, 0)
+            lines.extend([
+                sample("tokenvolt_customer_rpm_current", value, labels),
+                sample("tokenvolt_customer_rpm_limit", threshold, labels),
+                sample("tokenvolt_customer_rpm_utilization", value / threshold, labels),
+            ])
+        return lines
+
+    def quota_metrics(plugin, rule_name, trial):
+        now = int(time.time())
+        definitions = []
+        keys = []
+        for item in rule_items(plugin):
+            limit_type, rule_key = limit_dimension(item)
+            for limit in item.get("limit_keys", []):
+                identity = str(limit.get("key", ""))
+                threshold = int(limit.get("token_total", 0))
+                period = int(limit.get("period", 0))
+                expires_at = parse_time(limit.get("expires_at", ""))
+                if not limit_type or not rule_key or not identity or threshold <= 0:
+                    continue
+                bucket = now // period if period > 0 else 0
+                redis_key = "higress-token-ratelimit:{%s}:quota:%s:%s:%s:%d" % (
+                    rule_name, limit_type, rule_key, identity, bucket)
+                definitions.append((redis_key, identity, threshold, period, expires_at))
+                keys.append(redis_key)
+        current = redis_values(keys)
+        lines = []
+        for redis_key, identity, threshold, period, expires_at in definitions:
+            value = current.get(redis_key, 0)
+            if trial:
+                reason = "expired" if expires_at > 0 and now >= expires_at else ("exhausted" if value >= threshold else "none")
+                labels = {"consumer": identity, "reason": reason}
+                lines.extend([
+                    sample("tokenvolt_trial_key_quota_current", value, {"consumer": identity}),
+                    sample("tokenvolt_trial_key_quota_limit", threshold, {"consumer": identity}),
+                    sample("tokenvolt_trial_key_quota_unavailable", 0 if reason == "none" else 1, labels),
+                ])
+            else:
+                labels = {"tenant": identity}
+                lines.extend([
+                    sample("tokenvolt_postpaid_tenant_token_quota_current", value, labels),
+                    sample("tokenvolt_postpaid_tenant_token_quota_limit", threshold, labels),
+                    sample("tokenvolt_postpaid_tenant_token_quota_exhausted", 1 if value >= threshold else 0, labels),
+                ])
+        return lines
+
+    def collect():
+        customer = kubernetes_get("tokenvolt-customer-rate-limit")
+        trial = kubernetes_get("tokenvolt-trial-token-quota")
+        postpaid = kubernetes_get("tokenvolt-postpaid-token-quota")
+        lines = ["# TYPE tokenvolt_quota_exporter_up gauge", "tokenvolt_quota_exporter_up 1"]
+        lines.extend(customer_metrics(customer))
+        lines.extend(quota_metrics(trial, "tokenvolt-trial-token-quota", True))
+        lines.extend(quota_metrics(postpaid, "tokenvolt-postpaid-token-quota", False))
+        return "\n".join(lines) + "\n"
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/healthz":
+                body, status = b"ok\n", 200
+            elif self.path == "/metrics":
+                try:
+                    body, status = collect().encode(), 200
+                except Exception as error:
+                    print("quota metrics collection failed: %s" % error, file=sys.stderr, flush=True)
+                    body, status = b"# TYPE tokenvolt_quota_exporter_up gauge\ntokenvolt_quota_exporter_up 0\n", 200
+            else:
+                body, status = b"not found\n", 404
+            self.send_response(status)
+            self.send_header("Content-Type", "text/plain; version=0.0.4")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format, *args):
+            return
+
+    if __name__ == "__main__":
+        ThreadingHTTPServer(("0.0.0.0", 9109), Handler).serve_forever()
+
   prometheus.yml: |
     global:
       scrape_interval: {{ .Values.monitoring.collector.scrapeInterval }}
@@ -47,12 +245,23 @@ data:
           - source_labels: [ai_consumer]
             regex: '.+'
             action: drop
+          - source_labels: [tenant]
+            regex: '.+'
+            action: drop
+          - source_labels: [consumer]
+            regex: '.+'
+            action: drop
         queue_config:
           capacity: 2500
           min_shards: 1
           max_shards: 4
           max_samples_per_send: 500
     scrape_configs:
+      {{- if .Values.monitoring.quotaMetrics.enabled }}
+      - job_name: tokenvolt-quota-metrics
+        static_configs:
+          - targets: ['127.0.0.1:9109']
+      {{- end }}
       - job_name: higress-gateway
         metrics_path: {{ .Values.monitoring.gateway.path }}
         kubernetes_sd_configs:
@@ -322,14 +531,10 @@ data:
               ai_provider: {{ .provider | quote }}
               ai_model: {{ .model | quote }}
           {{- end }}
-          - record: tokenvolt:provider_model_expected_429_rpm:rate5m
-            expr: tokenvolt:provider_model_429_rpm:rate5m and on (ai_model,ai_provider) ((tokenvolt:provider_model_logical_rpm:rate5m >= tokenvolt:provider_model_rpm_limit) or (tokenvolt:provider_model_total_tpm:rate5m >= tokenvolt:provider_model_tpm_limit))
-          - record: tokenvolt:provider_model_unexpected_429_rpm:rate5m
-            expr: tokenvolt:provider_model_429_rpm:rate5m and on (ai_model,ai_provider) (tokenvolt:provider_model_logical_rpm:rate5m < tokenvolt:provider_model_rpm_limit) and on (ai_model,ai_provider) (tokenvolt:provider_model_total_tpm:rate5m < tokenvolt:provider_model_tpm_limit)
           - record: tokenvolt:provider_model_quality_failure_rpm:rate5m
-            expr: clamp_min(tokenvolt:provider_model_failure_rpm:rate5m - (tokenvolt:provider_model_expected_429_rpm:rate5m or tokenvolt:provider_model_failure_rpm:rate5m * 0), 0)
+            expr: tokenvolt:provider_model_failure_rpm:rate5m
           - record: tokenvolt:provider_model_success_rpm:rate5m
-            expr: clamp_min(tokenvolt:provider_model_logical_rpm:rate5m - tokenvolt:provider_model_failure_rpm:rate5m + (tokenvolt:provider_model_expected_429_rpm:rate5m or tokenvolt:provider_model_failure_rpm:rate5m * 0), 0)
+            expr: clamp_min(tokenvolt:provider_model_logical_rpm:rate5m - tokenvolt:provider_model_failure_rpm:rate5m, 0)
           - record: tokenvolt:provider_model_success_ratio:rate5m
             expr: clamp_max(tokenvolt:provider_model_success_rpm:rate5m / clamp_min(tokenvolt:provider_model_logical_rpm:rate5m, 0.000001), 1)
           - record: tokenvolt:model_success_ratio:rate5m
@@ -464,11 +669,22 @@ data:
             annotations:
               summary: Higress Prometheus rule evaluation failed
               description: A recording or alerting expression is invalid or could not be evaluated.
+          {{- if .Values.monitoring.quotaMetrics.enabled }}
+          - alert: HigressQuotaMetricsDown
+            expr: absent(up{job="tokenvolt-quota-metrics"} == 1) or tokenvolt_quota_exporter_up == 0
+            for: 2m
+            labels:
+              severity: critical
+              component: quota-metrics
+            annotations:
+              summary: TokenVolt quota metrics are unavailable
+              description: Customer limit and quota alerts cannot evaluate until Kubernetes or Redis collection recovers.
+          {{- end }}
 
       - name: tokenvolt-ai-quality
         rules:
           - alert: HigressAIErrorRatioHigh
-            expr: (tokenvolt:ai_failures_per_second:rate5m / clamp_min(tokenvolt:ai_requests_per_second:rate5m, 0.000001)) > {{ .Values.monitoring.alerts.errorRatioWarning }} and (tokenvolt:ai_failures_per_second:rate5m / clamp_min(tokenvolt:ai_requests_per_second:rate5m, 0.000001)) <= {{ .Values.monitoring.alerts.errorRatioCritical }} and tokenvolt:ai_requests_per_second:rate5m * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            expr: (sum(tokenvolt:ai_failures_per_second:rate5m) / clamp_min(sum(tokenvolt:ai_requests_per_second:rate5m), 0.000001)) > {{ .Values.monitoring.alerts.errorRatioWarning }} and (sum(tokenvolt:ai_failures_per_second:rate5m) / clamp_min(sum(tokenvolt:ai_requests_per_second:rate5m), 0.000001)) <= {{ .Values.monitoring.alerts.errorRatioCritical }} and sum(tokenvolt:ai_requests_per_second:rate5m) * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
             for: 10m
             labels:
               severity: warning
@@ -477,7 +693,7 @@ data:
               summary: AI request error ratio is above the warning threshold
               description: Compare the affected model/provider with fallback attempts, 429s and 5xx responses.
           - alert: HigressAIErrorRatioCritical
-            expr: (tokenvolt:ai_failures_per_second:rate5m / clamp_min(tokenvolt:ai_requests_per_second:rate5m, 0.000001)) > {{ .Values.monitoring.alerts.errorRatioCritical }} and tokenvolt:ai_requests_per_second:rate5m * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
+            expr: (sum(tokenvolt:ai_failures_per_second:rate5m) / clamp_min(sum(tokenvolt:ai_requests_per_second:rate5m), 0.000001)) > {{ .Values.monitoring.alerts.errorRatioCritical }} and sum(tokenvolt:ai_requests_per_second:rate5m) * 300 >= {{ .Values.monitoring.alerts.minRequests5m }}
             for: 5m
             labels:
               severity: critical
@@ -592,15 +808,6 @@ data:
             annotations:
               summary: An upstream model provider is returning HTTP 429
               description: Check provider quota headroom and whether fallback contains the rate limiting.
-          - alert: HigressProviderUnexpectedRateLimited
-            expr: tokenvolt:provider_model_unexpected_429_rpm:rate5m > 0
-            for: 2m
-            labels:
-              severity: critical
-              component: ai-provider
-            annotations:
-              summary: Provider returned HTTP 429 below its contracted RPM and TPM
-              description: Use the alert model/provider and time window to query SLS for ai_log.provider_rate_limit_event=true; request_id and ai_log.upstream_request_id identify evidence for the provider.
           - alert: HigressProvider5xx
             expr: tokenvolt:provider_5xx_rpm:rate5m > 0
             for: 5m
@@ -619,7 +826,7 @@ data:
               scope: provider-model
             annotations:
               summary: Upstream provider success ratio is below the quality objective
-              description: Success is calculated as HTTP success plus expected 429 divided by all logical requests.
+              description: Success is calculated from successful model responses only; all 4xx and 5xx responses remain outside the numerator.
           - alert: HigressModelSuccessRatioLow
             expr: tokenvolt:model_success_ratio:rate5m < {{ .Values.monitoring.alerts.successRatioWarning }} and tokenvolt:model_logical_rpm:rate5m * 5 >= {{ .Values.monitoring.alerts.minRequests5m }}
             for: 10m
@@ -629,50 +836,53 @@ data:
               scope: model
             annotations:
               summary: Model-wide success ratio is below 99 percent
-              description: This aggregates all providers for the model; expected in-contract 429 is counted as successful capacity handling.
+              description: This aggregates successful model responses across all providers; all 4xx and 5xx responses remain outside the numerator.
+          - alert: HigressProviderModelQualityDegraded
+            expr: ((tokenvolt:provider_model_success_ratio:rate5m < {{ .Values.monitoring.alerts.successRatioWarning }}) or (tokenvolt:provider_model_ttft_milliseconds:p90_rate5m > {{ .Values.monitoring.alerts.ttftP90WarningMilliseconds }}) or (tokenvolt:provider_model_tpot_milliseconds:p90_rate5m > {{ .Values.monitoring.alerts.tpotP90WarningMilliseconds }})) and on (ai_model,ai_provider) (tokenvolt:provider_model_logical_rpm:rate5m * 5 >= {{ .Values.monitoring.alerts.minRequests5m }})
+            for: 5m
+            labels:
+              severity: warning
+              component: ai-provider
+              scope: provider-model
+            annotations:
+              summary: A model/provider route has degraded quality
+              description: Success ratio, P90 TTFT or P90 TPOT breached its quality objective. Use the model and provider labels to review evidence, then adjust route weight manually if needed.
+              dashboard_url: https://ack.tokenvolt.net/grafana/d/tokenvolt-model-quality
+
+      {{- if .Values.monitoring.quotaMetrics.enabled }}
+      - name: tokenvolt-customer-quotas
+        rules:
+          - alert: HigressCustomerRPMNearLimit
+            expr: tokenvolt_customer_rpm_utilization >= {{ .Values.monitoring.alerts.customerLimitWarningRatio }}
+            for: 5m
+            labels:
+              severity: warning
+              component: customer-rate-limit
+            annotations:
+              summary: Customer RPM is above 90 percent of its configured limit
+              description: The tenant or tenant/model fixed-minute request counter is close to its configured ceiling.
+          - alert: HigressTrialKeyQuotaUnavailable
+            expr: tokenvolt_trial_key_quota_unavailable == 1
+            for: 1m
+            labels:
+              severity: warning
+              component: trial-token-quota
+            annotations:
+              summary: Trial API key is expired or its token quota is exhausted
+              description: The consumer and reason labels identify the affected trial API key and whether it expired or exhausted its allowance.
+          - alert: HigressPostpaidTenantTokenQuotaExhausted
+            expr: tokenvolt_postpaid_tenant_token_quota_exhausted == 1
+            for: 1m
+            labels:
+              severity: warning
+              component: postpaid-token-quota
+            annotations:
+              summary: Postpaid tenant exhausted its token quota for the current period
+              description: The tenant remains blocked until the configured period advances or the control plane publishes a new quota.
+      {{- end }}
 
       - name: tokenvolt-gateway-capacity
         rules:
-          - alert: HigressProviderModelRPMCapacityHigh
-            expr: tokenvolt:provider_model_rpm_utilization:rate5m >= {{ .Values.monitoring.alerts.capacityWarningRatio }}
-            for: 5m
-            labels:
-              severity: warning
-              component: ai-provider
-              scope: provider-model
-            annotations:
-              summary: Provider/model RPM exceeds 80 percent of configured capacity
-              description: Shift weight or request more provider capacity before contractual RPM is exhausted.
-          - alert: HigressProviderModelTPMCapacityHigh
-            expr: tokenvolt:provider_model_tpm_utilization:rate5m >= {{ .Values.monitoring.alerts.capacityWarningRatio }}
-            for: 5m
-            labels:
-              severity: warning
-              component: ai-provider
-              scope: provider-model
-            annotations:
-              summary: Provider/model TPM exceeds 80 percent of configured capacity
-              description: Shift weight or request more provider capacity before contractual TPM is exhausted.
-          - alert: HigressModelRPMCapacityHigh
-            expr: tokenvolt:model_rpm_utilization:rate5m >= {{ .Values.monitoring.alerts.capacityWarningRatio }}
-            for: 5m
-            labels:
-              severity: warning
-              component: ai-gateway
-              scope: model
-            annotations:
-              summary: Model-wide RPM exceeds 80 percent of aggregate provider capacity
-              description: The total configured provider pool for this model is close to its RPM ceiling.
-          - alert: HigressModelTPMCapacityHigh
-            expr: tokenvolt:model_tpm_utilization:rate5m >= {{ .Values.monitoring.alerts.capacityWarningRatio }}
-            for: 5m
-            labels:
-              severity: warning
-              component: ai-gateway
-              scope: model
-            annotations:
-              summary: Model-wide TPM exceeds 80 percent of aggregate provider capacity
-              description: The total configured provider pool for this model is close to its TPM ceiling.
           - alert: HigressGatewayStreamsSaturated
             expr: tokenvolt:gateway_ready_targets:count >= {{ .Values.autoscaling.gateway.maxReplicas }} and tokenvolt:gateway_active_streams:sum > {{ mul (.Values.autoscaling.gateway.activeStreams.averageValue | int) .Values.autoscaling.gateway.maxReplicas }}
             for: 5m

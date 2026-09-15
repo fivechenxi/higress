@@ -56,7 +56,7 @@ Grafana 大盘中。
 | 指标 | 原始指标 | 派生指标 | 告警 | 可用条件与口径 |
 | --- | --- | --- | --- | --- |
 | 逻辑 RPM | `...llm_request_count` | `tokenvolt:ai_rpm:rate5m` | 用作告警最小样本量限制 | 每个进入网关的逻辑请求计数一次 |
-| 客户可见错误率 | `...llm_failure_count`、`...llm_request_count` | 由 `tokenvolt:ai_*_per_second:rate5m` 计算 | 警告 5%，严重 15% | 包含返回给客户的 429 和被中断的流；这是网关结果口径，不用于评价厂商质量 |
+| 客户可见错误率 | `...llm_failure_count`、`...llm_request_count` | 由 `tokenvolt:ai_*_per_second:rate5m` 计算 | 警告 2%，严重 15% | 包含返回给客户的 429 和被中断的流；这是网关结果口径，不用于评价厂商质量 |
 | 中断率 | `...llm_aborted_count`、`...llm_request_count` | 由已记录的速率计算 | 警告 1%，严重 5% | 包含本 fork 插件记录的响应中断 |
 | 处理中请求数 | `...llm_inflight_request` | `tokenvolt:ai_inflight_requests` | 仅大盘展示 | 可按路由、响应模型和厂商拆分 |
 | TTFT P50/P90 | 固定 TTFT 累积计数器，采集时转换为 `higress_ai_ttft_milliseconds_bucket` | `tokenvolt:ai_ttft_milliseconds:p{50,90}_rate5m` | P90 超过 25 秒警告、50 秒严重 | 当前是收到首个上游数据块的时间，并非首个有语义内容的 Token |
@@ -75,15 +75,13 @@ Grafana 大盘中。
 | 实际上游调用 RPM | `envoy_cluster_upstream_rq` → `tokenvolt:provider_attempt_rpm:rate5m` | 仅大盘展示 | 包含重试和降级调用，因此可能高于逻辑 RPM |
 | 调用放大倍数 | 厂商调用 RPM/逻辑 RPM | 仅大盘展示 | 发现重试或降级造成的隐性成本和压力 |
 | 厂商 HTTP 429 | `tokenvolt:provider_429_rpm:rate5m` | 持续 5 分钟非零 | 厂商配额或限速压力 |
-| 模型 × 厂商非预期 HTTP 429 | `tokenvolt:provider_model_unexpected_429_rpm:rate5m` | 持续 2 分钟非零，严重 | 同一 5 分钟窗口内实际 RPM、TPM 均低于已配置承诺值，却收到厂商 429 |
 | 厂商 HTTP 5xx | `tokenvolt:provider_5xx_rpm:rate5m` | 持续 5 分钟非零 | 厂商侧故障信号 |
-| 模型 × 厂商成功率 | `tokenvolt:provider_model_success_ratio:rate5m` | 低于 99% 且样本量足够 | `(总请求-失败+预期内 429)/总请求`；低于承诺容量的 429 仍算厂商失败 |
+| 模型 × 厂商成功率 | `tokenvolt:provider_model_success_ratio:rate5m` | 低于 99% 且样本量足够 | 成功响应/总请求；4xx 和 5xx 均不进入分子 |
 | 模型整体成功率 | `tokenvolt:model_success_ratio:rate5m` | 低于 99% 且样本量足够 | 汇总该模型全部厂商，口径与模型 × 厂商一致 |
 | 模型 × 厂商及模型整体 TTFT | `tokenvolt:{provider_model,model}_ttft_milliseconds:p90_rate5m` | P90 超过 25 秒警告、50 秒严重 | 同时发现单一厂商退化与整个模型池退化 |
 | 模型 × 厂商及模型整体 TPOT | `tokenvolt:{provider_model,model}_tpot_milliseconds:p90_rate5m` | P90 超过 50 毫秒警告、70 毫秒严重 | 同时发现单一厂商退化与整个模型池退化 |
-| 模型 × 厂商实际/承诺 RPM | `tokenvolt:provider_model_rpm_utilization:rate5m` | 达到 80% | 承诺值必须从合同或厂商控制台填入 Helm，不能由流量推算 |
-| 模型 × 厂商实际/承诺 TPM | `tokenvolt:provider_model_tpm_utilization:rate5m` | 达到 80% | 承诺值属于配置，不是测量指标 |
-| 模型整体实际/承诺 RPM、TPM | `tokenvolt:model_{rpm,tpm}_utilization:rate5m` | 达到聚合容量 80% | 分母为该模型所有已配置厂商容量之和 |
+| 模型 × 厂商综合质量 | 成功率、TTFT P90、TPOT P90 | 任一指标越线且 5 分钟至少 20 请求，持续 5 分钟 | 飞书直接携带模型和厂商，可由运维下钻后手工调整权重 |
+| 模型 × 厂商实际 RPM/TPM | `tokenvolt:provider_model_{logical_rpm,total_tpm}:rate5m` | 暂不做容量告警 | 当前厂商主要按授信额度管理，未配置合同 RPM/TPM 分母 |
 | 每 Pod 及总活跃流 | `envoy_http_downstream_rq_active` | 达到最大副本且超过每 Pod 225 条的等效容量时严重告警 | 与 Gateway HPA 使用同一个受控指标 |
 | 可采集的 Gateway 副本数 | `up{job="higress-gateway"}` | 低于配置的最小副本数 | 判断可用性及服务发现是否正常 |
 | 下游和上游连接数 | Envoy 活跃连接 Gauge | 仅大盘展示 | 长流连接和连接池分析 |
@@ -139,20 +137,13 @@ Alertmanager 按告警名、组件、模型、厂商和 HPA 分组，经小型�
 前两个是目前 Prometheus 中真正缺少的基础 AI 记账质量指标。它们需要发布新的
 Wasm 产物，应作为独立的数据面改动，通过 Mock 和真实流式请求验证。
 
-模型 × 厂商 429 使用本 fork 新增的 `llm_rate_limited_count`。当前固定的 Wasm
-摘要尚未包含该计数器；代码和规则已经准备好，但在发布并固定新产物以前，只有
-Envoy 的厂商级 429 可见，按承诺容量调整后的成功率不会产生数据。
+模型 × 厂商 429 使用本 fork 新增的 `llm_rate_limited_count`；所有 429 统一作为
+厂商响应事实展示和告警，不再依赖未配置的厂商合同 RPM/TPM 做预期性分类。
 
 每条 HTTP 429 请求同时在 SLS `ai_log` 中写入
 `provider_rate_limit_event=true` 和
-`rate_limit_evaluation=provider_model_capacity_window`。是否“非预期”必须使用所有
-Gateway 副本汇总后的 5 分钟 RPM/TPM 判断，不能由单个 Envoy Pod 在请求结束时
-可靠决定。因此告警以模型、厂商和时间窗定位异常，再使用上述标记以及
-`request_id`、`ai_log.upstream_request_id` 检索请求证据；日志不会伪造一个不可靠的
-请求级 expected/unexpected 布尔值。
-
-非预期 429 告警发生后，在告警时间范围内可用以下 SLS SQL 提取向厂商核对的证据；
-再按告警的 `ai_model`、`ai_provider` 对应模型和 `upstream_cluster` 缩小范围：
+`rate_limit_evaluation=provider_model_capacity_window`。429 告警发生后，可按告警的
+`ai_model`、`ai_provider` 和时间范围使用以下 SLS SQL 提取请求证据：
 
 ```sql
 * | SELECT start_time, request_id, "ai_log.upstream_request_id",
@@ -220,10 +211,13 @@ SLS 数据源插件 2.39.2，并使用只允许读取该 Logstore 的身份内�
 `(llm_service_duration - llm_first_token_duration) / (output_token - 1)`，仅对
 `output_token > 1` 且 usage 完整的流式请求有效。
 
-“非预期 429”不是单 Pod 能在请求结束时独立判断的布尔值：先由 Prometheus 使用
-全部 Gateway 副本的模型 × 厂商五分钟 RPM/TPM 与合同容量判定异常窗口，再在该
-窗口用 `provider_rate_limit_event=true` 下钻到 SLS 请求列表。这样列表中的每条
-429 都是告警窗口证据，不会伪造错误的逐请求归因。
+所有 429 请求都可通过 `provider_rate_limit_event=true` 下钻，不再标注
+expected/unexpected。
+
+客户限额指标由 Collector Pod 内的轻量 exporter 读取 Helm 管理的三个 WasmPlugin
+CR，并查询同一 Redis 中的实际计数。租户及租户 × 模型 RPM 达到配置值 90% 时告警；
+试用 Key 到期或累计 Token 用完、正式租户周期 Token 用完时分别告警。租户和
+consumer 标签只留在集群内的一小时 Prometheus 和飞书告警中，remote write 会丢弃。
 
 管理员密码由 OpenTofu 生成，保存在 `higress-grafana-admin` Secret 和敏感 State
 中，不写入 Git。使用 `tofu output -json grafana_admin_credentials` 单独读取 URL、

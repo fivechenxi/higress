@@ -63,9 +63,8 @@ monitoring:
   alerts:
     enabled: true
     minRequests5m: 20
-    capacityWarningRatio: 0.80
     successRatioWarning: 0.99
-    errorRatioWarning: 0.05
+    errorRatioWarning: 0.02
     errorRatioCritical: 0.15
     abortRatioWarning: 0.01
     abortRatioCritical: 0.05
@@ -78,6 +77,7 @@ monitoring:
     gatewayDurationP90WarningMilliseconds: 120000
     hpaNearScaleUpRatio: 0.80
     hpaNearMaxReplicasRatio: 0.80
+    customerLimitWarningRatio: 0.90
     gatewayResetWarning5m: 3
     gatewayMemoryWarningBytes: 805306368
     ciliumCTPressureWarning: 0.70
@@ -160,6 +160,15 @@ monitoring:
       limits:
         cpu: 100m
         memory: 96Mi
+  quotaMetrics:
+    enabled: false
+    image: m.daocloud.io/docker.io/library/python:3.13-alpine@sha256:7415fbc3c9e4979cc717d92377ab2bc7b2b4a2af1ac03cc52b5f3f88efedaf3a
+    higressNamespace: higress-system
+    redisHost: tokenvolt-rate-limit-redis.tokenvolt-system.svc.cluster.local
+    redisPort: 6379
+    resources:
+      requests: {cpu: 10m, memory: 24Mi}
+      limits: {cpu: 100m, memory: 64Mi}
   # Contracted capacity is a model/provider property, not a measured value.
   # Populate it only from a provider contract or console quota page.
   providerModelCapacity: []

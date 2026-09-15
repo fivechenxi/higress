@@ -40,6 +40,77 @@ def gateway(objects):
 
 
 class GatewayPolicyTest(unittest.TestCase):
+    def test_quota_alerts_follow_live_redis_counters_and_cr_limits(self):
+        objects = render(
+            'deploy/ack/charts/higress-ack-ops',
+            '--set', 'monitoring.remoteWriteUrl=http://example.invalid/api/v1/write',
+            '--set', 'monitoring.clusterId=test-cluster',
+            '--set', 'monitoring.quotaMetrics.enabled=true',
+            '--set', 'monitoring.alerting.feishu.enabled=true',
+        )
+        by_kind_name = {(item['kind'], item['metadata']['name']): item for item in objects}
+        configmap = by_kind_name[('ConfigMap', 'higress-metrics-collector')]
+        namespace = {'__name__': 'quota_exporter_test'}
+        exec(compile(configmap['data']['quota-exporter.py'], 'quota-exporter.py', 'exec'), namespace)
+
+        def plugin(rule_items):
+            return {'spec': {'matchRules': [{'config': {'rule_items': rule_items}}]}}
+
+        plugins = {
+            'tokenvolt-customer-rate-limit': plugin([
+                {'limit_by_header': 'x-tokenvolt-tenant-id',
+                 'limit_keys': [{'key': 'tenant-a', 'query_per_minute': 100}]},
+                {'limit_by_header': 'x-tokenvolt-tenant-model',
+                 'limit_keys': [{'key': 'tenant-a:glm-5.2', 'query_per_minute': 50}]},
+            ]),
+            'tokenvolt-trial-token-quota': plugin([
+                {'limit_by_consumer': '',
+                 'limit_keys': [
+                     {'key': 'trial-key-id', 'token_total': 100,
+                      'expires_at': '2999-01-01T00:00:00Z'},
+                     {'key': 'expired-key-id', 'token_total': 100,
+                      'expires_at': '2000-01-01T00:00:00Z'},
+                 ]},
+            ]),
+            'tokenvolt-postpaid-token-quota': plugin([
+                {'limit_by_header': 'x-tokenvolt-tenant-id',
+                 'limit_keys': [{'key': 'tenant-a', 'token_total': 200, 'period': 3600}]},
+            ]),
+        }
+        namespace['kubernetes_get'] = plugins.__getitem__
+
+        def values(keys):
+            result = {}
+            for key in keys:
+                if 'tenant-model' in key:
+                    result[key] = 45
+                elif 'trial-token-quota' in key:
+                    result[key] = 100
+                elif 'postpaid-token-quota' in key:
+                    result[key] = 200
+                else:
+                    result[key] = 90
+            return result
+
+        namespace['redis_values'] = values
+        metrics = namespace['collect']()
+        self.assertIn('tokenvolt_customer_rpm_utilization{model="",scope="tenant",tenant="tenant-a"} 0.9', metrics)
+        self.assertIn('tokenvolt_customer_rpm_utilization{model="glm-5.2",scope="tenant-model",tenant="tenant-a"} 0.9', metrics)
+        self.assertIn('tokenvolt_trial_key_quota_unavailable{consumer="trial-key-id",reason="exhausted"} 1', metrics)
+        self.assertIn('tokenvolt_trial_key_quota_unavailable{consumer="expired-key-id",reason="expired"} 1', metrics)
+        self.assertIn('tokenvolt_postpaid_tenant_token_quota_exhausted{tenant="tenant-a"} 1', metrics)
+
+        alerts = configmap['data']['alerts.yml']
+        self.assertIn('HigressCustomerRPMNearLimit', alerts)
+        self.assertIn('HigressTrialKeyQuotaUnavailable', alerts)
+        self.assertIn('HigressPostpaidTenantTokenQuotaExhausted', alerts)
+        self.assertNotIn('HigressProviderUnexpectedRateLimited', alerts)
+        self.assertNotIn('HigressProviderModelRPMCapacityHigh', alerts)
+        relay = by_kind_name[('ConfigMap', 'higress-feishu-alert-relay')]['data']['relay.py']
+        self.assertIn("labels.get('tenant')", relay)
+        self.assertIn("labels.get('consumer')", relay)
+        self.assertIn("annotations['dashboard_url']", relay)
+
     def test_parent_chart_and_lock_pin_current_core(self):
         core = yaml.safe_load((ROOT / 'helm/core/Chart.yaml').read_text())['version']
         for name in ['Chart.yaml', 'Chart.lock']:
@@ -130,6 +201,7 @@ class GatewayPolicyTest(unittest.TestCase):
             'tokenvolt-model-quality.json',
             'tokenvolt-runtime.json',
             'tokenvolt-infrastructure.json',
+            'tokenvolt-request-details.json',
         })
         dashboard = json.loads(dashboard_data['tokenvolt-model-quality.json'])
         ranking = next(panel for panel in dashboard['panels'] if panel['id'] == 10)

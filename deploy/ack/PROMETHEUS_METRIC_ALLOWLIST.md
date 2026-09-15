@@ -115,7 +115,7 @@ measured with the real model/provider catalog before production rollout.
 | KPI | Plugin can calculate | Required upstream/runtime data |
 | --- | --- | --- |
 | RPM, error ratio, aborted requests | Yes, independent of usage tokens | AI route must be bound to this plugin; response status/body or stream termination |
-| Model/provider HTTP 429 | Yes, independent of usage tokens | Forked plugin build containing `llm_rate_limited_count`; configured contractual RPM/TPM produces separate expected and unexpected 429 RPM series |
+| Model/provider HTTP 429 | Yes, independent of usage tokens | Forked plugin build containing `llm_rate_limited_count`; all 429 responses are reported without contractual RPM/TPM classification |
 | LLM in-flight requests | Yes | Request body must reach the plugin so model can be extracted |
 | Input/output/total TPM | Yes, conditionally | Provider must return final usage fields; streaming APIs must include final usage |
 | TTFT P50/P90 | Yes | Streaming response; current semantic is first upstream chunk |

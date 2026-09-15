@@ -49,7 +49,7 @@
     },
     {
       "datasource": {"type": "aliyun-log-service-datasource", "uid": "tokenvolt-sls"},
-      "description": "所有厂商 429 证据。是否为非预期，要结合告警发生时同模型×厂商 RPM/TPM 是否低于合同容量判断。",
+      "description": "所有厂商 429 请求证据，用于观察授信、余额、并发保护或厂商侧限流。",
       "fieldConfig": {"defaults": {}, "overrides": []},
       "gridPos": {"h": 9, "w": 12, "x": 12, "y": 21}, "id": 5,
       "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
