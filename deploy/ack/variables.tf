@@ -141,6 +141,16 @@ variable "tokenvolt_enabled" {
   default     = false
 }
 
+variable "deployment_baseline_tag" {
+  description = "Exact immutable Git tag whose local Helm and OpenTofu sources are approved for deployment."
+  type        = string
+
+  validation {
+    condition     = can(regex("^tokenvolt-ack-[0-9A-Za-z._-]+$", var.deployment_baseline_tag))
+    error_message = "deployment_baseline_tag must be a TokenVolt ACK release tag."
+  }
+}
+
 variable "tokenvolt_namespace" {
   description = "Namespace for the isolated TokenVolt application."
   type        = string
