@@ -157,6 +157,32 @@ variable "tokenvolt_namespace" {
   default     = "tokenvolt-system"
 }
 
+variable "tokenvolt_quota_enabled" {
+  description = "Enable the control-plane quota publisher; persist this switch across ACK releases."
+  type        = bool
+  default     = false
+}
+
+variable "tokenvolt_usage_dashboard" {
+  description = "Explicit statistics environment/source; legacy_usage reads existing RDS summaries without enabling billing."
+  type = object({
+    environment = string
+    source      = string
+  })
+  default = { environment = "", source = "" }
+  validation {
+    condition = (
+      (var.tokenvolt_usage_dashboard.environment == "") == (var.tokenvolt_usage_dashboard.source == "") &&
+      trimspace(var.tokenvolt_usage_dashboard.environment) == var.tokenvolt_usage_dashboard.environment &&
+      trimspace(var.tokenvolt_usage_dashboard.source) == var.tokenvolt_usage_dashboard.source &&
+      length(var.tokenvolt_usage_dashboard.environment) <= 256 &&
+      length(var.tokenvolt_usage_dashboard.source) <= 512 &&
+      length(regexall("[\\r\\n]", "${var.tokenvolt_usage_dashboard.environment}${var.tokenvolt_usage_dashboard.source}")) == 0
+    )
+    error_message = "Dashboard environment and source must both be set or both empty, without surrounding whitespace or line breaks."
+  }
+}
+
 variable "tokenvolt_control_plane_image" {
   description = "Immutable VPC-reachable TokenVolt control-plane image."
   type        = string

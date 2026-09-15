@@ -64,10 +64,10 @@ make stop
 `plan/start/stop` 执行前会比较本地、OSS 和上次同步版本：
 
 - OSS 较新且本地未修改：自动拉取；
-- 本地已修改且 OSS 未变化：使用本地配置；
+- 本地已修改且 OSS 未变化：先 `make config-push`，然后再部署；
 - 两边都修改：停止执行，要求人工合并；
 - `start/stop` 成功后：自动把本地 `terraform.tfvars` 同步到 OSS；
-- Apply 失败：不会覆盖 OSS 中的有效配置。
+- Apply 失败：检查实际资源与 State，并恢复或修正已同步的配置后重试。
 
 OpenTofu 会在每次资源变更后自动写入 OSS State，不需要手工上传 State。
 仓库内的 `scripts/tofu.sh` 会把 CLI OAuth Profile 的短期 STS 凭据仅注入当前
@@ -102,3 +102,26 @@ make config-history  # 查看 OSS 历史版本
 本地 `terraform.tfvars` 权限会被脚本设置为 `0600`。如果不再需要本地副本，可在
 确认 `make config-status` 显示 `synchronized` 后手工安全删除；下次运行
 `make config-pull` 即可恢复。
+
+## 统计查询配置
+
+控制面统计页的数据源必须通过共享 tfvars 持久配置，不能只修改运行中 Deployment：
+
+```hcl
+tokenvolt_usage_dashboard = {
+  environment = "ack-test"
+  source      = "legacy_usage"
+}
+```
+
+`legacy_usage` 查询已有 RDS 用量汇总，不启用新的账单处理流程。两个字段必须
+同时设置；均为空时统计查询关闭，页面应提示不可用，不能将其解释成零用量。
+
+OSS 中的 `deployment_baseline_tag` 必须对应本次部署代码的精确 Git Tag。
+更新部署代码时先提交并推送新 Tag，再更新共享 tfvars 中的 Tag 和配置，执行
+`make config-push`，审阅 Plan 后 Apply。不要从旧代码目录直接更新新版本资源。
+
+额度发布器同样必须持久配置：线上已启用额度管理时，在共享 tfvars 中设置
+`tokenvolt_quota_enabled = true`。模板显式设置 `HIGRESS_QUOTA_ENABLED`，
+避免下次部署丢失。默认关闭；启用前须部署配套的 Helm quota 插件资源。
+发布 Tag 必须推到 `fivechenxi/higress`，仅在个人 fork 有同名 Tag 不算完成。

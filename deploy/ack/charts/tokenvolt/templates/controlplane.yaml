@@ -77,6 +77,11 @@ spec:
             - {name: SLS_PROJECT, value: {{ required "controlPlane.cloud.slsProject must be set" .Values.controlPlane.cloud.slsProject | quote }}}
             - {name: SLS_LOGSTORE, value: {{ required "controlPlane.cloud.slsLogstore must be set" .Values.controlPlane.cloud.slsLogstore | quote }}}
             - {name: USAGE_BINDING_PROVIDER, value: "higress"}
+            - {name: HIGRESS_QUOTA_ENABLED, value: {{ .Values.controlPlane.quotaEnabled | quote }}}
+            {{- if or .Values.controlPlane.usageDashboard.environment .Values.controlPlane.usageDashboard.source }}
+            - {name: USAGE_DASHBOARD_ENVIRONMENT, value: {{ required "controlPlane.usageDashboard.environment must be set with source" .Values.controlPlane.usageDashboard.environment | quote }}}
+            - {name: USAGE_DASHBOARD_SOURCE, value: {{ required "controlPlane.usageDashboard.source must be set with environment" .Values.controlPlane.usageDashboard.source | quote }}}
+            {{- end }}
             - {name: OSS_REGION_ID, value: {{ required "controlPlane.cloud.ossRegionId must be set" .Values.controlPlane.cloud.ossRegionId | quote }}}
             - {name: OSS_ENDPOINT, value: {{ required "controlPlane.cloud.ossEndpoint must be set" .Values.controlPlane.cloud.ossEndpoint | quote }}}
             - {name: OSS_BUCKET, value: {{ required "controlPlane.cloud.ossBucket must be set" .Values.controlPlane.cloud.ossBucket | quote }}}
