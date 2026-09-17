@@ -113,6 +113,9 @@ resource "helm_release" "higress_ack_ops" {
       monitoring = {
         remoteWriteUrl = local.prometheus_remote_write_url
         clusterId      = alicloud_cs_managed_kubernetes.this.id
+        controlPlane = {
+          metricsSecretName = var.tokenvolt_metrics_secret_name
+        }
         grafana = {
           enabled       = var.grafana_enabled
           prometheusUrl = var.prometheus_query_url

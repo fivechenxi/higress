@@ -68,6 +68,11 @@ spec:
             - name: config
               mountPath: /etc/prometheus
               readOnly: true
+            {{- if .Values.monitoring.controlPlane.metricsSecretName }}
+            - name: controlplane-metrics
+              mountPath: /etc/tokenvolt-metrics
+              readOnly: true
+            {{- end }}
             - name: data
               mountPath: /prometheus
         {{- if .Values.monitoring.quotaMetrics.enabled }}
@@ -106,6 +111,14 @@ spec:
               readOnly: true
         {{- end }}
       volumes:
+        {{- if .Values.monitoring.controlPlane.metricsSecretName }}
+        - name: controlplane-metrics
+          secret:
+            secretName: {{ .Values.monitoring.controlPlane.metricsSecretName | quote }}
+            items:
+              - key: {{ .Values.monitoring.controlPlane.metricsTokenKey | quote }}
+                path: token
+        {{- end }}
         - name: config
           configMap:
             name: higress-metrics-collector

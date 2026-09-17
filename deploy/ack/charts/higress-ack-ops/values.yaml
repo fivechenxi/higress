@@ -99,6 +99,25 @@ monitoring:
     gatewayMemoryWarningBytes: 805306368
     ciliumCTPressureWarning: 0.70
     ciliumCTPressureCritical: 0.90
+  # ISS-07: the control plane exposes GET /internal/metrics only when
+  # METRICS_TOKEN_FILE is set, and the endpoint requires a bearer token. This
+  # scrape job and its alerts stay disabled until metricsSecretName names a
+  # Secret that exists in *this* release namespace holding the same token the
+  # control plane reads (see charts/tokenvolt controlPlane.metrics).
+  controlPlane:
+    metricsSecretName: ""
+    metricsTokenKey: token
+    namespace: tokenvolt-system
+    service: tokenvolt-control-plane
+    port: 8000
+    path: /internal/metrics
+    # A control plane that has never recorded a successful usage run reports 0;
+    # treat that as stalled only after this grace period (seconds).
+    usageStalledGraceSeconds: 5400
+    # The minute worker runs every minute and the hourly worker every hour, so a
+    # two-hour gap means the pipeline is stalled rather than merely between runs.
+    usageStalledSeconds: 7200
+    credentialPendingWarningSeconds: 900
   alerting:
     enabled: true
     alertmanager:
@@ -106,6 +125,9 @@ monitoring:
       groupWait: 30s
       groupInterval: 5m
       repeatInterval: 2h
+      # ISS-10: criticals get their own repeat cadence instead of sharing the
+      # warning interval, so an unacknowledged critical is re-notified sooner.
+      criticalRepeatInterval: 30m
       resources:
         requests:
           cpu: 20m
@@ -117,6 +139,17 @@ monitoring:
       enabled: false
       existingSecret: higress-feishu-alert-webhook
       webhookKey: webhook-url
+      # ISS-10: the relay is stateless and already probes /healthz, so alert
+      # delivery must not depend on a single replica.
+      replicas: 2
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: 1
+      # ISS-10: optional escalation webhook for firing criticals. When set, the
+      # relay also posts those cards here (an escalation path independent of the
+      # primary bot). Leave empty to keep the previous behaviour.
+      escalationExistingSecret: ""
+      escalationWebhookKey: webhook-url
       relayImage: m.daocloud.io/docker.io/library/python:3.13-alpine@sha256:7415fbc3c9e4979cc717d92377ab2bc7b2b4a2af1ac03cc52b5f3f88efedaf3a
       resources:
         requests:

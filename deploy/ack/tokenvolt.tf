@@ -463,6 +463,9 @@ resource "helm_release" "tokenvolt" {
         quotaEnabled   = var.tokenvolt_quota_enabled
         usageDashboard = var.tokenvolt_usage_dashboard
         image          = var.tokenvolt_control_plane_image
+        metrics = {
+          metricsSecretName = var.tokenvolt_metrics_secret_name
+        }
         publicService = {
           enabled = var.tokenvolt_split_public_entry
           annotations = var.tokenvolt_split_public_entry ? {
