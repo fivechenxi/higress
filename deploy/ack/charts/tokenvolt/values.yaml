@@ -32,6 +32,18 @@ controlPlane:
   allowInsecureSessionCookie: false
   serviceAccountName: tokenvolt-control-plane
   rrsaRoleName: ""
+  # ISS-07: GET /internal/metrics is only served when METRICS_TOKEN_FILE is set,
+  # and it requires the bearer token in that file. Point metricsSecretName at a
+  # Secret in this release namespace; the monitoring release needs the same token
+  # in its own namespace (higress-ack-ops controlPlane.metricsSecretName). Leave
+  # empty to keep the endpoint disabled.
+  metrics:
+    metricsSecretName: ""
+    metricsTokenKey: token
+    # Required with metricsSecretName. Set it to a non-secret digest of the
+    # token; changing it rolls the Pod so a process that reads
+    # METRICS_TOKEN_FILE only at startup receives rotations.
+    tokenRevision: ""
   databaseSecretName: tokenvolt-database
   appSecretName: tokenvolt-app
   cloud:

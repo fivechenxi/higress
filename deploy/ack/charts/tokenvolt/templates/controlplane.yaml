@@ -51,6 +51,10 @@ spec:
       labels:
         {{- include "tokenvolt.selectorLabels" . | nindent 8 }}
         {{- include "tokenvolt.labels" . | nindent 8 }}
+      {{- if .Values.controlPlane.metrics.metricsSecretName }}
+      annotations:
+        checksum/metrics-token: {{ required "controlPlane.metrics.tokenRevision must be set when metricsSecretName is set" .Values.controlPlane.metrics.tokenRevision | quote }}
+      {{- end }}
     spec:
       serviceAccountName: {{ .Values.controlPlane.serviceAccountName }}
       automountServiceAccountToken: true
@@ -89,6 +93,9 @@ spec:
             - {name: ALLOWED_ORIGIN, value: {{ default (printf "https://%s" .Values.portal.host) .Values.controlPlane.allowedOrigin | quote }}}
             - {name: ALLOW_INSECURE_SESSION_COOKIE, value: {{ .Values.controlPlane.allowInsecureSessionCookie | quote }}}
             - {name: LISTEN_ADDR, value: ":8000"}
+            {{- if .Values.controlPlane.metrics.metricsSecretName }}
+            - {name: METRICS_TOKEN_FILE, value: "/etc/tokenvolt/metrics/token"}
+            {{- end }}
             - {name: HIGRESS_KUBE_API, value: "https://kubernetes.default.svc"}
             - {name: HIGRESS_KUBE_TOKEN_FILE, value: "/var/run/secrets/kubernetes.io/serviceaccount/token"}
             - {name: HIGRESS_KUBE_CA_FILE, value: "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"}
@@ -129,17 +136,32 @@ spec:
             runAsUser: 100
             runAsGroup: 101
             capabilities: {drop: [ALL]}
-          {{- if and .Values.higress.gatewayConfigPublisher.enabled .Values.modelRouting.useRealBackends }}
+          {{- if or .Values.controlPlane.metrics.metricsSecretName (and .Values.higress.gatewayConfigPublisher.enabled .Values.modelRouting.useRealBackends) }}
           volumeMounts:
+            {{- if and .Values.higress.gatewayConfigPublisher.enabled .Values.modelRouting.useRealBackends }}
             - {name: gateway-bootstrap, mountPath: /etc/tokenvolt/gateway-bootstrap, readOnly: true}
             - {name: provider-credentials, mountPath: /var/run/tokenvolt/provider-credentials, readOnly: true}
+            {{- end }}
+            {{- if .Values.controlPlane.metrics.metricsSecretName }}
+            - {name: controlplane-metrics, mountPath: /etc/tokenvolt/metrics, readOnly: true}
+            {{- end }}
           {{- end }}
-      {{- if and .Values.higress.gatewayConfigPublisher.enabled .Values.modelRouting.useRealBackends }}
+      {{- if or .Values.controlPlane.metrics.metricsSecretName (and .Values.higress.gatewayConfigPublisher.enabled .Values.modelRouting.useRealBackends) }}
       volumes:
+        {{- if and .Values.higress.gatewayConfigPublisher.enabled .Values.modelRouting.useRealBackends }}
         - name: gateway-bootstrap
           configMap: {name: tokenvolt-gateway-bootstrap}
         - name: provider-credentials
           secret: {secretName: {{ .Values.modelRouting.credentialSecretName }}}
+        {{- end }}
+        {{- if .Values.controlPlane.metrics.metricsSecretName }}
+        - name: controlplane-metrics
+          secret:
+            secretName: {{ .Values.controlPlane.metrics.metricsSecretName | quote }}
+            items:
+              - key: {{ .Values.controlPlane.metrics.metricsTokenKey | quote }}
+                path: token
+        {{- end }}
       {{- end }}
 
 {{- if .Values.controlPlane.publicService.enabled }}

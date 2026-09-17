@@ -157,6 +157,23 @@ Do not pre-collect every family offered by every AI plugin. Cache, quota,
 rate-limit, security, and endpoint-picker metrics enter the allowlist together
 with the corresponding feature rollout.
 
+## TokenVolt control plane and usage pipeline
+
+When TokenVolt is enabled by the ACK Terraform stack, the collector scrapes the
+authenticated `/internal/metrics` endpoint and keeps only `tokenvolt_*` metric
+families. The same generated bearer token is stored as one Secret in each of
+the `tokenvolt-system` and `higress-system` namespaces; it is never rendered
+into a ConfigMap. Terraform passes only its SHA-256 digest into the TokenVolt
+Pod template, so rotating the Secret rolls the process that reads the token at
+startup without exposing the token itself.
+
+The retained low-cardinality gauges cover control-plane availability, database
+readiness, operational queries, credential-operation backlog, the latest
+successful usage watermark, failed/incomplete usage runs, and unknown-token
+records. They do not contain tenant, API-key, request, prompt, or response
+labels. Billing queue depth and RDS backup results are not exposed by this
+endpoint and therefore are not represented by synthetic Prometheus rules.
+
 ## Gateway: stream capacity and resource pressure
 
 Keep these gauges:

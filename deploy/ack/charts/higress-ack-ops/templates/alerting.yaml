@@ -31,6 +31,14 @@ data:
       group_interval: {{ $alerting.alertmanager.groupInterval }}
       repeat_interval: {{ $alerting.alertmanager.repeatInterval }}
       receiver: {{ ternary "feishu" "null" $alerting.feishu.enabled | quote }}
+      {{- if $alerting.feishu.enabled }}
+      # ISS-10: criticals are re-notified on their own cadence instead of sharing
+      # the warning interval, so an unacknowledged critical surfaces sooner.
+      routes:
+        - matchers: ['severity="critical"']
+          receiver: feishu
+          repeat_interval: {{ $alerting.alertmanager.criticalRepeatInterval }}
+      {{- end }}
     inhibit_rules:
       - source_matchers: ['severity="critical"']
         target_matchers: ['severity="warning"']
@@ -151,6 +159,21 @@ data:
     if parsed.scheme != "https" or parsed.hostname not in {"open.feishu.cn", "open.larksuite.com"} or not parsed.path.startswith("/open-apis/bot/v2/hook/"):
         raise RuntimeError("FEISHU_WEBHOOK_URL must be an official custom-bot webhook")
 
+    # ISS-10: optional escalation path for firing criticals. Best effort: the
+    # primary delivery is what Alertmanager acknowledges.
+    ESCALATION = os.environ.get("FEISHU_ESCALATION_WEBHOOK_URL", "").strip()
+    if ESCALATION:
+        escalation = urllib.parse.urlparse(ESCALATION)
+        if escalation.scheme != "https" or escalation.hostname not in {"open.feishu.cn", "open.larksuite.com"} or not escalation.path.startswith("/open-apis/bot/v2/hook/"):
+            raise RuntimeError("FEISHU_ESCALATION_WEBHOOK_URL must be an official custom-bot webhook")
+
+    def post_card(url, card):
+        request = urllib.request.Request(url, data=json.dumps(card, ensure_ascii=False).encode(), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            result = json.loads(response.read())
+        if result.get("code", 0) != 0:
+            raise RuntimeError(result.get("msg", "Feishu rejected alert"))
+
     def text(alert):
         labels = alert.get("labels", {})
         annotations = alert.get("annotations", {})
@@ -174,8 +197,12 @@ data:
             fields.append(annotations["summary"])
         if annotations.get("description"):
             fields.append(annotations["description"])
+        if labels.get("owner"):
+            fields.append(f"责任人: {labels['owner']}")
         if annotations.get("dashboard_url"):
             fields.append(f"[打开大盘]({annotations['dashboard_url']})")
+        if annotations.get("runbook_url"):
+            fields.append(f"[处置手册]({annotations['runbook_url']})")
         fields.append(f"开始: {alert.get('startsAt', '-')}")
         return "\n".join(fields)
 
@@ -204,16 +231,22 @@ data:
                     "elements": [{"tag": "markdown", "content": "\n\n---\n\n".join(text(a) for a in alerts)}],
                 },
             }
-            request = urllib.request.Request(WEBHOOK, data=json.dumps(card, ensure_ascii=False).encode(), headers={"Content-Type": "application/json"})
+            critical = any(a.get("status") == "firing" and a.get("labels", {}).get("severity") == "critical" for a in alerts)
+            primary_error = None
             try:
-                with urllib.request.urlopen(request, timeout=10) as response:
-                    result = json.loads(response.read())
-                if result.get("code", 0) != 0:
-                    raise RuntimeError(result.get("msg", "Feishu rejected alert"))
+                post_card(WEBHOOK, card)
+            except Exception as exc:
+                primary_error = exc
+            if ESCALATION and critical:
+                try:
+                    post_card(ESCALATION, card)
+                except Exception as exc:
+                    print(f"escalation delivery failed: {exc}", flush=True)
+            if primary_error is None:
                 self.send_response(200)
                 self.end_headers()
-            except Exception as exc:
-                self.send_error(502, str(exc))
+            else:
+                self.send_error(502, str(primary_error))
 
         def log_message(self, fmt, *args):
             print(fmt % args, flush=True)
@@ -229,7 +262,7 @@ metadata:
     app: higress-feishu-alert-relay
     {{- include "higress-ack-ops.labels" . | nindent 4 }}
 spec:
-  replicas: 1
+  replicas: {{ $alerting.feishu.replicas }}
   selector:
     matchLabels:
       app: higress-feishu-alert-relay
@@ -240,6 +273,15 @@ spec:
       annotations:
         checksum/config: {{ printf "%s:%s" (toYaml $alerting.feishu) .Chart.Version | sha256sum }}
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: higress-feishu-alert-relay
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534
@@ -256,6 +298,13 @@ spec:
                 secretKeyRef:
                   name: {{ $alerting.feishu.existingSecret | quote }}
                   key: {{ $alerting.feishu.webhookKey | quote }}
+            {{- if $alerting.feishu.escalationExistingSecret }}
+            - name: FEISHU_ESCALATION_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $alerting.feishu.escalationExistingSecret | quote }}
+                  key: {{ $alerting.feishu.escalationWebhookKey | quote }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8080

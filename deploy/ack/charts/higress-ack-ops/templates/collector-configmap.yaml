@@ -502,6 +502,20 @@ data:
             action: keep
             regex: '^llm_bench_.*$'
 
+      {{- if .Values.monitoring.controlPlane.metricsSecretName }}
+      - job_name: tokenvolt-control-plane
+        metrics_path: {{ .Values.monitoring.controlPlane.path }}
+        static_configs:
+          - targets:
+              - '{{ .Values.monitoring.controlPlane.service }}.{{ .Values.monitoring.controlPlane.namespace }}.svc:{{ .Values.monitoring.controlPlane.port }}'
+        authorization:
+          credentials_file: /etc/tokenvolt-metrics/token
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            action: keep
+            regex: '^(tokenvolt_[a-z0-9_]+)$'
+      {{- end }}
+
       {{- if .Values.prometheusAdapter.enabled }}
       - job_name: prometheus-adapter
         static_configs:
@@ -1081,6 +1095,85 @@ data:
             annotations:
               summary: Postpaid tenant exhausted its token quota for the current period
               description: The tenant remains blocked until the configured period advances or the control plane publishes a new quota.
+      {{- end }}
+
+      {{- if .Values.monitoring.controlPlane.metricsSecretName }}
+      - name: tokenvolt-control-plane
+        rules:
+          - alert: TokenVoltControlPlaneDown
+            expr: absent(up{job="tokenvolt-control-plane"} == 1)
+            for: 5m
+            labels:
+              severity: critical
+              component: control-plane
+            annotations:
+              summary: TokenVolt control plane metrics endpoint is unreachable
+              description: GET /internal/metrics is not being scraped successfully. Portal access, quota publication and usage reconciliation all depend on this process.
+          - alert: TokenVoltControlPlaneNotReady
+            expr: (up{job="tokenvolt-control-plane"} == 1) and on() ((tokenvolt_database_ready == 0) or (tokenvolt_operational_query_ok == 0) or absent(tokenvolt_database_ready) or absent(tokenvolt_operational_query_ok))
+            for: 5m
+            labels:
+              severity: critical
+              component: control-plane
+            annotations:
+              summary: TokenVolt control plane reports an unhealthy database or query path
+              description: tokenvolt_database_ready or tokenvolt_operational_query_ok is 0, so the process is up but cannot serve reliably.
+          - alert: TokenVoltCredentialOperationsBacklog
+            expr: tokenvolt_gateway_oldest_pending_seconds > {{ .Values.monitoring.controlPlane.credentialPendingWarningSeconds }}
+            for: 10m
+            labels:
+              severity: warning
+              component: control-plane
+            annotations:
+              summary: Gateway credential operations have been pending too long
+              description: A key create, rotate or revoke has not completed, so a customer may be unable to start or stop using a key.
+          - alert: TokenVoltCredentialOperationErrors
+            expr: tokenvolt_gateway_operations{state="error"} > 0
+            for: 10m
+            labels:
+              severity: warning
+              component: control-plane
+            annotations:
+              summary: Gateway credential operations are in the error state
+              description: At least one credential operation failed and needs operator attention.
+      - name: tokenvolt-usage-pipeline
+        rules:
+          - alert: TokenVoltUsageCollectionStalled
+            expr: tokenvolt_usage_last_success_unixtime > 0 and time() - tokenvolt_usage_last_success_unixtime > {{ .Values.monitoring.controlPlane.usageStalledSeconds }}
+            for: 10m
+            labels:
+              severity: critical
+              component: usage-pipeline
+            annotations:
+              summary: Usage reconciliation has not succeeded recently
+              description: The minute/hour usage watermark is stale. Dashboard figures, credit estimates and shadow billing all derive from it.
+          - alert: TokenVoltUsageCollectionNeverSucceeded
+            expr: tokenvolt_usage_last_success_unixtime == 0
+            for: {{ .Values.monitoring.controlPlane.usageNeverSucceededFor }}
+            labels:
+              severity: critical
+              component: usage-pipeline
+            annotations:
+              summary: Usage reconciliation has never completed successfully
+              description: No successful usage watermark exists after the startup grace period. Dashboard figures, credit estimates and shadow billing are not current.
+          - alert: TokenVoltUsageRunFailures
+            expr: tokenvolt_usage_runs{state="failed"} > 0 or tokenvolt_usage_runs{state="incomplete"} > 0
+            for: 15m
+            labels:
+              severity: warning
+              component: usage-pipeline
+            annotations:
+              summary: Usage reconciliation runs failed or were incomplete in the last 24 hours
+              description: Inspect the usage job runs for the recorded failure category; source or attribution gaps block publication of the affected period.
+          - alert: TokenVoltUsageUnknownTokenBacklog
+            expr: tokenvolt_usage_unknown_token_records_48h > 0
+            for: 6h
+            labels:
+              severity: warning
+              component: usage-pipeline
+            annotations:
+              summary: Usage records without token counts remain in the last 48 hours
+              description: Missing usage is retained as unknown rather than zeroed. Review and resolve before billing the affected period.
       {{- end }}
 
       - name: tokenvolt-gateway-capacity

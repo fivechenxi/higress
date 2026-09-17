@@ -37,3 +37,20 @@ spec:
   selector:
     matchLabels:
       app: higress-controller
+
+{{- if and .Values.monitoring.enabled .Values.monitoring.alerting.enabled .Values.monitoring.alerting.feishu.enabled .Values.monitoring.alerting.feishu.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: higress-feishu-alert-relay
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: higress-feishu-alert-relay
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.monitoring.alerting.feishu.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app: higress-feishu-alert-relay
+{{- end }}
