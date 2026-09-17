@@ -370,14 +370,20 @@ data:
 
       {{- if .Values.monitoring.hpaState.enabled }}
       - job_name: higress-hpa-state
+        {{- if .Values.monitoring.clusterBaseline.enabled }}
         scrape_interval: {{ .Values.monitoring.clusterBaseline.scrapeInterval }}
+        {{- end }}
         static_configs:
           - targets:
               - 'higress-hpa-state-metrics.{{ .Release.Namespace }}.svc:8080'
         metric_relabel_configs:
           - source_labels: [__name__]
             action: keep
+            {{- if .Values.monitoring.clusterBaseline.enabled }}
             regex: '^(kube_horizontalpodautoscaler_(info|spec_(min_replicas|max_replicas|target_metric)|status_(current_replicas|desired_replicas|target_metric|condition))|kube_ingress_annotations|kube_pod_(container_status_restarts_total|container_status_waiting_reason|status_phase)|kube_deployment_(spec_replicas|status_replicas_(available|unavailable)))$'
+            {{- else }}
+            regex: '^(kube_horizontalpodautoscaler_(info|spec_(min_replicas|max_replicas|target_metric)|status_(current_replicas|desired_replicas|target_metric|condition))|kube_ingress_annotations)$'
+            {{- end }}
       {{- end }}
 
       {{- if .Values.monitoring.clusterBaseline.enabled }}
@@ -791,7 +797,7 @@ data:
               summary: Deployment has fewer available replicas than requested
               description: The deployment has remained below its desired availability for five minutes.
           - alert: ACKNodeExporterDown
-            expr: up{job="node-exporter"} == 0
+            expr: (up{job="node-exporter"} == 0) or absent(up{job="node-exporter"})
             for: 3m
             labels:
               severity: critical

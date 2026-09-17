@@ -50,9 +50,9 @@ monitoring:
   clusterBaseline:
     enabled: true
     scrapeInterval: 60s
-    workloadNamespaces:
-      - higress-system
-      - tokenvolt-system
+    # Added to the existing hpaState namespace and routeNamespace only while
+    # the cluster baseline is enabled.
+    extraWorkloadNamespaces:
       - kube-system
     nodeExporter:
       enabled: true
