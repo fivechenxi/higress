@@ -42,11 +42,28 @@ prometheusAdapter:
 
 monitoring:
   enabled: true
-  # The ARMS metric-agent is deliberately not installed because its mandatory
-  # ACK base jobs include API server, etcd, kubelet and node metrics. This
-  # small collector sends only the allowlisted gateway workload metrics.
+  # The ARMS metric-agent remains disabled because its mandatory ACK jobs run
+  # every 30 seconds and include kubelet/cAdvisor. This collector uses a small
+  # 60-second cluster allowlist instead.
   remoteWriteUrl: ""
   clusterId: ""
+  clusterBaseline:
+    enabled: true
+    scrapeInterval: 60s
+    # Added to the existing hpaState namespace and routeNamespace only while
+    # the cluster baseline is enabled.
+    extraWorkloadNamespaces:
+      - kube-system
+    nodeExporter:
+      enabled: true
+      image: m.daocloud.io/docker.io/prom/node-exporter:v1.9.1@sha256:d00a542e409ee618a4edc67da14dd48c5da66726bbd5537ab2af9c1dfc442c8a
+      resources:
+        requests:
+          cpu: 20m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 96Mi
   collector:
     # Docker Hub is not reliably reachable from the current Beijing vSwitch.
     # This mirrored image is pulled from ACR; replace it with our own ACR copy
@@ -147,9 +164,9 @@ monitoring:
         memory: 1Gi
   hpaState:
     enabled: true
-    # A deliberately narrow kube-state-metrics instance: Higress HPA state
-    # plus the TokenVolt route Ingress annotations used for model/provider
-    # discovery. This is not the full cs-default Kubernetes monitoring set.
+    # A deliberately narrow kube-state-metrics instance: HPA/route discovery
+    # plus workload availability and restart state in the three namespaces
+    # above. It does not expose container resource metrics.
     image: m.daocloud.io/registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.0@sha256:6b2f0b6f2f86ac5b1aa883a033a8dd55bb96c16d191ec973393bdaadaddac914
     namespace: higress-system
     routeNamespace: tokenvolt-system
@@ -185,6 +202,7 @@ monitoring:
   interval: 15s
   gateway:
     namespace: higress-system
+    deployment: higress-gateway
     selector:
       app: higress-gateway
     port: istio-prom

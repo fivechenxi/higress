@@ -244,15 +244,11 @@ averaging already aggregated quantiles.
 
 ## ACK resource and host network evidence
 
-Do not remote-write apiserver, etcd, kubelet/cAdvisor, general
-kube-state-metrics, CoreDNS, or node-exporter metrics from this
-application-owned collector. The Helm release runs a separate HPA-only
-kube-state-metrics watcher scoped to `higress-system`; only its bounded HPA
-status families are retained. ACK
-operates the managed control plane, and the project does not accept the cost of
-full Kubernetes monitoring. `metrics-server` remains installed for controller
-CPU HPA and `kubectl top`; those data and HPA events are test evidence but are
-not stored in the application Prometheus instance.
+Do not remote-write managed etcd or kubelet/cAdvisor container metrics from
+this application-owned collector. A 60-second allowlist keeps only workload
+availability/restarts, node CPU/memory/root-disk, API server availability/error
+rate, and CoreDNS availability/SERVFAIL metrics. `metrics-server` remains
+installed for controller CPU HPA and `kubectl top`.
 
 The application collector feeds upstream `prometheus-adapter`, exposing the
 filtered outbound request gauge as `higress_active_streams`. Gateway HPA uses

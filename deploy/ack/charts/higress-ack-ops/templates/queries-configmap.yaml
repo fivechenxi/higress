@@ -52,6 +52,8 @@ data:
   gateway-active-streams-by-pod: 'tokenvolt:gateway_active_streams'
   gateway-active-streams-total: 'tokenvolt:gateway_active_streams:sum'
   gateway-ready-targets: 'tokenvolt:gateway_ready_targets:count'
+  gateway-scrapeable-targets: 'tokenvolt:gateway_scrapeable_targets:count'
+  gateway-desired-replicas: 'tokenvolt:gateway_desired_replicas'
   gateway-upstream-pending: 'tokenvolt:gateway_upstream_pending_requests:sum'
   hpa-current-replicas: 'tokenvolt:hpa_current_replicas'
   hpa-desired-replicas: 'tokenvolt:hpa_desired_replicas'
