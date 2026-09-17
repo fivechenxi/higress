@@ -32,9 +32,9 @@ locals {
 data "alicloud_account" "current" {}
 
 # Create only the managed ARMS storage/query environment. Do not install the
-# metric-agent feature: the feature always enables ACK's non-discardable base
-# collection jobs (API server, etcd, kubelet/cAdvisor, node-exporter, KSM and
-# CoreDNS), even when the cs-default add-on release itself is absent.
+# metric-agent feature: the Helm collector owns a 60-second allowlist for
+# workload, node, API server and CoreDNS metrics. Managed etcd and all
+# kubelet/cAdvisor container metrics remain outside this stack.
 resource "alicloud_arms_environment" "prometheus" {
   bind_resource_id     = alicloud_cs_managed_kubernetes.this.id
   environment_name     = var.cluster_name

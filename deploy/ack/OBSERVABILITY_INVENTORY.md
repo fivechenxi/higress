@@ -112,9 +112,8 @@ Alertmanager 按告警名、组件、模型、厂商和 HPA 分组，经小型�
 
 ## 明确不采集的内容
 
-- 不 Remote Write apiserver、etcd、kubelet/cAdvisor、node-exporter、CoreDNS
-  或通用 kube-state-metrics 指标。只运行一个限定到 `higress-system` HPA 资源的
-  精简 kube-state-metrics。
+- 以 60 秒白名单采集 Pod/Deployment、Node、APIServer 和 CoreDNS；不采集托管
+  ETCD，也不采集 kubelet/cAdvisor 的容器级指标。
 - 不使用 Linux 原生 `nf_conntrack` 作为判断依据。ACK 使用 Terway DataPath V2，
   对应容量指标是 Cilium eBPF CT Map 压力。
 - 不把租户、API Key、提示词、响应内容、请求 ID、任意 Path 或时间戳放入指标标签。
@@ -130,7 +129,7 @@ Alertmanager 按告警名、组件、模型、厂商和 HPA 分组，经小型�
 | 首个有语义内容的 Token 延迟 | 使用压测客户端；现有 TTFT 是首个上游数据块 | 插件按协议识别 SSE 中的实际内容 |
 | 真实逐 Token 延迟分布 | 当前 TPOT 是单请求平均值 | 确有运营价值时，再增加客户端或插件 Token 事件直方图 |
 | 不受厂商响应影响的稳定公共模型标签 | 暂时使用 `ai_route`，`ai_model` 保留响应模型语义 | 增加可信且低基数的公共模型标签 |
-| Pod CPU、容器内存历史 | 压测时使用 `kubectl top`；HPA 自身状态和事件已经持久化 | 确有长期存储价值时再增加窄范围采集，不能打开全量 kubelet/cAdvisor |
+| Pod CPU、容器内存历史 | 压测时使用 `kubectl top`；HPA 自身状态和事件已经持久化 | 不打开全量 kubelet/cAdvisor |
 | 厂商集群标签归一化 | Collector 正则并保留原始 `ai_cluster` | 启动环境后用一次真实 Scrape 验证 |
 | Envoy 上游调用指标的响应码标签 | 已按真实 Scrape 修正为 `cluster_name`、`response_code_class`；精确 429 使用固定指标 `envoy_cluster_upstream_rq_429` | 已验证，禁止使用不存在的 `envoy_cluster_name`/`envoy_response_code` 标签 |
 

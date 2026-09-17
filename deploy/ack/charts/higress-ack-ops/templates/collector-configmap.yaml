@@ -370,13 +370,80 @@ data:
 
       {{- if .Values.monitoring.hpaState.enabled }}
       - job_name: higress-hpa-state
+        scrape_interval: {{ .Values.monitoring.clusterBaseline.scrapeInterval }}
         static_configs:
           - targets:
               - 'higress-hpa-state-metrics.{{ .Release.Namespace }}.svc:8080'
         metric_relabel_configs:
           - source_labels: [__name__]
             action: keep
-            regex: '^(kube_horizontalpodautoscaler_(info|spec_(min_replicas|max_replicas|target_metric)|status_(current_replicas|desired_replicas|target_metric|condition))|kube_ingress_annotations)$'
+            regex: '^(kube_horizontalpodautoscaler_(info|spec_(min_replicas|max_replicas|target_metric)|status_(current_replicas|desired_replicas|target_metric|condition))|kube_ingress_annotations|kube_pod_(container_status_restarts_total|container_status_waiting_reason|status_phase)|kube_deployment_(spec_replicas|status_replicas_(available|unavailable)))$'
+      {{- end }}
+
+      {{- if .Values.monitoring.clusterBaseline.enabled }}
+      - job_name: kubernetes-apiserver
+        scrape_interval: {{ .Values.monitoring.clusterBaseline.scrapeInterval }}
+        scheme: https
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: ["default"]
+        authorization:
+          credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            regex: 'kubernetes;https'
+            action: keep
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            action: keep
+            regex: '^(apiserver_request_total|apiserver_current_inflight_requests|apiserver_longrunning_requests|process_resident_memory_bytes|process_cpu_seconds_total)$'
+
+      - job_name: coredns
+        scrape_interval: {{ .Values.monitoring.clusterBaseline.scrapeInterval }}
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: ["kube-system"]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_k8s_app, __meta_kubernetes_endpoint_port_name]
+            regex: 'kube-dns;metrics'
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            action: keep
+            regex: '^(coredns_dns_(requests|responses)_total|coredns_panics_total|coredns_cache_(hits|misses)_total|process_resident_memory_bytes|process_cpu_seconds_total)$'
+
+      {{- if .Values.monitoring.clusterBaseline.nodeExporter.enabled }}
+      - job_name: node-exporter
+        scrape_interval: {{ .Values.monitoring.clusterBaseline.scrapeInterval }}
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [{{ .Release.Namespace | quote }}]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: higress-node-exporter
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            regex: metrics
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_phase]
+            regex: Running
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            action: keep
+            regex: '^(node_cpu_seconds_total|node_memory_(MemAvailable|MemTotal)_bytes|node_filesystem_(avail|size)_bytes|node_filesystem_readonly|node_uname_info)$'
+      {{- end }}
       {{- end }}
 
       - job_name: terway-cilium
@@ -691,6 +758,120 @@ data:
               summary: TokenVolt quota metrics are unavailable
               description: Customer limit and quota alerts cannot evaluate until Kubernetes or Redis collection recovers.
           {{- end }}
+
+      {{- if .Values.monitoring.clusterBaseline.enabled }}
+      - name: tokenvolt-cluster-baseline
+        interval: 60s
+        rules:
+          - alert: ACKPodRestartingFrequently
+            expr: increase(kube_pod_container_status_restarts_total[10m]) >= 3
+            for: 5m
+            labels:
+              severity: warning
+              component: workload
+            annotations:
+              summary: Pod container is restarting frequently
+              description: The namespace, pod and container labels identify a workload that restarted at least three times in ten minutes.
+          - alert: ACKPodContainerWaiting
+            expr: kube_pod_container_status_waiting_reason{reason=~"CrashLoopBackOff|ImagePullBackOff|ErrImagePull"} == 1
+            for: 5m
+            labels:
+              severity: warning
+              component: workload
+            annotations:
+              summary: Pod container is stuck waiting
+              description: Inspect the waiting reason and recent Kubernetes events for the affected pod.
+          - alert: ACKDeploymentUnavailable
+            expr: kube_deployment_status_replicas_available < kube_deployment_spec_replicas
+            for: 5m
+            labels:
+              severity: warning
+              component: workload
+            annotations:
+              summary: Deployment has fewer available replicas than requested
+              description: The deployment has remained below its desired availability for five minutes.
+          - alert: ACKNodeExporterDown
+            expr: up{job="node-exporter"} == 0
+            for: 3m
+            labels:
+              severity: critical
+              component: node
+            annotations:
+              summary: Node baseline metrics are unavailable
+              description: Check the node and its higress-node-exporter DaemonSet pod.
+          - alert: ACKNodeCPUHigh
+            expr: 1 - avg by (node) (rate(node_cpu_seconds_total{mode="idle"}[5m])) > 0.85
+            for: 10m
+            labels:
+              severity: warning
+              component: node
+            annotations:
+              summary: Node CPU utilization is above 85 percent
+              description: Sustained node CPU pressure can increase gateway and control-plane client latency.
+          - alert: ACKNodeMemoryLow
+            expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.15
+            for: 10m
+            labels:
+              severity: warning
+              component: node
+            annotations:
+              summary: Node available memory is below 15 percent
+              description: Check pod memory use and eviction pressure on the affected node.
+          - alert: ACKNodeDiskLow
+            expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.15
+            for: 10m
+            labels:
+              severity: warning
+              component: node
+            annotations:
+              summary: Node root filesystem free space is below 15 percent
+              description: Remove unused images or logs before the node reaches disk pressure.
+          - alert: ACKNodeFilesystemReadOnly
+            expr: node_filesystem_readonly == 1
+            for: 3m
+            labels:
+              severity: critical
+              component: node
+            annotations:
+              summary: A node filesystem became read-only
+              description: Inspect the affected device and node immediately.
+          - alert: ACKAPIServerUnavailable
+            expr: absent(up{job="kubernetes-apiserver"} == 1)
+            for: 3m
+            labels:
+              severity: critical
+              component: apiserver
+            annotations:
+              summary: Kubernetes API server metrics endpoint is unavailable
+              description: Cluster management and reconciliation may be degraded.
+          - alert: ACKAPIServerErrorRatioHigh
+            expr: sum(rate(apiserver_request_total{code=~"5.."}[5m])) / clamp_min(sum(rate(apiserver_request_total[5m])), 0.000001) > 0.02 and sum(rate(apiserver_request_total[5m])) * 300 >= 20
+            for: 5m
+            labels:
+              severity: warning
+              component: apiserver
+            annotations:
+              summary: Kubernetes API server 5xx ratio is above 2 percent
+              description: Check ACK control-plane status and the affected request verbs and resources.
+          - alert: ACKCoreDNSUnavailable
+            expr: absent(up{job="coredns"} == 1)
+            for: 3m
+            labels:
+              severity: critical
+              component: coredns
+            annotations:
+              summary: No healthy CoreDNS metrics target is available
+              description: Cluster service discovery may be unavailable.
+          - alert: ACKCoreDNSServfailRatioHigh
+            expr: sum(rate(coredns_dns_responses_total{rcode="SERVFAIL"}[5m])) / clamp_min(sum(rate(coredns_dns_requests_total[5m])), 0.000001) > 0.02 and sum(rate(coredns_dns_requests_total[5m])) * 300 >= 20
+            for: 5m
+            labels:
+              severity: warning
+              component: coredns
+            annotations:
+              summary: CoreDNS SERVFAIL ratio is above 2 percent
+              description: Check upstream DNS reachability and CoreDNS logs.
+      {{- end }}
 
       - name: tokenvolt-ai-quality
         rules:

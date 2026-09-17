@@ -1,0 +1,74 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+
+{{- if and .Values.monitoring.enabled .Values.monitoring.clusterBaseline.enabled .Values.monitoring.clusterBaseline.nodeExporter.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: higress-node-exporter
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: higress-node-exporter
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: higress-node-exporter
+  template:
+    metadata:
+      labels:
+        app: higress-node-exporter
+    spec:
+      automountServiceAccountToken: false
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: node-exporter
+          image: {{ .Values.monitoring.clusterBaseline.nodeExporter.image | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --path.rootfs=/host/root
+            - --web.listen-address=:9100
+            - --collector.disable-defaults
+            - --collector.cpu
+            - --collector.filesystem
+            - --collector.meminfo
+            - --collector.uname
+            - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
+            - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|mqueue|overlay|proc|procfs|pstore|securityfs|selinuxfs|squashfs|sysfs|tracefs)$
+          ports:
+            - name: metrics
+              containerPort: 9100
+          readinessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.monitoring.clusterBaseline.nodeExporter.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: root
+              mountPath: /host/root
+              mountPropagation: HostToContainer
+              readOnly: true
+      volumes:
+        - name: root
+          hostPath:
+            path: /
+            type: Directory
+{{- end }}
