@@ -202,6 +202,7 @@ monitoring:
   interval: 15s
   gateway:
     namespace: higress-system
+    deployment: higress-gateway
     selector:
       app: higress-gateway
     port: istio-prom

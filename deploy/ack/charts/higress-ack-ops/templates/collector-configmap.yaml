@@ -380,9 +380,9 @@ data:
           - source_labels: [__name__]
             action: keep
             {{- if .Values.monitoring.clusterBaseline.enabled }}
-            regex: '^(kube_horizontalpodautoscaler_(info|spec_(min_replicas|max_replicas|target_metric)|status_(current_replicas|desired_replicas|target_metric|condition))|kube_ingress_annotations|kube_pod_(container_status_restarts_total|container_status_waiting_reason|status_phase)|kube_deployment_(spec_replicas|status_replicas_(available|unavailable)))$'
+            regex: '^(kube_horizontalpodautoscaler_(info|spec_(min_replicas|max_replicas|target_metric)|status_(current_replicas|desired_replicas|target_metric|condition))|kube_ingress_annotations|kube_pod_(labels|status_ready|container_status_restarts_total|container_status_waiting_reason|status_phase)|kube_deployment_(spec_replicas|status_replicas_(available|unavailable)))$'
             {{- else }}
-            regex: '^(kube_horizontalpodautoscaler_(info|spec_(min_replicas|max_replicas|target_metric)|status_(current_replicas|desired_replicas|target_metric|condition))|kube_ingress_annotations)$'
+            regex: '^(kube_horizontalpodautoscaler_(info|spec_(min_replicas|max_replicas|target_metric)|status_(current_replicas|desired_replicas|target_metric|condition))|kube_ingress_annotations|kube_pod_(labels|status_ready)|kube_deployment_spec_replicas)$'
             {{- end }}
       {{- end }}
 
@@ -644,7 +644,11 @@ data:
           - record: tokenvolt:gateway_active_streams:sum
             expr: sum(tokenvolt:gateway_active_streams)
           - record: tokenvolt:gateway_ready_targets:count
-            expr: count(up{job="higress-gateway"} == 1)
+            expr: sum(kube_pod_status_ready{namespace={{ .Values.monitoring.gateway.namespace | quote }},condition="true"} * on(namespace,pod,uid) group_left() kube_pod_labels{namespace={{ .Values.monitoring.gateway.namespace | quote }},label_app={{ .Values.monitoring.gateway.selector.app | quote }}}) or vector(0)
+          - record: tokenvolt:gateway_scrapeable_targets:count
+            expr: count(up{job="higress-gateway"} == 1) or vector(0)
+          - record: tokenvolt:gateway_desired_replicas
+            expr: max(kube_deployment_spec_replicas{namespace={{ .Values.monitoring.gateway.namespace | quote }},deployment={{ .Values.monitoring.gateway.deployment | quote }}}) or vector(0)
           - record: tokenvolt:gateway_downstream_connections:sum
             expr: sum(envoy_http_downstream_cx_active{http_conn_manager_prefix="outbound_0.0.0.0_80"})
           - record: tokenvolt:gateway_listener_connections:sum
@@ -707,15 +711,15 @@ data:
             annotations:
               summary: Higress custom-metrics adapter is unavailable
               description: Gateway HPA has no CPU fallback and cannot make scaling decisions until the adapter recovers.
-          - alert: HigressGatewayMetricsTargetsMissing
-            expr: tokenvolt:gateway_ready_targets:count < {{ .Values.autoscaling.gateway.minReplicas }}
+          - alert: HigressGatewayReadyReplicasMissing
+            expr: tokenvolt:gateway_ready_targets:count < clamp_min(tokenvolt:gateway_desired_replicas, {{ .Values.autoscaling.gateway.minReplicas }})
             for: 5m
             labels:
               severity: critical
               component: gateway
             annotations:
-              summary: Fewer Higress gateway metrics targets than the configured minimum
-              description: Prometheus discovery, gateway availability, or the metrics endpoint is degraded.
+              summary: Fewer ready Higress gateway Pods than desired
+              description: Kubernetes readiness reports fewer healthy gateway Pods than the Deployment desires; compare ready, desired and scrapeable target counts.
           {{- if .Values.monitoring.hpaState.enabled }}
           - alert: HigressHPAStateMetricsDown
             expr: absent(up{job="higress-hpa-state"} == 1)
@@ -1082,7 +1086,7 @@ data:
       - name: tokenvolt-gateway-capacity
         rules:
           - alert: HigressGatewayStreamsSaturated
-            expr: tokenvolt:gateway_ready_targets:count >= {{ .Values.autoscaling.gateway.maxReplicas }} and tokenvolt:gateway_active_streams:sum > {{ mul (.Values.autoscaling.gateway.activeStreams.averageValue | int) .Values.autoscaling.gateway.maxReplicas }}
+            expr: tokenvolt:gateway_desired_replicas >= {{ .Values.autoscaling.gateway.maxReplicas }} and tokenvolt:gateway_active_streams:sum > {{ mul (.Values.autoscaling.gateway.activeStreams.averageValue | int) .Values.autoscaling.gateway.maxReplicas }}
             for: 5m
             labels:
               severity: critical

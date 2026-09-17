@@ -34,14 +34,12 @@ metadata:
   labels:
     {{- include "higress-ack-ops.labels" $ | nindent 4 }}
 rules:
-  {{- if $.Values.monitoring.clusterBaseline.enabled }}
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "list", "watch"]
-  {{- end }}
   - apiGroups: ["autoscaling"]
     resources: ["horizontalpodautoscalers"]
     verbs: ["get", "list", "watch"]
@@ -90,13 +88,10 @@ spec:
           image: {{ .Values.monitoring.hpaState.image | quote }}
           imagePullPolicy: IfNotPresent
           args:
-            {{- if .Values.monitoring.clusterBaseline.enabled }}
             - --resources=horizontalpodautoscalers,ingresses,pods,deployments
-            {{- else }}
-            - --resources=horizontalpodautoscalers,ingresses
-            {{- end }}
             - --namespaces={{ join "," $workloadNamespaces }}
             - --metric-annotations-allowlist=ingresses=[higress.io/exact-match-header-x-higress-llm-model,higress.io/exact-match-header-x-tokenvolt-provider,tokenvolt.ai/publication-id]
+            - --metric-labels-allowlist=pods=[app]
           ports:
             - name: metrics
               containerPort: 8080
