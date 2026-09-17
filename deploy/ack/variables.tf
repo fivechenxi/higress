@@ -446,22 +446,18 @@ variable "feishu_alert_webhook_url" {
   }
 }
 
-
-variable "tokenvolt_metrics_secret_name" {
-  description = <<-EOT
-    Secret holding the bearer token for the control plane's GET /internal/metrics,
-    used by both the TokenVolt control plane and the higress-ack-ops collector.
-    The same Secret name must exist in both release namespaces with the same token.
-    Keep empty to leave the metrics endpoint and its alerts disabled (ISS-07).
-  EOT
+variable "feishu_alert_escalation_webhook_url" {
+  description = "Optional second Feishu custom-bot webhook for firing critical alerts. Keep empty to use only the primary webhook."
   type        = string
   default     = ""
+  sensitive   = true
 
   validation {
-    condition     = var.tokenvolt_metrics_secret_name == "" || can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", var.tokenvolt_metrics_secret_name))
-    error_message = "tokenvolt_metrics_secret_name must be a DNS-1123 subdomain or empty."
+    condition     = var.feishu_alert_escalation_webhook_url == "" || can(regex("^https://open\\.(feishu\\.cn|larksuite\\.com)/open-apis/bot/v2/hook/[A-Za-z0-9_-]+$", var.feishu_alert_escalation_webhook_url))
+    error_message = "feishu_alert_escalation_webhook_url must be an official Feishu/Lark custom-bot webhook URL."
   }
 }
+
 variable "tokenvolt_split_public_entry" {
   description = "Route the portal directly from CLB and expose model traffic on a separate public host."
   type        = bool

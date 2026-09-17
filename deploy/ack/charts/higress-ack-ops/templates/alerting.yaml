@@ -232,17 +232,21 @@ data:
                 },
             }
             critical = any(a.get("status") == "firing" and a.get("labels", {}).get("severity") == "critical" for a in alerts)
+            primary_error = None
             try:
                 post_card(WEBHOOK, card)
-                if ESCALATION and critical:
-                    try:
-                        post_card(ESCALATION, card)
-                    except Exception as exc:
-                        print(f"escalation delivery failed: {exc}", flush=True)
+            except Exception as exc:
+                primary_error = exc
+            if ESCALATION and critical:
+                try:
+                    post_card(ESCALATION, card)
+                except Exception as exc:
+                    print(f"escalation delivery failed: {exc}", flush=True)
+            if primary_error is None:
                 self.send_response(200)
                 self.end_headers()
-            except Exception as exc:
-                self.send_error(502, str(exc))
+            else:
+                self.send_error(502, str(primary_error))
 
         def log_message(self, fmt, *args):
             print(fmt % args, flush=True)
@@ -269,6 +273,15 @@ spec:
       annotations:
         checksum/config: {{ printf "%s:%s" (toYaml $alerting.feishu) .Chart.Version | sha256sum }}
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: higress-feishu-alert-relay
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534

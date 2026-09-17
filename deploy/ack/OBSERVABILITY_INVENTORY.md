@@ -101,14 +101,18 @@ Grafana 大盘中。
 | HPA 边缘状态 | 当前/目标 Metric、当前/期望/最大副本数 | Metric 达目标 80% 为提示；等待缩容为提示；副本达上限 80% 为警告 |
 | HPA 状态 | 当前/期望/最小/最大副本，当前/目标指标，Scaling 条件 | 无法伸缩；期望副本持续 10 分钟未收敛 |
 | HPA 事件 | ACK 官方 K8s Event Center（SLS） | 保存扩缩容决策、取指标失败、达到上下限和调度失败等事件 |
+| TokenVolt 控制面 | `up`、数据库就绪、业务查询、凭据发布积压/失败 | 端点不可达或数据库/查询异常为严重；凭据发布积压/失败为警告 |
+| TokenVolt 用量管线 | 最近成功水位、失败/不完整任务、48 小时未知 Token 记录 | 两小时无成功或启动后 90 分钟从未成功为严重；任务失败及未知 Token 积压为警告 |
 | Collector | Remote Write 失败、丢弃、积压、重试、最新时间戳，规则失败、序列数、进程 CPU/内存 | 写入失败或积压；规则计算失败 |
 | Collector 消失 | ARMS 侧 `absent(up{job="higress-metrics-collector"})` | 独立严重告警，不依赖 Collector 自己存活 |
 
 集群内 Prometheus 负责计算详细且基数受控的规则，并将生成的 `ALERTS` 序列
 Remote Write 到 ARMS，同时把 firing/resolved 事件发送到集群内 Alertmanager。
 Alertmanager 按告警名、组件、模型、厂商和 HPA 分组，经小型转换器发送到独立飞书
-告警群。Webhook 只存在本地 `terraform.tfvars`、敏感 State 和 Kubernetes Secret，
-不进入 Helm ConfigMap 或 Git。ARMS 仍保留远端查询与独立检测 Collector 消失的能力。
+告警群。严重告警使用 30 分钟重复周期；飞书 relay 默认双副本，并可配置第二个
+升级 Webhook。Webhook 只存在本地 `terraform.tfvars`、敏感 State 和 Kubernetes
+Secret，不进入 Helm ConfigMap 或 Git。ARMS 仍保留远端查询与独立检测 Collector
+消失的能力。
 
 ## 明确不采集的内容
 

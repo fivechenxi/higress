@@ -31,6 +31,12 @@ resource "random_password" "tokenvolt_api_key_pepper" {
   special = false
 }
 
+resource "random_password" "tokenvolt_metrics_token" {
+  count   = var.tokenvolt_enabled ? 1 : 0
+  length  = 48
+  special = false
+}
+
 resource "random_password" "tokenvolt_rate_limit_redis" {
   count       = var.tokenvolt_enabled && var.tokenvolt_managed_redis_enabled ? 1 : 0
   length      = 32
@@ -49,6 +55,7 @@ locals {
     var.tokenvolt_enabled &&
     (var.tokenvolt_managed_redis_enabled || var.tokenvolt_rate_limit_redis_enabled)
   )
+  tokenvolt_metrics_secret_name     = var.tokenvolt_enabled ? "tokenvolt-metrics" : ""
   tokenvolt_rate_limit_redis_host   = var.tokenvolt_managed_redis_enabled ? alicloud_kvstore_instance.tokenvolt_rate_limit[0].connection_domain : "tokenvolt-rate-limit-redis.${var.tokenvolt_namespace}.svc.cluster.local"
   tokenvolt_rate_limit_service_name = var.tokenvolt_managed_redis_enabled ? "${local.tokenvolt_rate_limit_redis_host}.dns" : local.tokenvolt_rate_limit_redis_host
   # Alibaba Cloud Redis uses 6379 by default. The provider's computed `port`
@@ -371,6 +378,34 @@ resource "kubernetes_namespace_v1" "tokenvolt" {
   depends_on = [alicloud_cs_kubernetes_node_pool.gateway]
 }
 
+resource "kubernetes_secret_v1" "tokenvolt_metrics_control_plane" {
+  count = var.tokenvolt_enabled ? 1 : 0
+
+  metadata {
+    name      = local.tokenvolt_metrics_secret_name
+    namespace = kubernetes_namespace_v1.tokenvolt[0].metadata[0].name
+  }
+
+  data = {
+    token = random_password.tokenvolt_metrics_token[0].result
+  }
+
+  type = "Opaque"
+}
+
+resource "kubernetes_secret_v1" "tokenvolt_metrics_collector" {
+  count = var.tokenvolt_enabled ? 1 : 0
+
+  metadata {
+    name      = local.tokenvolt_metrics_secret_name
+    namespace = kubernetes_namespace_v1.higress.metadata[0].name
+  }
+
+  data = kubernetes_secret_v1.tokenvolt_metrics_control_plane[0].data
+
+  type = "Opaque"
+}
+
 resource "kubernetes_secret_v1" "tokenvolt_database" {
   count = var.tokenvolt_enabled ? 1 : 0
 
@@ -464,7 +499,7 @@ resource "helm_release" "tokenvolt" {
         usageDashboard = var.tokenvolt_usage_dashboard
         image          = var.tokenvolt_control_plane_image
         metrics = {
-          metricsSecretName = var.tokenvolt_metrics_secret_name
+          metricsSecretName = local.tokenvolt_metrics_secret_name
         }
         publicService = {
           enabled = var.tokenvolt_split_public_entry
@@ -571,6 +606,7 @@ resource "helm_release" "tokenvolt" {
     helm_release.higress,
     kubernetes_secret_v1.tokenvolt_database,
     kubernetes_secret_v1.tokenvolt_app,
+    kubernetes_secret_v1.tokenvolt_metrics_control_plane,
     kubernetes_secret_v1.tokenvolt_registry,
     kubernetes_secret_v1.tokenvolt_registry_higress,
     alicloud_db_account_privilege.tokenvolt,

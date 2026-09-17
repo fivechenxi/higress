@@ -1110,7 +1110,7 @@ data:
               summary: TokenVolt control plane metrics endpoint is unreachable
               description: GET /internal/metrics is not being scraped successfully. Portal access, quota publication and usage reconciliation all depend on this process.
           - alert: TokenVoltControlPlaneNotReady
-            expr: tokenvolt_database_ready == 0 or tokenvolt_operational_query_ok == 0
+            expr: (up{job="tokenvolt-control-plane"} == 1) and on() ((tokenvolt_database_ready == 0) or (tokenvolt_operational_query_ok == 0) or absent(tokenvolt_database_ready) or absent(tokenvolt_operational_query_ok))
             for: 5m
             labels:
               severity: critical
@@ -1139,7 +1139,7 @@ data:
       - name: tokenvolt-usage-pipeline
         rules:
           - alert: TokenVoltUsageCollectionStalled
-            expr: (tokenvolt_usage_last_success_unixtime > 0 and time() - tokenvolt_usage_last_success_unixtime > {{ .Values.monitoring.controlPlane.usageStalledSeconds }}) or (tokenvolt_usage_last_success_unixtime == 0 and time() - process_start_time_seconds{job="tokenvolt-control-plane"} > {{ .Values.monitoring.controlPlane.usageStalledGraceSeconds }})
+            expr: tokenvolt_usage_last_success_unixtime > 0 and time() - tokenvolt_usage_last_success_unixtime > {{ .Values.monitoring.controlPlane.usageStalledSeconds }}
             for: 10m
             labels:
               severity: critical
@@ -1147,6 +1147,15 @@ data:
             annotations:
               summary: Usage reconciliation has not succeeded recently
               description: The minute/hour usage watermark is stale. Dashboard figures, credit estimates and shadow billing all derive from it.
+          - alert: TokenVoltUsageCollectionNeverSucceeded
+            expr: tokenvolt_usage_last_success_unixtime == 0
+            for: {{ .Values.monitoring.controlPlane.usageNeverSucceededFor }}
+            labels:
+              severity: critical
+              component: usage-pipeline
+            annotations:
+              summary: Usage reconciliation has never completed successfully
+              description: No successful usage watermark exists after the startup grace period. Dashboard figures, credit estimates and shadow billing are not current.
           - alert: TokenVoltUsageRunFailures
             expr: tokenvolt_usage_runs{state="failed"} > 0 or tokenvolt_usage_runs{state="incomplete"} > 0
             for: 15m

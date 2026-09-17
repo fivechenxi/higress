@@ -111,9 +111,9 @@ monitoring:
     service: tokenvolt-control-plane
     port: 8000
     path: /internal/metrics
-    # A control plane that has never recorded a successful usage run reports 0;
-    # treat that as stalled only after this grace period (seconds).
-    usageStalledGraceSeconds: 5400
+    # A deployment that has never recorded a successful usage run reports 0.
+    # Keep that condition pending for this long before alerting.
+    usageNeverSucceededFor: 90m
     # The minute worker runs every minute and the hourly worker every hour, so a
     # two-hour gap means the pipeline is stalled rather than merely between runs.
     usageStalledSeconds: 7200

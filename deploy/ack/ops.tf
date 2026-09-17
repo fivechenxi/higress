@@ -76,6 +76,22 @@ resource "kubernetes_secret_v1" "feishu_alert_webhook" {
   depends_on = [helm_release.higress]
 }
 
+resource "kubernetes_secret_v1" "feishu_alert_escalation_webhook" {
+  count = var.lifecycle_mode == "running" && var.feishu_alert_escalation_webhook_url != "" ? 1 : 0
+
+  metadata {
+    name      = "higress-feishu-alert-escalation-webhook"
+    namespace = "higress-system"
+  }
+
+  data = {
+    "webhook-url" = var.feishu_alert_escalation_webhook_url
+  }
+
+  type       = "Opaque"
+  depends_on = [helm_release.higress]
+}
+
 resource "kubernetes_secret_v1" "rate_limit_redis" {
   count = var.lifecycle_mode == "running" && var.tokenvolt_enabled && var.tokenvolt_managed_redis_enabled ? 1 : 0
 
@@ -114,7 +130,7 @@ resource "helm_release" "higress_ack_ops" {
         remoteWriteUrl = local.prometheus_remote_write_url
         clusterId      = alicloud_cs_managed_kubernetes.this.id
         controlPlane = {
-          metricsSecretName = var.tokenvolt_metrics_secret_name
+          metricsSecretName = local.tokenvolt_metrics_secret_name
         }
         grafana = {
           enabled       = var.grafana_enabled
@@ -136,8 +152,9 @@ resource "helm_release" "higress_ack_ops" {
         alerting = {
           enabled = true
           feishu = {
-            enabled        = var.feishu_alert_webhook_url != ""
-            existingSecret = "higress-feishu-alert-webhook"
+            enabled                  = var.feishu_alert_webhook_url != ""
+            existingSecret           = "higress-feishu-alert-webhook"
+            escalationExistingSecret = var.feishu_alert_escalation_webhook_url != "" ? "higress-feishu-alert-escalation-webhook" : ""
           }
         }
         quotaMetrics = {
@@ -158,6 +175,8 @@ resource "helm_release" "higress_ack_ops" {
     kubernetes_secret_v1.grafana_admin,
     kubernetes_secret_v1.grafana_sls,
     kubernetes_secret_v1.feishu_alert_webhook,
+    kubernetes_secret_v1.feishu_alert_escalation_webhook,
+    kubernetes_secret_v1.tokenvolt_metrics_collector,
     kubernetes_secret_v1.rate_limit_redis,
     helm_release.higress,
   ]
