@@ -163,7 +163,9 @@ When TokenVolt is enabled by the ACK Terraform stack, the collector scrapes the
 authenticated `/internal/metrics` endpoint and keeps only `tokenvolt_*` metric
 families. The same generated bearer token is stored as one Secret in each of
 the `tokenvolt-system` and `higress-system` namespaces; it is never rendered
-into a ConfigMap.
+into a ConfigMap. Terraform passes only its SHA-256 digest into the TokenVolt
+Pod template, so rotating the Secret rolls the process that reads the token at
+startup without exposing the token itself.
 
 The retained low-cardinality gauges cover control-plane availability, database
 readiness, operational queries, credential-operation backlog, the latest

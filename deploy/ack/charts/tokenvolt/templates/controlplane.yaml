@@ -51,6 +51,10 @@ spec:
       labels:
         {{- include "tokenvolt.selectorLabels" . | nindent 8 }}
         {{- include "tokenvolt.labels" . | nindent 8 }}
+      {{- if .Values.controlPlane.metrics.metricsSecretName }}
+      annotations:
+        checksum/metrics-token: {{ required "controlPlane.metrics.tokenRevision must be set when metricsSecretName is set" .Values.controlPlane.metrics.tokenRevision | quote }}
+      {{- end }}
     spec:
       serviceAccountName: {{ .Values.controlPlane.serviceAccountName }}
       automountServiceAccountToken: true

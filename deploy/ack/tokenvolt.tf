@@ -500,6 +500,7 @@ resource "helm_release" "tokenvolt" {
         image          = var.tokenvolt_control_plane_image
         metrics = {
           metricsSecretName = local.tokenvolt_metrics_secret_name
+          tokenRevision     = nonsensitive(sha256(random_password.tokenvolt_metrics_token[0].result))
         }
         publicService = {
           enabled = var.tokenvolt_split_public_entry

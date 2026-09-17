@@ -40,6 +40,10 @@ controlPlane:
   metrics:
     metricsSecretName: ""
     metricsTokenKey: token
+    # Required with metricsSecretName. Set it to a non-secret digest of the
+    # token; changing it rolls the Pod so a process that reads
+    # METRICS_TOKEN_FILE only at startup receives rotations.
+    tokenRevision: ""
   databaseSecretName: tokenvolt-database
   appSecretName: tokenvolt-app
   cloud:
