@@ -63,9 +63,9 @@ locals {
       message    = "A TokenVolt Higress application alert is firing. Inspect the alertname, component, model and provider labels."
     }
     collector_missing = {
-      duration   = 5
+      duration   = 1
       expression = "absent(up{ack_cluster=\"${alicloud_cs_managed_kubernetes.this.id}\",job=\"higress-metrics-collector\"} == 1)"
-      message    = "The Higress metrics collector has not remote-written its own health series for five minutes. Gateway HPA metrics may be unavailable."
+      message    = "The Higress metrics collector has not remote-written its own health series for one minute. Gateway HPA metrics may be unavailable."
     }
   }
 }

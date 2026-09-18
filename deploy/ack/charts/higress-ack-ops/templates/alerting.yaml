@@ -24,7 +24,7 @@ metadata:
 data:
   alertmanager.yml: |
     global:
-      resolve_timeout: 5m
+      resolve_timeout: {{ $alerting.alertmanager.resolveTimeout }}
     route:
       group_by: [alertname, component, scope, ai_model, ai_provider, tenant, consumer, reason, horizontalpodautoscaler]
       group_wait: {{ $alerting.alertmanager.groupWait }}
