@@ -399,6 +399,15 @@ data:
           credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
         tls_config:
           ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          # Managed ACK apiservers present a certificate whose SANs cover the
+          # Service address and some master IPs, but not the individual master
+          # ENI addresses that the endpoints role discovers, so the default
+          # verification fails with `x509: certificate is valid for ..., not
+          # <endpoint ip>`. Without this the job has targets that can never
+          # scrape: ACKAPIServerUnavailable stays firing forever and
+          # ACKAPIServerErrorRatioHigh never has data. Traffic still stays
+          # inside the VPC and only carries this ServiceAccount's own token.
+          insecure_skip_verify: true
         relabel_configs:
           - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
             regex: 'kubernetes;https'
@@ -851,8 +860,19 @@ data:
             annotations:
               summary: Node root filesystem free space is below 15 percent
               description: Remove unused images or logs before the node reaches disk pressure.
+          # `node_filesystem_readonly` reports the flags of the mount this
+          # exporter sees, not of the underlying disk. This DaemonSet mounts the
+          # host root at /host/root with readOnly: true and --path.rootfs strips
+          # that prefix from the mountpoint label, so the mount we hardened is
+          # reported as `mountpoint="/" readonly=1` on every node. Require the
+          # whole device to be read-only instead: a real ext4 error remount sets
+          # SB_RDONLY, which makes every mount of that superblock report ro,
+          # while our own read-only bind mount still sits next to a writable
+          # mount of the same device (kubelet's /etc/hosts). A disk that is
+          # deliberately mounted read-only everywhere must be excluded through
+          # --collector.filesystem.mount-points-exclude instead.
           - alert: ACKNodeFilesystemReadOnly
-            expr: node_filesystem_readonly == 1
+            expr: node_filesystem_readonly == 1 unless on(instance, device) (node_filesystem_readonly == 0)
             for: 3m
             labels:
               severity: critical
