@@ -174,6 +174,16 @@ records. They do not contain tenant, API-key, request, prompt, or response
 labels. Billing queue depth and RDS backup results are not exposed by this
 endpoint and therefore are not represented by synthetic Prometheus rules.
 
+`tokenvolt_usage_unknown_token_records_48h` counts every request that returned
+without token fields, which includes failures and interruptions that have no
+usage by definition, so a rule on it fires on ordinary errors. Billing integrity
+is alerted on `tokenvolt_usage_success_without_usage_records_48h` instead, which
+counts only **successful** requests whose token counts never arrived. Both come
+from `usage_hourly`, where `token_unknown_success_count <= token_unknown_count`
+is enforced by a check constraint. The success-scoped column and its metric only
+exist once a control plane that writes them is deployed; until then the
+expression has no series and the alert stays silent rather than erroring.
+
 ## Gateway: stream capacity and resource pressure
 
 Keep these gauges:

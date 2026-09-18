@@ -1188,15 +1188,21 @@ data:
             annotations:
               summary: Usage reconciliation runs failed or were incomplete in the last 24 hours
               description: Inspect the usage job runs for the recorded failure category; source or attribution gaps block publication of the affected period.
-          - alert: TokenVoltUsageUnknownTokenBacklog
-            expr: tokenvolt_usage_unknown_token_records_48h > 0
+          # tokenvolt_usage_unknown_token_records_48h counts every request that
+          # came back without token fields, failures and interruptions included,
+          # and those have no usage by definition. Alerting on it means alerting
+          # on ordinary errors, permanently. Watch the narrower count of
+          # successful requests whose usage never arrived: usage the customer
+          # consumed that cannot be priced at all.
+          - alert: TokenVoltUsageSuccessWithoutUsage
+            expr: tokenvolt_usage_success_without_usage_records_48h > 0
             for: 6h
             labels:
               severity: warning
               component: usage-pipeline
             annotations:
-              summary: Usage records without token counts remain in the last 48 hours
-              description: Missing usage is retained as unknown rather than zeroed. Review and resolve before billing the affected period.
+              summary: Successful requests are missing token usage
+              description: A request the customer consumed completed without token counts, so it cannot be priced. Find the hour, tenant and model in usage_hourly.token_unknown_success_count and repair or credit that period. The count is a 48-hour window, so the alert also clears simply because the row aged out; that is not proof the gap was resolved.
       {{- end }}
 
       - name: tokenvolt-gateway-capacity
