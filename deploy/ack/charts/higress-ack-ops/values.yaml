@@ -70,6 +70,10 @@ monitoring:
     # before production hardening.
     image: registry.cn-hangzhou.aliyuncs.com/marksugar-k8s/prometheus:v2.26.0
     scrapeInterval: 15s
+    # Prometheus advertises firing alerts with an EndsAt roughly four rule
+    # evaluation intervals in the future. Keep this at 15s so a collector
+    # restart cannot delay a resolved notification by more than about 1m.
+    evaluationInterval: 15s
     resources:
       requests:
         cpu: 100m

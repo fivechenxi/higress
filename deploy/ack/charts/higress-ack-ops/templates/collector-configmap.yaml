@@ -235,7 +235,7 @@ data:
   prometheus.yml: |
     global:
       scrape_interval: {{ .Values.monitoring.collector.scrapeInterval }}
-      evaluation_interval: 30s
+      evaluation_interval: {{ .Values.monitoring.collector.evaluationInterval }}
       external_labels:
         ack_cluster: {{ $clusterId | quote }}
     rule_files:
@@ -795,7 +795,9 @@ data:
 
       {{- if .Values.monitoring.clusterBaseline.enabled }}
       - name: tokenvolt-cluster-baseline
-        interval: 60s
+        # Keep alert expiry bounded to about one minute if Prometheus is
+        # restarted before it can explicitly send a resolved update.
+        interval: {{ .Values.monitoring.collector.evaluationInterval }}
         rules:
           - alert: ACKPodRestartingFrequently
             expr: increase(kube_pod_container_status_restarts_total[10m]) >= 3
