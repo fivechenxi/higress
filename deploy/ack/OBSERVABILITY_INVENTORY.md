@@ -88,7 +88,7 @@ Grafana 大盘中。
 | 下游/上游 HTTP 总耗时 P50/P90 | Envoy `*_rq_time_bucket` | 下游 P90 暂定超过 120 秒警告 | 单位毫秒；包含流式请求的完整存续时间，不替代模型 TTFT/TPOT |
 | 上游等待请求 | Envoy pending request Gauge | 持续 2 分钟非零 | 上游连接池或厂商容量压力 |
 | 连接溢出 | Envoy Listener/Cluster overflow Counter | 任意增长 | 连接或资源达到硬限制 |
-| 模型流中断/厂商请求重置 | AI 流中断 Counter；仅 `tokenvolt-<provider>.dns` 上游 reset Counter | 合计 5 分钟内超过 3 次 | 排除 Grafana、浏览器取消请求以及其他非模型路由的下游 reset |
+| 模型流中断/厂商请求重置 | AI 流中断 Counter；仅 `tokenvolt-<provider>.dns` 上游 reset Counter | 合计 1 分钟内超过 3 次并持续 1 分钟 | 排除 Grafana、浏览器取消请求以及其他非模型路由的下游 reset |
 | Envoy 内存 | `envoy_server_memory_allocated` | 当前 1 GiB 限额下达到 768 MiB | 不依赖 cAdvisor 的数据面内存压力指标 |
 
 ## 网络、Controller 与采集链路

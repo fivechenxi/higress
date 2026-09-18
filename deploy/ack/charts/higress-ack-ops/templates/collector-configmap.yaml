@@ -235,6 +235,7 @@ data:
   prometheus.yml: |
     global:
       scrape_interval: {{ .Values.monitoring.collector.scrapeInterval }}
+      evaluation_interval: 30s
       external_labels:
         ack_cluster: {{ $clusterId | quote }}
     rule_files:
@@ -1205,8 +1206,8 @@ data:
               summary: Higress rejected connections because a connection limit was exhausted
               description: Inspect listener, upstream pool and file-descriptor capacity immediately.
           - alert: HigressGatewayResetSpike
-            expr: sum(increase(route_upstream_model_consumer_metric_llm_aborted_count[5m])) + sum(increase(envoy_cluster_upstream_rq_rx_reset{cluster_name=~".*[|][|]tokenvolt-[^.]+[.]dns.*"}[5m])) + sum(increase(envoy_cluster_upstream_rq_tx_reset{cluster_name=~".*[|][|]tokenvolt-[^.]+[.]dns.*"}[5m])) > {{ .Values.monitoring.alerts.gatewayResetWarning5m }}
-            for: 2m
+            expr: sum(increase(route_upstream_model_consumer_metric_llm_aborted_count[1m])) + sum(increase(envoy_cluster_upstream_rq_rx_reset{cluster_name=~".*[|][|]tokenvolt-[^.]+[.]dns.*"}[1m])) + sum(increase(envoy_cluster_upstream_rq_tx_reset{cluster_name=~".*[|][|]tokenvolt-[^.]+[.]dns.*"}[1m])) > {{ .Values.monitoring.alerts.gatewayResetWarning1m }}
+            for: 1m
             labels:
               severity: warning
               component: gateway
