@@ -112,7 +112,8 @@ Alertmanager 按告警名、组件、模型、厂商和 HPA 分组，经小型�
 告警群。严重告警使用 30 分钟重复周期；飞书 relay 默认双副本，并可配置第二个
 升级 Webhook。Webhook 只存在本地 `terraform.tfvars`、敏感 State 和 Kubernetes
 Secret，不进入 Helm ConfigMap 或 Git。ARMS 仍保留远端查询与独立检测 Collector
-消失的能力。
+消失的能力。告警规则每 15 秒评估一次；Prometheus 给 firing 告警附带约 4 倍评估
+周期的 `EndsAt`，因此 Collector 重启或规则替换时，遗留告警也会在约 1 分钟内恢复。
 
 ### 两条基线规则的已知陷阱（2026-09-18 首次部署后实测）
 
