@@ -114,6 +114,20 @@ Alertmanager 按告警名、组件、模型、厂商和 HPA 分组，经小型�
 Secret，不进入 Helm ConfigMap 或 Git。ARMS 仍保留远端查询与独立检测 Collector
 消失的能力。
 
+### 两条基线规则的已知陷阱（2026-09-18 首次部署后实测）
+
+- `node_filesystem_readonly` 反映的是**采集侧看到的挂载标志**，不是磁盘本身的健康。
+  node-exporter 把宿主根 `hostPath: /` 以只读方式挂到 `/host/root`，`--path.rootfs`
+  又把该前缀从 `mountpoint` 标签里剥掉，于是**我们自己的只读绑定**会被读成"宿主根盘
+  只读"，两个节点各产生 3 条常驻 critical。因此该规则按**设备**判断：只有同一块设备的
+  所有挂载点都只读才告警。有意整盘只读的磁盘要加进
+  `--collector.filesystem.mount-points-exclude`。
+- 托管 ACK 的 apiserver 证书 SAN 覆盖 Service 地址与部分 master IP，但**不覆盖
+  endpoints 角色发现的 master ENI 地址**，直接抓 `https://<eni>:6443/metrics` 必然
+  `x509` 失败。该 job 因此必须 `insecure_skip_verify: true`；否则
+  `ACKAPIServerUnavailable` 永久 firing，而 `ACKAPIServerErrorRatioHigh` 因为
+  `apiserver_request_total` 一直没有数据而**静默失效**。
+
 ## 明确不采集的内容
 
 - 以 60 秒白名单采集 Pod/Deployment、Node、APIServer 和 CoreDNS；不采集托管
