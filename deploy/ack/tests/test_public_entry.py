@@ -24,7 +24,7 @@ import yaml
 CHART = Path(__file__).resolve().parents[1] / 'charts/tokenvolt'
 
 
-def render(split, managed_redis=False, dashboard=None, quota=False):
+def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, in_cluster=False):
     values = {
         'controlPlane': {
             'quotaEnabled': quota,
@@ -66,8 +66,10 @@ def render(split, managed_redis=False, dashboard=None, quota=False):
                 },
             },
         },
-        'rateLimitRedis': {'enabled': False},
+        'rateLimitRedis': {'enabled': in_cluster},
     }
+    if redis is not None:
+        values['higress']['rateLimits']['redis'].update(redis)
     if dashboard is not None:
         values['controlPlane']['usageDashboard'] = dashboard
     with tempfile.NamedTemporaryFile(mode='w') as f:
@@ -82,6 +84,44 @@ def render(split, managed_redis=False, dashboard=None, quota=False):
 
 
 class PublicEntryTest(unittest.TestCase):
+    def test_managed_redis_has_one_matching_outbound_cluster(self):
+        for port in (6379, 6380):
+            objects = render(True, managed_redis=True, redis={'servicePort': port})
+            filters = [o for o in objects if o['kind'] == 'EnvoyFilter'
+                       and o['metadata']['name'] == 'tokenvolt-quota-redis-cluster']
+            self.assertEqual(len(filters), 1)
+            obj = filters[0]
+            self.assertEqual(obj['metadata']['namespace'], 'higress-system')
+            self.assertEqual(obj['spec']['workloadSelector']['labels'], {'app': 'higress-gateway'})
+            patch, = obj['spec']['configPatches']
+            self.assertEqual(patch['applyTo'], 'CLUSTER')
+            self.assertEqual(patch['patch']['operation'], 'ADD')
+            cluster = patch['patch']['value']
+            self.assertEqual(cluster['type'], 'STRICT_DNS')
+            for plugin in [o for o in objects if o['kind'] == 'WasmPlugin'
+                           and o['metadata']['labels'].get('tokenvolt.ai/managed') == 'rate-limit']:
+                redis = plugin['spec']['defaultConfig']['redis']
+                self.assertEqual(cluster['name'], f"outbound|{redis['service_port']}||{redis['service_name']}")
+            assignment = cluster['load_assignment']
+            self.assertEqual(assignment['cluster_name'], cluster['name'])
+            address = assignment['endpoints'][0]['lb_endpoints'][0]['endpoint']['address']['socket_address']
+            self.assertEqual(address, {'address': 'r-test.redis.rds.aliyuncs.com', 'port_value': port})
+            self.assertNotIn('fixture-password', json.dumps(obj))
+
+    def test_disabled_and_kubernetes_redis_do_not_add_duplicate_cluster(self):
+        for objects in (render(True), render(True, managed_redis=True, in_cluster=True,
+                        redis={'serviceName': 'tokenvolt-rate-limit-redis.tokenvolt-system.svc.cluster.local'})):
+            self.assertFalse(any(o['kind'] == 'EnvoyFilter' and
+                                 o['metadata']['name'] == 'tokenvolt-quota-redis-cluster' for o in objects))
+
+    def test_managed_endpoint_cannot_enable_in_cluster_redis(self):
+        with self.assertRaisesRegex(RuntimeError, 'managed DNS Redis'):
+            render(True, managed_redis=True, in_cluster=True)
+
+    def test_empty_dns_hostname_is_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, 'hostname must not be empty'):
+            render(True, managed_redis=True, redis={'serviceName': '.dns'})
+
     def test_quota_switch_survives_chart_rendering(self):
         for enabled in (False, True):
             objects = render(True, quota=enabled)

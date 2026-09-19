@@ -92,6 +92,9 @@ higress:
       url: ""
       sha256: ""
     redis:
+      # Managed DNS endpoints use <host>.dns; the chart derives the matching
+      # outbound cluster and strips only the final .dns for the DNS endpoint.
+      # Kubernetes service names use native discovery (no additional cluster).
       serviceName: tokenvolt-rate-limit-redis.tokenvolt-system.svc.cluster.local
       servicePort: 6379
       username: ""

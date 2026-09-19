@@ -125,3 +125,7 @@ OSS 中的 `deployment_baseline_tag` 必须对应本次部署代码的精确 Git
 `tokenvolt_quota_enabled = true`。模板显式设置 `HIGRESS_QUOTA_ENABLED`，
 避免下次部署丢失。默认关闭；启用前须部署配套的 Helm quota 插件资源。
 发布 Tag 必须推到 `fivechenxi/higress`，仅在个人 fork 有同名 Tag 不算完成。
+
+托管 Redis 的出站集群由 TokenVolt Helm chart 与插件共用的 serviceName/port
+派生。已有手工 EnvoyFilter 的环境须先按 [Redis 接管说明](REDIS_CLUSTER_ADOPTION.md)
+审阅所有权迁移与回退方案；不要直接应用控制面仓库的旧静态 YAML。
