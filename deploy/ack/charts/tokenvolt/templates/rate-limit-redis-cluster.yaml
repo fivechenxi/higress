@@ -1,0 +1,48 @@
+{{- /* Copyright 2026 Alibaba Group Holding Ltd. Licensed under Apache-2.0.
+Managed Redis has no Kubernetes Service/route to create its cluster.
+Use the same logical name and port as the plugins; .dns is a registry suffix,
+not part of the actual DNS hostname. Kubernetes Redis uses native discovery. */ -}}
+{{- $redis := .Values.higress.rateLimits.redis -}}
+{{- if and .Values.higress.rateLimits.enabled (hasSuffix ".dns" $redis.serviceName) }}
+{{- if .Values.rateLimitRedis.enabled }}
+{{- fail "managed DNS Redis and in-cluster Redis cannot both be enabled" }}
+{{- end }}
+{{- $host := trimSuffix ".dns" $redis.serviceName }}
+{{- if not $host }}
+{{- fail "managed DNS Redis hostname must not be empty" }}
+{{- end }}
+{{- $cluster := printf "outbound|%v||%s" $redis.servicePort $redis.serviceName }}
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: tokenvolt-quota-redis-cluster
+  namespace: {{ .Values.higress.namespace }}
+  labels:
+    tokenvolt.ai/managed: quota-infrastructure
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  workloadSelector:
+    labels:
+      app: higress-gateway
+  configPatches:
+    - applyTo: CLUSTER
+      match:
+        context: GATEWAY
+      patch:
+        operation: ADD
+        value:
+          name: {{ $cluster | quote }}
+          type: STRICT_DNS
+          connect_timeout: 1s
+          lb_policy: ROUND_ROBIN
+          dns_lookup_family: V4_ONLY
+          load_assignment:
+            cluster_name: {{ $cluster | quote }}
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: {{ $host | quote }}
+                          port_value: {{ $redis.servicePort }}
+{{- end }}
