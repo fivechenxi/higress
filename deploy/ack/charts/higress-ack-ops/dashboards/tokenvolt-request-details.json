@@ -40,12 +40,12 @@
     },
     {
       "datasource": {"type": "aliyun-log-service-datasource", "uid": "tokenvolt-sls"},
-      "description": "网关最终返回 5xx 的请求，按时间倒序。不受“模型”变量过滤：失败的尝试往往没有 ai_log.model，按模型过滤会把它们全部滤掉。",
+      "description": "每一次返回 5xx 的上游尝试，按时间倒序。请求后续可能已切换其他厂商并成功；用 request_id 在“请求尝试明细”查看最终结果。不受“模型”变量过滤：失败的尝试往往没有 ai_log.model。",
       "fieldConfig": {"defaults": {}, "overrides": []},
       "gridPos": {"h": 9, "w": 12, "x": 0, "y": 21}, "id": 4,
       "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
       "targets": [{"refId": "A", "type": "logstore", "logStore": "model-access", "queryType": "range", "xcol": "table", "ycol": "time,request_id,upstream_request_id,tenant,model,provider,response_code,response_flags,response_error", "powerSql": true, "query": "upstream_cluster: ${provider} AND consumer: ${tenant} AND request_id: ${request_id} | SELECT date_format(from_unixtime(__time__), '%Y-%m-%d %H:%i:%s') AS time, request_id, \"ai_log.upstream_request_id\" AS upstream_request_id, consumer AS tenant, \"ai_log.model\" AS model, regexp_extract(upstream_cluster, 'tokenvolt-([^.]+)', 1) AS provider, response_code, response_flags, \"ai_log.response_error\" AS response_error WHERE coalesce(\"ai_log.model\", '') <> 'dashboard-mock' AND regexp_like(upstream_cluster, 'tokenvolt-[^.]+[.]dns') AND response_code >= 500 ORDER BY __time__ DESC LIMIT 100"}],
-      "title": "5xx 请求明细", "type": "table"
+      "title": "上游 5xx 尝试明细", "type": "table"
     },
     {
       "datasource": {"type": "aliyun-log-service-datasource", "uid": "tokenvolt-sls"},
@@ -58,20 +58,20 @@
     },
     {
       "datasource": {"type": "aliyun-log-service-datasource", "uid": "tokenvolt-sls"},
-      "description": "按请求 ID 展开每一次上游尝试：同一 request_id 出现多行即发生了重试/二次调度，按时间顺序就是尝试链。不做“模型”过滤，因为失败的尝试往往没有 ai_log.model。定位单次请求就把 request_id 填进上方的“请求 ID”。",
+      "description": "按请求 ID 展开每一次上游尝试：同一 request_id 出现多行即发生了重试/二次调度，elapsed_ms 是从原始请求开始到该尝试结束的累计时间，按它升序就是尝试链。不做模型或厂商过滤，避免隐藏失败尝试和截断跨厂商链路。定位单次请求就把 request_id 填进上方的“请求 ID”。",
       "fieldConfig": {"defaults": {}, "overrides": []},
       "gridPos": {"h": 10, "w": 24, "x": 0, "y": 30}, "id": 6,
       "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
-      "targets": [{"refId": "A", "type": "logstore", "logStore": "model-access", "queryType": "range", "xcol": "table", "ycol": "time,request_id,tenant,provider,response_code,response_flags,model,upstream_request_id,chat_id,ttft_ms,tpot_ms,input_tokens,output_tokens,usage_status,response_error", "powerSql": true, "query": "upstream_cluster: ${provider} AND consumer: ${tenant} AND request_id: ${request_id} | SELECT date_format(from_unixtime(__time__), '%Y-%m-%d %H:%i:%s') AS time, request_id, consumer AS tenant, regexp_extract(upstream_cluster, 'tokenvolt-([^.]+)', 1) AS provider, response_code, response_flags, \"ai_log.model\" AS model, \"ai_log.upstream_request_id\" AS upstream_request_id, \"ai_log.chat_id\" AS chat_id, \"ai_log.llm_first_token_duration\" AS ttft_ms, CASE WHEN \"ai_log.output_token\" > 1 AND \"ai_log.llm_service_duration\" >= \"ai_log.llm_first_token_duration\" THEN round((\"ai_log.llm_service_duration\" - \"ai_log.llm_first_token_duration\") / (\"ai_log.output_token\" - 1), 2) ELSE NULL END AS tpot_ms, \"ai_log.input_token\" AS input_tokens, \"ai_log.output_token\" AS output_tokens, \"ai_log.usage_status\" AS usage_status, \"ai_log.response_error\" AS response_error WHERE regexp_like(upstream_cluster, 'tokenvolt-[^.]+[.]dns') AND coalesce(\"ai_log.model\", '') <> 'dashboard-mock' ORDER BY request_id, __time__ ASC LIMIT 300"}],
+      "targets": [{"refId": "A", "type": "logstore", "logStore": "model-access", "queryType": "range", "xcol": "table", "ycol": "request_start_time,elapsed_ms,request_id,tenant,provider,response_code,response_flags,model,upstream_request_id,chat_id,ttft_ms,tpot_ms,input_tokens,output_tokens,usage_status,response_error", "powerSql": true, "query": "consumer: ${tenant} AND request_id: ${request_id} | SELECT start_time AS request_start_time, duration AS elapsed_ms, request_id, consumer AS tenant, regexp_extract(upstream_cluster, 'tokenvolt-([^.]+)', 1) AS provider, response_code, response_flags, \"ai_log.model\" AS model, \"ai_log.upstream_request_id\" AS upstream_request_id, \"ai_log.chat_id\" AS chat_id, \"ai_log.llm_first_token_duration\" AS ttft_ms, CASE WHEN \"ai_log.output_token\" > 1 AND \"ai_log.llm_service_duration\" >= \"ai_log.llm_first_token_duration\" THEN round((\"ai_log.llm_service_duration\" - \"ai_log.llm_first_token_duration\") / (\"ai_log.output_token\" - 1), 2) ELSE NULL END AS tpot_ms, \"ai_log.input_token\" AS input_tokens, \"ai_log.output_token\" AS output_tokens, \"ai_log.usage_status\" AS usage_status, \"ai_log.response_error\" AS response_error WHERE regexp_like(upstream_cluster, 'tokenvolt-[^.]+[.]dns') AND coalesce(\"ai_log.model\", '') <> 'dashboard-mock' ORDER BY request_id, duration ASC LIMIT 300"}],
       "title": "请求尝试明细（含失败与二次调度）", "type": "table"
     },
     {
       "datasource": {"type": "aliyun-log-service-datasource", "uid": "tokenvolt-sls"},
-      "description": "只列被调度过一次以上的请求：attempts 是尝试次数，status_chain/provider_chain/time_chain 按发生顺序展开，hit_429=1 表示其中出现过 429，succeeded=1 表示最终有 2xx。看每次打到哪个上游、厂商返回的 id，用上方的“请求 ID”看“请求尝试明细”。",
+      "description": "只列被调度过一次以上的请求：attempt_chain 按累计 elapsed_ms 排序，每项依次是 elapsed_ms、厂商、状态码、厂商请求 ID；hit_429=1 表示其中出现过 429，succeeded=1 表示最后一次尝试为 2xx。不做厂商过滤，避免截断跨厂商链路。",
       "fieldConfig": {"defaults": {}, "overrides": []},
       "gridPos": {"h": 9, "w": 24, "x": 0, "y": 40}, "id": 7,
       "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
-      "targets": [{"refId": "A", "type": "logstore", "logStore": "model-access", "queryType": "range", "xcol": "table", "ycol": "request_id,attempts,status_chain,provider_chain,time_chain,hit_429,succeeded,output_tokens", "powerSql": true, "query": "upstream_cluster: ${provider} AND consumer: ${tenant} | SELECT request_id, count(*) AS attempts, array_join(array_agg(CAST(response_code AS varchar)), ' -> ') AS status_chain, array_join(array_agg(regexp_extract(upstream_cluster, 'tokenvolt-([^.]+)', 1)), ' -> ') AS provider_chain, array_join(array_agg(date_format(from_unixtime(__time__), '%H:%i:%s')), ' -> ') AS time_chain, max(CASE WHEN response_code = 429 THEN 1 ELSE 0 END) AS hit_429, max(CASE WHEN response_code >= 200 AND response_code < 300 THEN 1 ELSE 0 END) AS succeeded, sum(CASE WHEN \"ai_log.output_token\" > 0 THEN \"ai_log.output_token\" ELSE 0 END) AS output_tokens WHERE regexp_like(upstream_cluster, 'tokenvolt-[^.]+[.]dns') GROUP BY request_id HAVING count(*) > 1 ORDER BY max(__time__) DESC LIMIT 100"}],
+      "targets": [{"refId": "A", "type": "logstore", "logStore": "model-access", "queryType": "range", "xcol": "table", "ycol": "request_id,attempts,attempt_chain,hit_429,succeeded,output_tokens", "powerSql": true, "query": "consumer: ${tenant} | SELECT request_id, count(*) AS attempts, array_join(min_by(concat(CAST(duration AS varchar), 'ms | ', coalesce(regexp_extract(upstream_cluster, 'tokenvolt-([^.]+)', 1), '-'), ' | ', CAST(response_code AS varchar), ' | ', coalesce(\"ai_log.upstream_request_id\", '-')), duration, 11), ' -> ') AS attempt_chain, max(CASE WHEN response_code = 429 THEN 1 ELSE 0 END) AS hit_429, CASE WHEN max_by(response_code, duration) >= 200 AND max_by(response_code, duration) < 300 THEN 1 ELSE 0 END AS succeeded, sum(CASE WHEN \"ai_log.output_token\" > 0 THEN \"ai_log.output_token\" ELSE 0 END) AS output_tokens WHERE regexp_like(upstream_cluster, 'tokenvolt-[^.]+[.]dns') GROUP BY request_id HAVING count(*) > 1 ORDER BY max(__time__) DESC LIMIT 100"}],
       "title": "多次调度汇总（尝试链）", "type": "table"
     },
     {
