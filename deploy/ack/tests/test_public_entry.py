@@ -98,12 +98,16 @@ class PublicEntryTest(unittest.TestCase):
                   'sourceId': 'sls-access', 'environmentId': 'shadow',
                   'prefix': 'usage-archive/shadow/',
                   'sourceEnvironments': {'sls-access': 'shadow'},
+                  'allowedConsumers': ['tv-test-key-id'],
                   'startCursors': [{'shard': {'ID': 0, 'CreatedAt': 1, 'Status': 'readwrite'},
                                     'cursor': 'approved'}]}
         env = env_for(config)
         self.assertEqual(env['USAGE_ARCHIVE_PRODUCER_ENABLED'], 'true')
         self.assertEqual(json.loads(env['USAGE_ARCHIVE_START_CURSORS']), config['startCursors'])
+        self.assertEqual(json.loads(env['USAGE_ARCHIVE_ALLOWED_CONSUMERS']), config['allowedConsumers'])
         self.assertEqual(json.loads(env['USAGE_ARCHIVE_SOURCE_ENVIRONMENTS']), config['sourceEnvironments'])
+        with self.assertRaisesRegex(RuntimeError, 'controlPlane.archive.allowedConsumers is required'):
+            render(True, archive={**config, 'allowedConsumers': []})
         with self.assertRaisesRegex(RuntimeError, 'archive producer requires derived workers'):
             render(True, archive={**config, 'derivedEnabled': False})
 
