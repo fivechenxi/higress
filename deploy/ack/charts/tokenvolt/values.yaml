@@ -29,6 +29,7 @@ controlPlane:
     prefix: ""
     sourceEnvironments: {}
     startCursors: []
+    allowedConsumers: []
   publicService:
     enabled: false
     annotations: {}

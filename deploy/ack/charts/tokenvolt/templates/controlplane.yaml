@@ -84,10 +84,12 @@ spec:
             {{- if .Values.controlPlane.archive.producerEnabled }}
             {{- if not .Values.controlPlane.archive.derivedEnabled }}{{ fail "archive producer requires derived workers" }}{{ end }}
             {{- if not .Values.controlPlane.archive.reconcileEnabled }}{{ fail "archive producer requires snapshot reconciler" }}{{ end }}
+            {{- if not .Values.controlPlane.archive.allowedConsumers }}{{ fail "controlPlane.archive.allowedConsumers is required" }}{{ end }}
             - {name: USAGE_ARCHIVE_PRODUCER_ENABLED, value: "true"}
             - {name: USAGE_ARCHIVE_SOURCE_ID, value: {{ required "controlPlane.archive.sourceId is required" .Values.controlPlane.archive.sourceId | quote }}}
             - {name: USAGE_ARCHIVE_ENVIRONMENT_ID, value: {{ required "controlPlane.archive.environmentId is required" .Values.controlPlane.archive.environmentId | quote }}}
             - {name: USAGE_ARCHIVE_START_CURSORS, value: {{ required "controlPlane.archive.startCursors is required" .Values.controlPlane.archive.startCursors | toJson | quote }}}
+            - {name: USAGE_ARCHIVE_ALLOWED_CONSUMERS, value: {{ .Values.controlPlane.archive.allowedConsumers | toJson | quote }}}
             {{- end }}
             {{- if .Values.controlPlane.archive.derivedEnabled }}
             - {name: USAGE_ARCHIVE_DERIVED_ENABLED, value: "true"}
