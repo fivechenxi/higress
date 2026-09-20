@@ -213,6 +213,19 @@ variable "tokenvolt_gateway_config_publisher_enabled" {
   default     = false
 }
 
+variable "tokenvolt_neutoken_single_use_clusters" {
+  description = "Current published neutoken.net McpBridge cluster names that must use one upstream request per connection while the T07 UC incident is investigated. Verify the domain before setting; refresh names after connection republication."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = length(var.tokenvolt_neutoken_single_use_clusters) == length(distinct(var.tokenvolt_neutoken_single_use_clusters)) && alltrue([
+      for name in var.tokenvolt_neutoken_single_use_clusters : can(regex("^outbound\\|443\\|\\|tokenvolt-mp-[0-9a-f]{40}\\.dns$", name))
+    ])
+    error_message = "Each neutoken single-use cluster must be a unique published tokenvolt-mp DNS cluster on port 443."
+  }
+}
+
 variable "tokenvolt_public_tls_enabled" {
   description = "Terminate HTTPS in Higress for the public TokenVolt host using the stack-managed test certificate."
   type        = bool

@@ -1,0 +1,40 @@
+{{- /* Keep the three published neutoken.net clusters on fresh upstream
+connections while investigating intermittent UC resets. Names are pinned from
+the published McpBridge; a publication that changes them must update tfvars. */ -}}
+{{- $clusters := .Values.higress.neutokenSingleUseClusters | default list -}}
+{{- if $clusters }}
+{{- if ne (len $clusters) (len (uniq $clusters)) }}
+{{- fail "neutoken single-use cluster names must be unique" }}
+{{- end }}
+{{- range $clusters }}
+{{- if not (regexMatch "^outbound\\|443\\|\\|tokenvolt-mp-[0-9a-f]{40}\\.dns$" .) }}
+{{- fail "neutoken single-use cluster name is invalid" }}
+{{- end }}
+{{- end }}
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: tokenvolt-neutoken-single-use-connections
+  namespace: {{ .Values.higress.namespace }}
+  labels:
+    tokenvolt.ai/managed: t07-incident
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+  annotations:
+    tokenvolt.ai/reason: "T07 neutoken.net upstream UC mitigation; no POST retry"
+spec:
+  workloadSelector:
+    labels:
+      app: higress-gateway
+  configPatches:
+    {{- range $clusters }}
+    - applyTo: CLUSTER
+      match:
+        context: GATEWAY
+        cluster:
+          name: {{ . | quote }}
+      patch:
+        operation: MERGE
+        value:
+          max_requests_per_connection: 1
+    {{- end }}
+{{- end }}
