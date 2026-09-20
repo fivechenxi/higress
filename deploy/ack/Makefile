@@ -14,8 +14,9 @@
 
 TOFU ?= ./scripts/tofu.sh
 CONFIG_SYNC ?= ./scripts/remote-config.sh
+ARTIFACT_SYNC ?= ./scripts/sync-artifacts.sh
 
-.PHONY: backend-bootstrap backend-migrate init config-pull config-push config-status config-history plan start stop destroy
+.PHONY: backend-bootstrap backend-migrate init config-pull config-push config-status config-history artifacts-sync plan start stop destroy
 
 backend-bootstrap:
 	./scripts/bootstrap-backend.sh
@@ -38,11 +39,14 @@ config-status:
 config-history:
 	$(CONFIG_SYNC) history
 
+artifacts-sync:
+	$(ARTIFACT_SYNC)
+
 plan:
 	$(CONFIG_SYNC) prepare
 	$(TOFU) plan
 
-start:
+start: artifacts-sync
 	$(CONFIG_SYNC) prepare
 	$(TOFU) apply -auto-approve -var='lifecycle_mode=starting'
 	$(TOFU) apply -auto-approve -var='lifecycle_mode=running'
