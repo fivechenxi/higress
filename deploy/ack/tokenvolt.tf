@@ -139,7 +139,7 @@ resource "alicloud_log_store_index" "tokenvolt" {
       "method"                            = "text"
       "protocol"                          = "text"
       "upstream_host"                     = "text"
-      "upstream_service_time"             = "text"
+      "upstream_service_time"             = "long"
       "upstream_transport_failure_reason" = "text"
       "ai_log.model"                      = "text"
       "ai_log.requested_model"            = "text"
