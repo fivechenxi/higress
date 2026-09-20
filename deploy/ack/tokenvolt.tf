@@ -244,7 +244,7 @@ resource "alicloud_ram_policy" "tokenvolt" {
     Statement = [
       {
         Effect   = "Allow"
-        Action   = ["log:GetLogStoreLogs", "log:GetHistograms"]
+        Action   = ["log:GetLogStoreLogs", "log:GetHistograms", "log:ListShards", "log:GetCursorOrData", "log:PullLogs"]
         Resource = ["acs:log:${var.region}:${data.alicloud_account.current.id}:project/${local.tokenvolt_sls_project}/logstore/${local.tokenvolt_sls_logstore}"]
       },
       {
