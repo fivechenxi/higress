@@ -81,6 +81,22 @@ spec:
             - {name: SLS_PROJECT, value: {{ required "controlPlane.cloud.slsProject must be set" .Values.controlPlane.cloud.slsProject | quote }}}
             - {name: SLS_LOGSTORE, value: {{ required "controlPlane.cloud.slsLogstore must be set" .Values.controlPlane.cloud.slsLogstore | quote }}}
             - {name: USAGE_BINDING_PROVIDER, value: "higress"}
+            {{- if .Values.controlPlane.archive.producerEnabled }}
+            {{- if not .Values.controlPlane.archive.derivedEnabled }}{{ fail "archive producer requires derived workers" }}{{ end }}
+            {{- if not .Values.controlPlane.archive.reconcileEnabled }}{{ fail "archive producer requires snapshot reconciler" }}{{ end }}
+            - {name: USAGE_ARCHIVE_PRODUCER_ENABLED, value: "true"}
+            - {name: USAGE_ARCHIVE_SOURCE_ID, value: {{ required "controlPlane.archive.sourceId is required" .Values.controlPlane.archive.sourceId | quote }}}
+            - {name: USAGE_ARCHIVE_ENVIRONMENT_ID, value: {{ required "controlPlane.archive.environmentId is required" .Values.controlPlane.archive.environmentId | quote }}}
+            - {name: USAGE_ARCHIVE_START_CURSORS, value: {{ required "controlPlane.archive.startCursors is required" .Values.controlPlane.archive.startCursors | toJson | quote }}}
+            {{- end }}
+            {{- if .Values.controlPlane.archive.derivedEnabled }}
+            - {name: USAGE_ARCHIVE_DERIVED_ENABLED, value: "true"}
+            - {name: USAGE_ARCHIVE_SOURCE_ENVIRONMENTS, value: {{ required "controlPlane.archive.sourceEnvironments is required" .Values.controlPlane.archive.sourceEnvironments | toJson | quote }}}
+            - {name: USAGE_ARCHIVE_PREFIX, value: {{ required "controlPlane.archive.prefix is required" .Values.controlPlane.archive.prefix | quote }}}
+            {{- end }}
+            {{- if .Values.controlPlane.archive.reconcileEnabled }}
+            - {name: USAGE_ARCHIVE_RECONCILE_ENABLED, value: "true"}
+            {{- end }}
             - {name: HIGRESS_QUOTA_ENABLED, value: {{ .Values.controlPlane.quotaEnabled | quote }}}
             {{- if or .Values.controlPlane.usageDashboard.environment .Values.controlPlane.usageDashboard.source }}
             - {name: USAGE_DASHBOARD_ENVIRONMENT, value: {{ required "controlPlane.usageDashboard.environment must be set with source" .Values.controlPlane.usageDashboard.environment | quote }}}

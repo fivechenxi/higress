@@ -24,7 +24,7 @@ import yaml
 CHART = Path(__file__).resolve().parents[1] / 'charts/tokenvolt'
 
 
-def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, in_cluster=False):
+def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, in_cluster=False, archive=None):
     values = {
         'controlPlane': {
             'quotaEnabled': quota,
@@ -72,6 +72,8 @@ def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, 
         values['higress']['rateLimits']['redis'].update(redis)
     if dashboard is not None:
         values['controlPlane']['usageDashboard'] = dashboard
+    if archive is not None:
+        values['controlPlane']['archive'] = archive
     with tempfile.NamedTemporaryFile(mode='w') as f:
         json.dump(values, f)
         f.flush()
@@ -84,6 +86,27 @@ def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, 
 
 
 class PublicEntryTest(unittest.TestCase):
+    def test_archive_is_opt_in_and_requires_a_complete_shadow_configuration(self):
+        def env_for(config):
+            objects = render(True, archive=config)
+            deployment = next(o for o in objects if o['kind'] == 'Deployment'
+                              and o['metadata']['name'] == 'tokenvolt-control-plane')
+            return {e['name']: e.get('value') for e in deployment['spec']['template']['spec']['containers'][0]['env']}
+
+        self.assertNotIn('USAGE_ARCHIVE_PRODUCER_ENABLED', env_for(None))
+        config = {'producerEnabled': True, 'derivedEnabled': True, 'reconcileEnabled': True,
+                  'sourceId': 'sls-access', 'environmentId': 'shadow',
+                  'prefix': 'usage-archive/shadow/',
+                  'sourceEnvironments': {'sls-access': 'shadow'},
+                  'startCursors': [{'shard': {'ID': 0, 'CreatedAt': 1, 'Status': 'readwrite'},
+                                    'cursor': 'approved'}]}
+        env = env_for(config)
+        self.assertEqual(env['USAGE_ARCHIVE_PRODUCER_ENABLED'], 'true')
+        self.assertEqual(json.loads(env['USAGE_ARCHIVE_START_CURSORS']), config['startCursors'])
+        self.assertEqual(json.loads(env['USAGE_ARCHIVE_SOURCE_ENVIRONMENTS']), config['sourceEnvironments'])
+        with self.assertRaisesRegex(RuntimeError, 'archive producer requires derived workers'):
+            render(True, archive={**config, 'derivedEnabled': False})
+
     def test_managed_redis_has_one_matching_outbound_cluster(self):
         for port in (6379, 6380):
             objects = render(True, managed_redis=True, redis={'servicePort': port})
