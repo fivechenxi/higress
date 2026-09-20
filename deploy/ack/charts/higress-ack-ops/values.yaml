@@ -193,6 +193,7 @@ monitoring:
         version: "2.39.2"
         commit: a73857e05f2e1f8253534d909f5388553991ce93
         archiveSha256: 8aaf97e81380553db098ef7a641689ffd2dcddb20afe0fdf6d8b2b182920ff8b
+        archiveUrl: https://github.com/aliyun/aliyun-log-grafana-datasource-plugin/archive/a73857e05f2e1f8253534d909f5388553991ce93.tar.gz
     resources:
       requests:
         cpu: 100m

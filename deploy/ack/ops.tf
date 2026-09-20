@@ -147,6 +147,14 @@ resource "helm_release" "higress_ack_ops" {
             endpoint       = "${var.region}-intranet.log.aliyuncs.com"
             project        = local.tokenvolt_sls_project
             logstore       = local.tokenvolt_sls_logstore
+            plugin = {
+              # The checksum-pinned public artifact is mirrored in OSS so
+              # Grafana startup never depends on GitHub egress from ACK.
+              version       = local.grafana_sls_plugin_artifact.version
+              commit        = local.grafana_sls_plugin_artifact.commit
+              archiveSha256 = local.grafana_sls_plugin_artifact.sha256
+              archiveUrl    = "https://${alicloud_oss_bucket.tokenvolt_plugins[0].bucket}.oss-${var.region}-internal.aliyuncs.com/${local.grafana_sls_plugin_artifact.objectKey}"
+            }
           }
         }
         alerting = {

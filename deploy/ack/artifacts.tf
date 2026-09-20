@@ -13,6 +13,21 @@
 # limitations under the License.
 
 # Public, checksum-addressed release binaries only. No application data or secrets.
+locals {
+  grafana_sls_plugin_manifest = {
+    for line in split("\n", file("${path.module}/artifacts/grafana-sls-plugin.sh")) :
+    split("=", trimspace(line))[0] => split("=", trimspace(line))[1]
+    if trimspace(line) != "" && !startswith(trimspace(line), "#")
+  }
+  grafana_sls_plugin_artifact = {
+    version   = local.grafana_sls_plugin_manifest.GRAFANA_SLS_PLUGIN_VERSION
+    commit    = local.grafana_sls_plugin_manifest.GRAFANA_SLS_PLUGIN_COMMIT
+    sha256    = local.grafana_sls_plugin_manifest.GRAFANA_SLS_PLUGIN_SHA256
+    sourceUrl = local.grafana_sls_plugin_manifest.GRAFANA_SLS_PLUGIN_SOURCE_URL
+    objectKey = local.grafana_sls_plugin_manifest.GRAFANA_SLS_PLUGIN_OBJECT_KEY
+  }
+}
+
 resource "alicloud_oss_bucket" "tokenvolt_plugins" {
   count         = var.tokenvolt_enabled ? 1 : 0
   bucket        = "tokenvolt-plugins-${data.alicloud_account.current.id}-${var.region}"

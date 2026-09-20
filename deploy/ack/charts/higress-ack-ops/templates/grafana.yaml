@@ -108,7 +108,7 @@ spec:
               archive=/tmp/sls-plugin.tar.gz
               source=/tmp/sls-plugin-source
               target=/var/lib/grafana/plugins/aliyun-log-service-datasource
-              wget -q -O "$archive" "https://github.com/aliyun/aliyun-log-grafana-datasource-plugin/archive/{{ $grafana.sls.plugin.commit }}.tar.gz"
+              wget -q -O "$archive" {{ required "monitoring.grafana.sls.plugin.archiveUrl must be set" $grafana.sls.plugin.archiveUrl | quote }}
               echo "{{ $grafana.sls.plugin.archiveSha256 }}  $archive" | sha256sum -c -
               mkdir -p "$source" "$target"
               tar -xzf "$archive" -C "$source" --strip-components=1
