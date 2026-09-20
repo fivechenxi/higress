@@ -1,0 +1,61 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- /* Managed Redis has no Kubernetes Service/route to create its cluster.
+Use the same logical name and port as the plugins; .dns is a registry suffix,
+not part of the actual DNS hostname. Kubernetes Redis uses native discovery. */ -}}
+{{- $redis := .Values.higress.rateLimits.redis -}}
+{{- if and .Values.higress.rateLimits.enabled (hasSuffix ".dns" $redis.serviceName) }}
+{{- if .Values.rateLimitRedis.enabled }}
+{{- fail "managed DNS Redis and in-cluster Redis cannot both be enabled" }}
+{{- end }}
+{{- $host := trimSuffix ".dns" $redis.serviceName }}
+{{- if not $host }}
+{{- fail "managed DNS Redis hostname must not be empty" }}
+{{- end }}
+{{- $cluster := printf "outbound|%v||%s" $redis.servicePort $redis.serviceName }}
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: tokenvolt-quota-redis-cluster
+  namespace: {{ .Values.higress.namespace }}
+  labels:
+    tokenvolt.ai/managed: quota-infrastructure
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  workloadSelector:
+    labels:
+      app: higress-gateway
+  configPatches:
+    - applyTo: CLUSTER
+      match:
+        context: GATEWAY
+      patch:
+        operation: ADD
+        value:
+          name: {{ $cluster | quote }}
+          type: STRICT_DNS
+          connect_timeout: 1s
+          lb_policy: ROUND_ROBIN
+          dns_lookup_family: V4_ONLY
+          load_assignment:
+            cluster_name: {{ $cluster | quote }}
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: {{ $host | quote }}
+                          port_value: {{ $redis.servicePort }}
+{{- end }}
