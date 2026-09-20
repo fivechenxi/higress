@@ -254,7 +254,7 @@ resource "alicloud_ram_policy" "tokenvolt" {
       },
       {
         Effect   = "Allow"
-        Action   = ["oss:GetObject", "oss:PutObject"]
+        Action   = ["oss:GetObject", "oss:GetObjectVersion", "oss:PutObject"]
         Resource = ["acs:oss:*:${data.alicloud_account.current.id}:${local.tokenvolt_oss_bucket}/*"]
       }
     ]
