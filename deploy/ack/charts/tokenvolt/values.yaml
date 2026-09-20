@@ -18,6 +18,17 @@ controlPlane:
   usageDashboard:
     environment: ""
     source: ""
+  # Disabled until a separate shadow database, source identity and approved
+  # per-shard SLS cursors are available. Enabling these does not enable bills.
+  archive:
+    producerEnabled: false
+    derivedEnabled: false
+    reconcileEnabled: false
+    sourceId: ""
+    environmentId: ""
+    prefix: ""
+    sourceEnvironments: {}
+    startCursors: []
   publicService:
     enabled: false
     annotations: {}
