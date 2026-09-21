@@ -59,7 +59,8 @@ make stop
 
 `tokenvolt_ghcr_token` 不属于 tfvars：它继续由操作者在当前 Shell 或 CI Secret 中
 提供，避免长期 GitHub 凭据进入共享配置对象。未提供时，启用了 TokenVolt 私有
-镜像的 Plan 会按原有安全校验失败。
+镜像的 Plan 会按原有安全校验失败。policy Wasm 的北京 OSS HTTPS 地址不需要
+registry 凭据。
 
 `plan/start/stop` 执行前会比较本地、OSS 和上次同步版本：
 

@@ -194,7 +194,7 @@ class GatewayPolicyTest(unittest.TestCase):
         )
         data_volume = next(volume for volume in deployment['spec']['template']['spec']['volumes']
                            if volume['name'] == 'data')
-        self.assertEqual(data_volume['emptyDir']['sizeLimit'], '512Mi')
+        self.assertEqual(data_volume['emptyDir']['sizeLimit'], '2Gi')
 
         ingress = by_kind_name[('Ingress', 'higress-grafana')]
         self.assertEqual(ingress['spec']['ingressClassName'], 'higress')
