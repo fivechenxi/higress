@@ -196,6 +196,7 @@ Keep these gauges:
 | `envoy_cluster_upstream_rq_active` | Requests currently active toward each MaaS/provider cluster |
 | `envoy_cluster_upstream_cx_active` | Active upstream connections by provider cluster |
 | `envoy_cluster_upstream_rq_pending_active` | Requests waiting for an upstream connection/capacity |
+| `envoy_cluster_membership_total` | Endpoints currently assigned to each provider cluster; `== 0` on a `tokenvolt-*.dns` cluster is the attributable form of "published without endpoints" |
 | `envoy_server_memory_allocated` | Envoy allocated memory; used for memory per active stream |
 | `envoy_server_memory_heap_size` | Envoy heap reservation and fragmentation context |
 
@@ -259,7 +260,7 @@ Keep these direct gauges/counters:
 - `pilot_xds`
 - `pilot_xds_expired_nonce`
 - `pilot_endpoint_not_ready`
-- `pilot_eds_no_instances`
+- `pilot_eds_no_instances` — a gauge ("number of clusters without instances"), so rules must read it as a gauge (`> 0` for the condition); `increase()` on it fires on the recovery edge too and duplicates every incident
 
 Keep bucket, sum, and count for these two bounded histograms:
 

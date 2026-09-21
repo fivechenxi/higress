@@ -297,7 +297,7 @@ data:
         metric_relabel_configs:
           - source_labels: [__name__]
             action: keep
-            regex: '^(route_upstream_model_consumer_metric_(llm_first_token_duration(_bucket_le_(100|250|500|1000|2000|5000|10000|30000|60000|inf))?|llm_stream_duration_count|llm_service_duration|llm_duration_count|llm_failure_count|llm_rate_limited_count|llm_request_count|llm_aborted_count|llm_inflight_request|llm_tpot_duration(_bucket_le_(5|10|20|30|50|100|250|500|1000|inf))?|llm_tpot_count|cache_hit_token|cache_reported_request_count|cache_hit_request_count|input_token|output_token|total_token)|ai_endpoint_picker_(decisions_total|fallback_total|missing_signal_total|feedback_total|inflight)|ai_sec_(request_deny|response_deny)|envoy_http_downstream_(rq_active|cx_active|rq|rq_time_(bucket|sum|count)|rq_timeout|rq_header_timeout|rq_idle_timeout|rq_max_duration_reached|rq_rx_reset|rq_tx_reset|rq_too_many_premature_resets|rq_response_before_rq_complete|rq_too_large|rq_overload_close|cx_delayed_close_timeout|cx_idle_timeout|cx_max_duration_reached|cx_overload_disable_keepalive)|envoy_http_(rq_reset_after_downstream_response_started|rq_overload_local_reply)|envoy_listener_downstream_(cx_active|cx_overflow|global_cx_overflow|cx_overload_reject|cx_transport_socket_connect_timeout|pre_cx_timeout)|envoy_cluster_(upstream_rq_active|upstream_cx_active|upstream_rq_pending_active|upstream_rq(_429)?|external_upstream_rq|upstream_rq_time_(bucket|sum|count)|upstream_cx_connect_fail|upstream_cx_connect_timeout|upstream_cx_idle_timeout|upstream_cx_max_duration_reached|upstream_cx_overflow|upstream_cx_pool_overflow|upstream_rq_cancelled|upstream_rq_max_duration_reached|upstream_rq_pending_overflow|upstream_rq_retry_overflow|upstream_rq_retry_limit_exceeded|upstream_rq_timeout|upstream_rq_per_try_timeout|upstream_rq_per_try_idle_timeout|upstream_rq_rx_reset|upstream_rq_tx_reset|http2_header_overflow|http2_pending_send_bytes|http2_rx_reset|http2_tx_reset|http2_keepalive_timeout|http2_tx_flush_timeout|circuit_breakers_(default_remaining_pending|default_rq_pending_open|high_rq_pending_open))|envoy_server_memory_(allocated|heap_size|physical_size)|envoy_envoy_overload_actions_reset_high_memory_stream_count)$'
+            regex: '^(route_upstream_model_consumer_metric_(llm_first_token_duration(_bucket_le_(100|250|500|1000|2000|5000|10000|30000|60000|inf))?|llm_stream_duration_count|llm_service_duration|llm_duration_count|llm_failure_count|llm_rate_limited_count|llm_request_count|llm_aborted_count|llm_inflight_request|llm_tpot_duration(_bucket_le_(5|10|20|30|50|100|250|500|1000|inf))?|llm_tpot_count|cache_hit_token|cache_reported_request_count|cache_hit_request_count|input_token|output_token|total_token)|ai_endpoint_picker_(decisions_total|fallback_total|missing_signal_total|feedback_total|inflight)|ai_sec_(request_deny|response_deny)|envoy_http_downstream_(rq_active|cx_active|rq|rq_time_(bucket|sum|count)|rq_timeout|rq_header_timeout|rq_idle_timeout|rq_max_duration_reached|rq_rx_reset|rq_tx_reset|rq_too_many_premature_resets|rq_response_before_rq_complete|rq_too_large|rq_overload_close|cx_delayed_close_timeout|cx_idle_timeout|cx_max_duration_reached|cx_overload_disable_keepalive)|envoy_http_(rq_reset_after_downstream_response_started|rq_overload_local_reply)|envoy_listener_downstream_(cx_active|cx_overflow|global_cx_overflow|cx_overload_reject|cx_transport_socket_connect_timeout|pre_cx_timeout)|envoy_cluster_(membership_total|upstream_rq_active|upstream_cx_active|upstream_rq_pending_active|upstream_rq(_429)?|external_upstream_rq|upstream_rq_time_(bucket|sum|count)|upstream_cx_connect_fail|upstream_cx_connect_timeout|upstream_cx_idle_timeout|upstream_cx_max_duration_reached|upstream_cx_overflow|upstream_cx_pool_overflow|upstream_rq_cancelled|upstream_rq_max_duration_reached|upstream_rq_pending_overflow|upstream_rq_retry_overflow|upstream_rq_retry_limit_exceeded|upstream_rq_timeout|upstream_rq_per_try_timeout|upstream_rq_per_try_idle_timeout|upstream_rq_rx_reset|upstream_rq_tx_reset|http2_header_overflow|http2_pending_send_bytes|http2_rx_reset|http2_tx_reset|http2_keepalive_timeout|http2_tx_flush_timeout|circuit_breakers_(default_remaining_pending|default_rq_pending_open|high_rq_pending_open))|envoy_server_memory_(allocated|heap_size|physical_size)|envoy_envoy_overload_actions_reset_high_memory_stream_count)$'
           # Keep only the public data-plane listener/HTTP connection manager;
           # admin, stats and readiness listeners otherwise duplicate noise.
           - source_labels: [__name__, http_conn_manager_prefix]
@@ -1298,14 +1298,32 @@ data:
             annotations:
               summary: Higress controller reports endpoints not ready
               description: Check model-provider service discovery and the most recent gateway publication.
+          # pilot_eds_no_instances is a gauge ("number of clusters without
+          # instances"), not a counter. increase() on a gauge fires on both
+          # edges: once when a cluster loses its endpoints and again hours later
+          # when it gets them back, because the drop is read as a counter reset.
+          # Report the condition while it lasts instead.
           - alert: HigressControllerEDSNoInstances
-            expr: increase(pilot_eds_no_instances[5m]) > 0
+            expr: pilot_eds_no_instances > 0
+            for: 5m
             labels:
               severity: warning
               component: higress-controller
             annotations:
-              summary: Higress controller published a service with no endpoints
-              description: Check the affected provider registry and DNS-backed McpBridge entry.
+              summary: Higress controller reports clusters published without endpoints
+              description: One or more clusters currently have no endpoints. This controller gauge carries no cluster label, so use the provider-cluster alert below (or the 厂商 field it renders) to name the affected registry.
+          # The controller gauge cannot attribute the condition to a cluster; the
+          # gateway exposes membership per cluster. Needs
+          # envoy_cluster_membership_total in the gateway keep allowlist.
+          - alert: TokenVoltProviderClusterNoEndpoints
+            expr: envoy_cluster_membership_total{cluster_name=~".*[|][|]tokenvolt-[^.]+[.]dns.*"} == 0
+            for: 5m
+            labels:
+              severity: warning
+              component: gateway
+            annotations:
+              summary: A model provider cluster currently has no endpoints
+              description: The DNS-backed McpBridge registry behind this provider resolved to no hosts, so requests to it fail or fail over to the next channel. The 厂商 field carries the registry hash from McpBridge; re-publishing the gateway config after the domain resolves again clears it.
           {{- if .Values.monitoring.hpaState.enabled }}
           - alert: HigressHPAConditionFalse
             expr: kube_horizontalpodautoscaler_status_condition{condition=~"AbleToScale|ScalingActive",status="false"} == 1
