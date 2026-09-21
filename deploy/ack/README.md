@@ -29,8 +29,9 @@ versioned tfvars synchronization. See
 OpenTofu creates and destroys only:
 
 - one ACK Basic managed cluster (`ack.standard`);
-- one pay-as-you-go elastic worker node pool;
-- one ECS SSH key pair used by that node pool;
+- one two-node prepaid baseline worker pool;
+- one pay-as-you-go elastic worker pool that scales from 0 to 10;
+- one ECS SSH key pair shared by both node pools;
 - one Higress Helm release and its Kubernetes objects.
 
 It reuses these existing resources as read-only inputs:
@@ -44,18 +45,19 @@ are not Terraform resources in this stack. `tofu destroy` cannot delete them.
 
 There are two lifecycle levels:
 
-- normal test start/stop retains the ACK control plane, node pool, ESS scaling
-  group, and key pair, and only creates/releases the billable workers and the
-  Higress release;
+- normal test start/stop retains the ACK control plane, both node pools, two
+  prepaid baseline workers, the elastic ESS scaling group, and the key pair;
+  it creates/releases only elastic workers and the Higress release;
 - `tofu destroy` is the explicit final cleanup and removes the retained ACK
   resources as well.
 
 ## Test sizing and traffic
 
-- Workers: `ecs.u1-c1m2.xlarge`, pay-as-you-go, 1 configured minimum and 3
-  maximum. A running Higress installation requires at least 2 because the two
-  controller replicas use required hostname anti-affinity. Controller HPA,
-  failover, or a rolling update can temporarily request the third worker.
+- Workers: two prepaid `ecs.u1-c1m2.xlarge` baseline nodes, plus a
+  pay-as-you-go elastic pool configured for 0 to 10 nodes. The two controller
+  replicas use required hostname anti-affinity. ACK creates elastic nodes only
+  when Pods cannot be scheduled on the baseline capacity; 10 is a ceiling, not
+  a reserved or pre-created node count.
 - Worker disk: 40 GiB ESSD Entry.
 - Higress gateway: 2 replicas minimum, HPA up to 4 using 225 active HTTP
   requests per Pod (normal and streaming requests). Gateway CPU is deliberately
@@ -134,7 +136,7 @@ The same object records `deployment_baseline_tag`; deployment refuses to run
 unless the current Git HEAD resolves to that exact immutable tag. If the tag is
 missing or differs, fetch tags and check out the tag printed by the command.
 
-The apply is the complete pull-up operation: ACK, the worker node pool, and
+The apply is the complete pull-up operation: ACK, the worker node pools, and
 Higress are reconciled in dependency order. Provider versions are pinned in
 `.terraform.lock.hcl`.
 
@@ -150,23 +152,31 @@ To use a different cluster name or sizing, create an untracked
 ```hcl
 cluster_name          = "higress-ack"
 worker_instance_types = ["ecs.u1-c1m2.xlarge"]
-node_min_size         = 1
-node_max_size         = 3
+base_node_count       = 2
+base_node_period      = 1
+base_node_auto_renew  = true
+node_min_size         = 0
+node_max_size         = 10
 ```
 
-## Stop without deleting the free control resources
+The baseline pool contains two prepaid, automatically renewed workers. The
+elastic pool remains pay-as-you-go and scales from zero to ten. The maximum is
+only a ceiling: ACK creates elastic workers only when Pods cannot be scheduled
+on the baseline capacity.
 
-For normal test shutdown, remove the Higress Helm release and park the retained
-node pool at a manual desired size of zero:
+## Stop without deleting retained resources
+
+For normal shutdown, remove the Higress Helm release and park the retained
+pay-as-you-go elastic pool at a manual desired size of zero:
 
 ```shell
 make stop
 ```
 
-This keeps the ACK cluster, node pool, empty ESS scaling group, and key pair for
-reuse while releasing the pay-as-you-go workers. The ACK API server's public
-endpoint may still have a small load-balancer-related cost; disable it and run
-OpenTofu inside the VPC if a completely internal management path is available.
+This keeps the ACK cluster, the two prepaid baseline workers, the empty elastic
+ESS scaling group, and the key pair for reuse while releasing pay-as-you-go
+workers. Because prepaid workers remain online, `make stop` is no longer a
+zero-compute-cost state.
 
 Resume with:
 
@@ -174,18 +184,15 @@ Resume with:
 make start
 ```
 
-ACK runs both CoreDNS and `cluster-autoscaler` on worker nodes in this topology.
-The live ACK configuration keeps `skip_nodes_with_system_pods` and
-`scale_up_from_zero` enabled, so the only automatic node pool cannot remain at
-zero: its own system Pods either prevent scale-down or wake it again. No CoreDNS
-maintenance is required from this stack, but parking all workers therefore
-requires temporarily disabling node auto scaling.
+ACK runs CoreDNS and `cluster-autoscaler` on the prepaid baseline workers. The
+elastic pool can therefore remain at zero while `scale_up_from_zero` stays
+enabled; no CoreDNS maintenance is required from this stack.
 
-ACK also rejects disabling node auto scaling and setting desired size zero in
-one request. `make stop` performs two normal OpenTofu applies: first uninstall
-Higress and disable automatic scaling, then set desired size zero. `make start`
-first restores the base worker, then enables automatic scaling and installs
-Higress. No direct cloud API mutation is hidden in the Makefile.
+ACK rejects disabling node auto scaling and setting desired size zero in one
+request. `make stop` therefore performs two normal OpenTofu applies for the
+elastic pool. `make start` re-enables elastic scaling and installs Higress; the
+prepaid baseline pool remains present throughout. No direct cloud API mutation
+is hidden in the Makefile.
 
 The OpenTofu default lifecycle mode is `running`. While stopped, use `make plan`
 only for review and `make start` to resume; a plain `tofu apply` would also
@@ -274,13 +281,11 @@ tofu plan -destroy
 make destroy
 ```
 
-OpenTofu removes the Helm release before the node pool and cluster. The node
-pool enables `force_delete` because this is a disposable environment and ACK's
-normal pod-drain path can take more than ten minutes when deleting the only
-node pool. In live testing, ACK still took about eleven minutes to delete the
-node pool because whole-pool deletion follows a separate asynchronous cloud
-workflow; the 5-minute autoscaler trigger delay does not shorten it. Afterward,
-verify the state is empty:
+OpenTofu removes the Helm release before the node pools and cluster. Both pools
+enable `force_delete` because final cluster cleanup uses ACK's separate
+asynchronous whole-pool deletion workflow. Deleting prepaid workers does not
+refund their remaining subscription term; normal `make stop` therefore retains
+the baseline pool. After an explicit final destroy, verify the state is empty:
 
 ```shell
 tofu state list

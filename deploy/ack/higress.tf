@@ -57,6 +57,7 @@ resource "helm_release" "higress" {
   timeout         = 900
 
   depends_on = [
+    alicloud_cs_kubernetes_node_pool.baseline,
     alicloud_cs_kubernetes_node_pool.gateway,
     alicloud_slb_load_balancer.higress_public,
     kubernetes_secret_v1.tokenvolt_registry_higress,

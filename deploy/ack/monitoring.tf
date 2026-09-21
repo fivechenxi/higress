@@ -150,7 +150,7 @@ data "kubernetes_config_map_v1" "terway" {
     namespace = "kube-system"
   }
 
-  depends_on = [alicloud_cs_kubernetes_node_pool.gateway]
+  depends_on = [alicloud_cs_kubernetes_node_pool.baseline]
 }
 
 resource "kubernetes_config_map_v1_data" "terway_cilium_metrics" {
@@ -166,7 +166,7 @@ resource "kubernetes_config_map_v1_data" "terway_cilium_metrics" {
   field_manager = "higress-ack-opentofu"
   force         = true
 
-  depends_on = [alicloud_cs_kubernetes_node_pool.gateway]
+  depends_on = [alicloud_cs_kubernetes_node_pool.baseline]
 }
 
 # Terway reads cilium_args only at process start. A deterministic pod-template

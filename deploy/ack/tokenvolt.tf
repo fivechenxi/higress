@@ -392,7 +392,7 @@ resource "kubernetes_namespace_v1" "tokenvolt" {
     }
   }
 
-  depends_on = [alicloud_cs_kubernetes_node_pool.gateway]
+  depends_on = [alicloud_cs_kubernetes_node_pool.baseline]
 }
 
 resource "kubernetes_secret_v1" "tokenvolt_metrics_control_plane" {

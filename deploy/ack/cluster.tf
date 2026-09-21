@@ -61,8 +61,8 @@ resource "alicloud_cs_managed_kubernetes" "this" {
 
   lifecycle {
     precondition {
-      condition     = var.node_min_size >= 1 && var.node_max_size > var.node_min_size
-      error_message = "The test stack needs at least one base worker, and node_max_size must be greater than node_min_size."
+      condition     = var.base_node_count >= 2 && var.node_min_size >= 0 && var.node_max_size > var.node_min_size
+      error_message = "The stack needs at least two prepaid baseline workers, and elastic node_max_size must be greater than node_min_size."
     }
   }
 
