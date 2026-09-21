@@ -89,7 +89,7 @@ variable "lifecycle_mode" {
 }
 
 variable "worker_instance_types" {
-  description = "Ordered low-cost ECS types for the single-AZ elastic node pool."
+  description = "Ordered ECS types shared by the fixed baseline and elastic node pools."
   type        = list(string)
   # u1 is the lowest-cost checked 4 vCPU/8 GiB option that supports ENI
   # Trunking. The former e-c1m2.xlarge does not, and only exposes six
@@ -102,16 +102,54 @@ variable "worker_instance_types" {
   }
 }
 
+variable "base_node_count" {
+  description = "Number of prepaid workers kept as the always-on single-AZ baseline."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.base_node_count >= 2 && floor(var.base_node_count) == var.base_node_count
+    error_message = "base_node_count must be an integer of at least two so required hostname anti-affinity remains schedulable."
+  }
+}
+
+variable "base_node_period" {
+  description = "Initial and automatic renewal period, in months, for prepaid baseline workers."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = contains([1, 2, 3, 6, 12], var.base_node_period)
+    error_message = "base_node_period must be one of 1, 2, 3, 6, or 12 months."
+  }
+}
+
+variable "base_node_auto_renew" {
+  description = "Automatically renew the prepaid baseline workers."
+  type        = bool
+  default     = true
+}
+
 variable "node_min_size" {
   description = "Minimum number of pay-as-you-go workers."
   type        = number
-  default     = 1
+  default     = 0
+
+  validation {
+    condition     = var.node_min_size >= 0 && floor(var.node_min_size) == var.node_min_size
+    error_message = "node_min_size must be a non-negative integer."
+  }
 }
 
 variable "node_max_size" {
   description = "Maximum number of workers added by ACK cluster autoscaler."
   type        = number
-  default     = 3
+  default     = 10
+
+  validation {
+    condition     = var.node_max_size > 0 && floor(var.node_max_size) == var.node_max_size
+    error_message = "node_max_size must be a positive integer."
+  }
 }
 
 variable "scale_down_delay" {

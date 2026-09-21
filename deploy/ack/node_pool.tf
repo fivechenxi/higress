@@ -12,6 +12,47 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+resource "alicloud_cs_kubernetes_node_pool" "baseline" {
+  cluster_id     = alicloud_cs_managed_kubernetes.this.id
+  node_pool_name = "${var.cluster_name}-baseline"
+  vswitch_ids    = [var.vswitch_id]
+
+  instance_types       = var.worker_instance_types
+  instance_charge_type = "PrePaid"
+  period               = var.base_node_period
+  period_unit          = "Month"
+  auto_renew           = var.base_node_auto_renew
+  auto_renew_period    = var.base_node_period
+  desired_size         = tostring(var.base_node_count)
+  key_name             = alicloud_key_pair.workers.key_pair_name
+
+  image_type                 = "AliyunLinux4ContainerOptimized"
+  runtime_name               = "containerd"
+  system_disk_category       = "cloud_essd_entry"
+  system_disk_size           = 40
+  install_cloud_monitor      = false
+  internet_max_bandwidth_out = 0
+  force_delete               = true
+
+  labels {
+    key   = "workload"
+    value = "higress"
+  }
+
+  labels {
+    key   = "tokenvolt.ai/capacity-class"
+    value = "baseline"
+  }
+
+  tags = merge(var.tags, { CapacityClass = "baseline" })
+
+  timeouts {
+    create = "90m"
+    update = "60m"
+    delete = "60m"
+  }
+}
+
 resource "alicloud_cs_kubernetes_node_pool" "gateway" {
   cluster_id     = alicloud_cs_managed_kubernetes.this.id
   node_pool_name = "${var.cluster_name}-elastic"
@@ -46,7 +87,12 @@ resource "alicloud_cs_kubernetes_node_pool" "gateway" {
     value = "higress"
   }
 
-  tags = var.tags
+  labels {
+    key   = "tokenvolt.ai/capacity-class"
+    value = "elastic"
+  }
+
+  tags = merge(var.tags, { CapacityClass = "elastic" })
 
   timeouts {
     create = "90m"
@@ -75,5 +121,8 @@ resource "alicloud_cs_autoscaling_config" "this" {
   scale_up_from_zero            = true
   scaler_type                   = "cluster-autoscaler"
 
-  depends_on = [alicloud_cs_kubernetes_node_pool.gateway]
+  depends_on = [
+    alicloud_cs_kubernetes_node_pool.baseline,
+    alicloud_cs_kubernetes_node_pool.gateway,
+  ]
 }

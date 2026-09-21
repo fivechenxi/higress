@@ -18,8 +18,21 @@ output "cluster_id" {
 }
 
 output "node_pool_id" {
-  description = "ID of the elastic worker node pool."
+  description = "ID of the elastic worker node pool, retained for compatibility."
   value       = alicloud_cs_kubernetes_node_pool.gateway.node_pool_id
+}
+
+output "node_pool_ids" {
+  description = "IDs of the prepaid baseline and pay-as-you-go elastic worker pools."
+  value = {
+    baseline = alicloud_cs_kubernetes_node_pool.baseline.node_pool_id
+    elastic  = alicloud_cs_kubernetes_node_pool.gateway.node_pool_id
+  }
+}
+
+output "baseline_node_count" {
+  description = "Expected number of always-on prepaid workers."
+  value       = var.base_node_count
 }
 
 output "reused_network" {
