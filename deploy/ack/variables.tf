@@ -441,32 +441,6 @@ variable "grafana_enabled" {
   default     = true
 }
 
-variable "grafana_data_storage_class" {
-  description = <<-EOT
-    Storage class backing Grafana's data directory. It holds Grafana's SQLite
-    database (users, sessions, UI edits) and the ~525 MiB of bundled plugins
-    that Grafana 13 copies into the writable plugins path on first start.
-  EOT
-  type        = string
-  default     = "alicloud-disk-essd"
-
-  validation {
-    condition     = can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", var.grafana_data_storage_class))
-    error_message = "grafana_data_storage_class must be a Kubernetes storage class name."
-  }
-}
-
-variable "grafana_data_size" {
-  description = "Requested size of Grafana's data volume. The plugin copy alone is about 525 MiB, so keep headroom above it."
-  type        = string
-  default     = "20Gi"
-
-  validation {
-    condition     = can(regex("^[0-9]+(Mi|Gi|Ti)$", var.grafana_data_size))
-    error_message = "grafana_data_size must be a Kubernetes quantity such as 20Gi."
-  }
-}
-
 variable "grafana_admin_user" {
   description = "Grafana administrator user stored with its generated password in a Kubernetes Secret."
   type        = string

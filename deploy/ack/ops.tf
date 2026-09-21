@@ -135,16 +135,6 @@ resource "helm_release" "higress_ack_ops" {
         grafana = {
           enabled       = var.grafana_enabled
           prometheusUrl = var.prometheus_query_url
-          # Grafana's SQLite database holds users, sessions and UI edits, so it
-          # must outlive the pod: an ephemeral data directory logged every
-          # session out whenever the pod was recreated.
-          dataVolume = {
-            persistence = {
-              enabled          = true
-              storageClassName = var.grafana_data_storage_class
-              size             = var.grafana_data_size
-            }
-          }
           prometheusAuth = {
             existingSecret = var.prometheus_query_url == "" ? "" : "higress-prometheus-query"
           }

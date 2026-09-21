@@ -175,8 +175,12 @@ monitoring:
     dataVolume:
       emptyDirSizeLimit: 2Gi
       persistence:
-        enabled: false
-        storageClassName: ""
+        # Enabled by default: Grafana's SQLite database holds users, sessions and
+        # UI edits, and the plugin copy below only needs to happen once when the
+        # volume is persistent. Override the storage class if the cluster does
+        # not offer alicloud-disk-essd.
+        enabled: true
+        storageClassName: alicloud-disk-essd
         size: 20Gi
     # Empty keeps the in-cluster collector as the query source. ACK installs
     # set this to the ARMS intranet HTTP API so collector rollouts do not erase
