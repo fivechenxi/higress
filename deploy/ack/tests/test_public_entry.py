@@ -24,7 +24,7 @@ import yaml
 CHART = Path(__file__).resolve().parents[1] / 'charts/tokenvolt'
 
 
-def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, in_cluster=False, archive=None):
+def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, in_cluster=False, archive=None, neutoken_clusters=None):
     values = {
         'controlPlane': {
             'quotaEnabled': quota,
@@ -74,6 +74,8 @@ def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, 
         values['controlPlane']['usageDashboard'] = dashboard
     if archive is not None:
         values['controlPlane']['archive'] = archive
+    if neutoken_clusters is not None:
+        values['higress']['neutokenSingleUseClusters'] = neutoken_clusters
     with tempfile.NamedTemporaryFile(mode='w') as f:
         json.dump(values, f)
         f.flush()
@@ -86,6 +88,25 @@ def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, 
 
 
 class PublicEntryTest(unittest.TestCase):
+    def test_neutoken_connection_mitigation_is_opt_in_and_exactly_scoped(self):
+        name = 'tokenvolt-neutoken-single-use-connections'
+        self.assertFalse(any(o['metadata']['name'] == name for o in render(True)))
+        clusters = [
+            'outbound|443||tokenvolt-mp-' + 'a' * 40 + '.dns',
+            'outbound|443||tokenvolt-mp-' + 'b' * 40 + '.dns',
+        ]
+        obj, = [o for o in render(True, neutoken_clusters=clusters) if o['metadata']['name'] == name]
+        self.assertEqual(obj['metadata']['namespace'], 'higress-system')
+        self.assertEqual(obj['spec']['workloadSelector']['labels'], {'app': 'higress-gateway'})
+        self.assertEqual([p['match']['cluster']['name'] for p in obj['spec']['configPatches']], clusters)
+        self.assertTrue(all(p['applyTo'] == 'CLUSTER' and
+                            p['patch']['value']['max_requests_per_connection'] == 1
+                            for p in obj['spec']['configPatches']))
+        with self.assertRaises(RuntimeError):
+            render(True, neutoken_clusters=[clusters[0], clusters[0]])
+        with self.assertRaises(RuntimeError):
+            render(True, neutoken_clusters=['outbound|443||unrelated.dns'])
+
     def test_archive_is_opt_in_and_requires_a_complete_shadow_configuration(self):
         def env_for(config):
             objects = render(True, archive=config)

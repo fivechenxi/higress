@@ -75,6 +75,9 @@ higress:
   # Route scoping is expressed as namespace/name in matchRules.
   namespace: higress-system
   ingressClassName: higress
+  # Exact current McpBridge cluster names for the temporary neutoken.net
+  # single-request-connection mitigation. Empty keeps it disabled by default.
+  neutokenSingleUseClusters: []
   policyName: tokenvolt-policy
   policyPluginUrl: ""
   policyPluginSha256: ""

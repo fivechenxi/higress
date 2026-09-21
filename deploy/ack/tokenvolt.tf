@@ -542,11 +542,12 @@ resource "helm_release" "tokenvolt" {
         }
       }
       higress = {
-        namespace          = "higress-system"
-        policyPluginUrl    = var.tokenvolt_policy_plugin_url
-        policyPluginSha256 = var.tokenvolt_policy_plugin_sha256
-        imagePullSecret    = kubernetes_secret_v1.tokenvolt_registry_higress[0].metadata[0].name
-        policyIngress      = "${var.tokenvolt_namespace}/tokenvolt-model-api"
+        namespace                 = "higress-system"
+        neutokenSingleUseClusters = var.tokenvolt_neutoken_single_use_clusters
+        policyPluginUrl           = var.tokenvolt_policy_plugin_url
+        policyPluginSha256        = var.tokenvolt_policy_plugin_sha256
+        imagePullSecret           = kubernetes_secret_v1.tokenvolt_registry_higress[0].metadata[0].name
+        policyIngress             = "${var.tokenvolt_namespace}/tokenvolt-model-api"
         gatewayConfigPublisher = {
           enabled = var.tokenvolt_gateway_config_publisher_enabled
         }

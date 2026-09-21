@@ -251,6 +251,22 @@ derived scaling signals are in
 [`PERFORMANCE_TEST_PLAN.md`](./PERFORMANCE_TEST_PLAN.md). The reproducible mock
 and load generator live under [`performance/`](./performance/).
 
+## T07 upstream connection mitigation
+
+`tokenvolt_neutoken_single_use_clusters` is opt-in and defaults to empty. Set it
+only to the exact published McpBridge cluster names whose domain has been
+verified as `neutoken.net`. The TokenVolt chart then applies a gateway
+EnvoyFilter with `max_requests_per_connection: 1` to those clusters. It leaves
+other providers unchanged and does not retry POST requests. Fresh TLS
+connections add latency and connection load; monitor the affected routes.
+
+The cluster names contain a hash of the published provider connection. After
+republishing a connection, compare the live McpBridge and Envoy `config_dump`
+with this list and update the shared OSS tfvars if names changed. Remove the
+list to remove the mitigation after the upstream issue is resolved. As with
+other ACK changes, sync tfvars from OSS and review the OpenTofu plan before
+applying; do not treat local tfvars as the source of truth.
+
 ## Final cleanup
 
 ```shell
