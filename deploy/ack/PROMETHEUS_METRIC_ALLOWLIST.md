@@ -242,6 +242,7 @@ Every non-zero increase in the following families is recorded during a test:
 - `envoy_cluster_upstream_cx_overflow`
 - `envoy_cluster_upstream_cx_pool_overflow`
 - `envoy_cluster_upstream_rq_pending_overflow`
+- `envoy_cluster_upstream_rq_retry`
 - `envoy_cluster_upstream_rq_retry_overflow`
 - `envoy_cluster_upstream_rq_timeout`
 - `envoy_cluster_upstream_rq_per_try_timeout`
@@ -257,6 +258,10 @@ counters to distinguish connection churn, proactive local idle reclamation,
 and provider-side termination. These counters do not by themselves prove the
 age of the affected connection; proving stale-pool reuse still requires a
 time-correlated counter delta, connection debug log, or packet capture.
+`upstream_rq_retry` counts retry attempts actually issued by Envoy. Correlate
+its provider-scoped increase with the remote-active-request destroy counter and
+access-log `UC` entries; configured retry policy alone is not proof that a
+request was retried.
 
 ### HTTP/2 and overload protection
 

@@ -108,7 +108,8 @@
         {"expr": "sum(increase(envoy_cluster_upstream_rq_tx_reset[5m]))", "legendFormat": "上游发送方向 Reset", "refId": "E"},
         {"expr": "sum(increase(envoy_cluster_upstream_rq_pending_overflow[5m])) + sum(increase(envoy_cluster_upstream_cx_pool_overflow[5m]))", "legendFormat": "排队/连接池溢出", "refId": "F"},
         {"expr": "sum(increase(envoy_cluster_upstream_rq_cancelled[5m]))", "legendFormat": "请求取消", "refId": "G"},
-        {"expr": "sum(increase(envoy_cluster_upstream_rq_retry_limit_exceeded[5m]))", "legendFormat": "重试上限", "refId": "H"}
+        {"expr": "sum(increase(envoy_cluster_upstream_rq_retry_limit_exceeded[5m]))", "legendFormat": "重试上限", "refId": "H"},
+        {"expr": "sum(increase(envoy_cluster_upstream_rq_retry[5m]))", "legendFormat": "实际重试", "refId": "I"}
       ],
       "title": "上游异常事件 / 5 分钟", "type": "timeseries"
     },
@@ -135,7 +136,8 @@
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
         {"expr": "sum by (ai_provider) (increase(envoy_cluster_upstream_cx_destroy_remote_with_active_rq{cluster_name=~\".*[|][|]tokenvolt-mp-.*[.]dns.*\"}[5m]))", "legendFormat": "远端中断活跃请求 · {{ai_provider}}", "refId": "A"},
-        {"expr": "sum by (ai_provider) (increase(envoy_cluster_upstream_cx_destroy_local_with_active_rq{cluster_name=~\".*[|][|]tokenvolt-mp-.*[.]dns.*\"}[5m]))", "legendFormat": "本地中断活跃请求 · {{ai_provider}}", "refId": "B"}
+        {"expr": "sum by (ai_provider) (increase(envoy_cluster_upstream_cx_destroy_local_with_active_rq{cluster_name=~\".*[|][|]tokenvolt-mp-.*[.]dns.*\"}[5m]))", "legendFormat": "本地中断活跃请求 · {{ai_provider}}", "refId": "B"},
+        {"expr": "sum by (ai_provider) (increase(envoy_cluster_upstream_rq_retry{cluster_name=~\".*[|][|]tokenvolt-mp-.*[.]dns.*\"}[5m]))", "legendFormat": "上游重试 · {{ai_provider}}", "refId": "C"}
       ],
       "title": "上游活跃请求连接中断 / 5 分钟", "type": "timeseries"
     },
