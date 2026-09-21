@@ -232,8 +232,13 @@ Every non-zero increase in the following families is recorded during a test:
 
 ### Upstream/provider
 
+- `envoy_cluster_upstream_cx_total`
 - `envoy_cluster_upstream_cx_connect_fail`
 - `envoy_cluster_upstream_cx_connect_timeout`
+- `envoy_cluster_upstream_cx_destroy_remote`
+- `envoy_cluster_upstream_cx_destroy_remote_with_active_rq`
+- `envoy_cluster_upstream_cx_destroy_local_with_active_rq`
+- `envoy_cluster_upstream_cx_idle_timeout`
 - `envoy_cluster_upstream_cx_overflow`
 - `envoy_cluster_upstream_cx_pool_overflow`
 - `envoy_cluster_upstream_rq_pending_overflow`
@@ -243,6 +248,15 @@ Every non-zero increase in the following families is recorded during a test:
 - `envoy_cluster_upstream_rq_per_try_idle_timeout`
 - `envoy_cluster_upstream_rq_rx_reset`
 - `envoy_cluster_upstream_rq_tx_reset`
+
+`upstream_cx_destroy_remote_with_active_rq` is the primary connection-level
+correlate for an access-log `UC`: it proves that the remote side destroyed a
+connection while Envoy still had an active request. Compare it with
+`upstream_cx_total`, `upstream_cx_idle_timeout`, and the local/remote destroy
+counters to distinguish connection churn, proactive local idle reclamation,
+and provider-side termination. These counters do not by themselves prove the
+age of the affected connection; proving stale-pool reuse still requires a
+time-correlated counter delta, connection debug log, or packet capture.
 
 ### HTTP/2 and overload protection
 

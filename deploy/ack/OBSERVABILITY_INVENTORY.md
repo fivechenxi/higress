@@ -197,7 +197,10 @@ SLS 插件读取 `model-access`，使用独立 RAM 用户，
    RPM、TPM、TTFT P90、TPOT P90 使用四张独立趋势图，避免不同单位和数量级互相压扁。
 4. “基础监控”页单独承载 Envoy、Terway/Cilium、HPA、采集器和 Controller；顶部
    先展示活跃请求、Inbound/Outbound 连接、上游 pending/熔断压力，随后展示 Envoy
-   下游/上游 HTTP 总耗时 P50/P90、下游异常、上游异常以及 HTTP/2/高内存保护事件。
+   下游/上游 HTTP 总耗时 P50/P90、下游异常、上游异常、模型渠道连接生命周期、
+   活跃请求期间的远端/本地断连，以及 HTTP/2/高内存保护事件。连接生命周期面板
+   同时展示新建连接、远端关闭和 Envoy 空闲回收；活跃请求断连按 provider cluster
+   展示，可与请求明细中的 `UC` 记录交叉定位。
    admin、stats、readiness、xDS 和 Prometheus 内部流量在采集时即被过滤，不参与
    厂商质量排名，也不污染数据面连接数。
 5. “请求明细”页直接查询 SLS，包含最近请求、TTFT Top 100、TPOT Top 100、5xx 和

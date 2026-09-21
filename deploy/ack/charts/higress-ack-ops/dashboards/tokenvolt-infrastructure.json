@@ -114,8 +114,35 @@
     },
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "description": "仅统计 TokenVolt 模型渠道集群。新建连接用于观察连接复用成本；远端关闭和 Envoy 空闲回收用于判断双方连接生命周期策略是否匹配。",
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "fillOpacity": 25, "lineWidth": 1, "showPoints": "never"}, "min": 0, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 25},
+      "id": 15,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "sum(increase(envoy_cluster_upstream_cx_total{cluster_name=~\".*[|][|]tokenvolt-mp-.*[.]dns.*\"}[5m]))", "legendFormat": "新建连接", "refId": "A"},
+        {"expr": "sum(increase(envoy_cluster_upstream_cx_destroy_remote{cluster_name=~\".*[|][|]tokenvolt-mp-.*[.]dns.*\"}[5m]))", "legendFormat": "远端关闭", "refId": "B"},
+        {"expr": "sum(increase(envoy_cluster_upstream_cx_idle_timeout{cluster_name=~\".*[|][|]tokenvolt-mp-.*[.]dns.*\"}[5m]))", "legendFormat": "Envoy 空闲回收", "refId": "C"}
+      ],
+      "title": "上游连接生命周期 / 5 分钟", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
+      "description": "远端关闭且有活跃请求与 access log 的 UC 对应；按 provider cluster 展示，非零时应下钻请求明细确认具体模型和厂商。",
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "fillOpacity": 25, "lineWidth": 1, "showPoints": "never"}, "min": 0, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 25},
+      "id": 16,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"expr": "sum by (ai_provider) (increase(envoy_cluster_upstream_cx_destroy_remote_with_active_rq{cluster_name=~\".*[|][|]tokenvolt-mp-.*[.]dns.*\"}[5m]))", "legendFormat": "远端中断活跃请求 · {{ai_provider}}", "refId": "A"},
+        {"expr": "sum by (ai_provider) (increase(envoy_cluster_upstream_cx_destroy_local_with_active_rq{cluster_name=~\".*[|][|]tokenvolt-mp-.*[.]dns.*\"}[5m]))", "legendFormat": "本地中断活跃请求 · {{ai_provider}}", "refId": "B"}
+      ],
+      "title": "上游活跃请求连接中断 / 5 分钟", "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "fillOpacity": 20, "lineWidth": 1, "showPoints": "never"}, "min": 0, "unit": "short"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 25},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 34},
       "id": 14,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -130,7 +157,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "bytes"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 25},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 34},
       "id": 2,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -143,7 +170,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 33},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 42},
       "id": 3,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -156,7 +183,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "max": 1, "min": 0, "unit": "percentunit"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 41},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 50},
       "id": 4,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [{"expr": "tokenvolt:terway_ct_pressure:max", "legendFormat": "{{instance}} · {{map_name}}", "refId": "A"}],
@@ -165,7 +192,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 41},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 50},
       "id": 5,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -178,7 +205,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "unit": "short"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 41},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 50},
       "id": 6,
       "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
@@ -191,7 +218,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},
       "fieldConfig": {"defaults": {}, "overrides": []},
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 49},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 58},
       "id": 7,
       "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
       "targets": [{"expr": "ALERTS{alertstate=\"firing\"}", "format": "table", "instant": true, "refId": "A"}],
