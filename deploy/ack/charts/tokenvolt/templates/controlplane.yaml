@@ -119,7 +119,7 @@ spec:
             - {name: HIGRESS_KUBE_CA_FILE, value: "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"}
             - {name: HIGRESS_NAMESPACE, value: {{ .Values.higress.namespace | quote }}}
             - {name: HIGRESS_POLICY_NAME, value: {{ .Values.higress.policyName | quote }}}
-            - {name: HIGRESS_POLICY_PLUGIN_URL, value: {{ required "higress.policyPluginUrl must be an immutable OCI digest URL" .Values.higress.policyPluginUrl | quote }}}
+            - {name: HIGRESS_POLICY_PLUGIN_URL, value: {{ required "higress.policyPluginUrl must be an immutable OCI or checksum-addressed HTTPS URL" .Values.higress.policyPluginUrl | quote }}}
             - {name: HIGRESS_POLICY_PLUGIN_SHA256, value: {{ .Values.higress.policyPluginSha256 | quote }}}
             - {name: HIGRESS_POLICY_IMAGE_PULL_SECRET, value: {{ .Values.higress.imagePullSecret | quote }}}
             - {name: HIGRESS_POLICY_INGRESS, value: {{ .Values.higress.policyIngress | quote }}}

@@ -264,15 +264,15 @@ variable "tokenvolt_oss_worm_enabled" {
 }
 
 variable "tokenvolt_policy_plugin_url" {
-  description = "Immutable OCI digest URL for the TokenVolt policy Wasm plugin."
+  description = "Immutable OCI digest or checksum-addressed HTTPS URL for the TokenVolt policy Wasm plugin."
   type        = string
-  default     = "oci://ghcr.io/tokenvolt-ai/tokenvolt-policy@sha256:f1507e1dd27a0194b8b24a590f19e2846ef9133925e04f8d80c6754011042a02"
+  default     = "https://tokenvolt-plugins-1150088752341921-cn-beijing.oss-cn-beijing.aliyuncs.com/tokenvolt-policy/sha256/6d2b7a774011db6acce7e2cbcab9fa0ce5fb12b9dff4968ea8ef4d907cb6907a.wasm"
 }
 
 variable "tokenvolt_policy_plugin_sha256" {
-  description = "Optional checksum expected by Higress. For a multi-platform OCI index this is the selected linux/amd64 image manifest digest, without the sha256: prefix."
+  description = "Checksum expected by Higress: Wasm file SHA-256 for HTTPS, selected image manifest SHA-256 for OCI."
   type        = string
-  default     = "3c1758b43c3290b6943f8b6b24a462c6cb72071723178b2b0f7e0f0f26f8e203"
+  default     = "6d2b7a774011db6acce7e2cbcab9fa0ce5fb12b9dff4968ea8ef4d907cb6907a"
 
   validation {
     condition     = var.tokenvolt_policy_plugin_sha256 == "" || can(regex("^[0-9a-f]{64}$", var.tokenvolt_policy_plugin_sha256))

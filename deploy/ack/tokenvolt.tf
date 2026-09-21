@@ -609,7 +609,9 @@ resource "helm_release" "tokenvolt" {
     precondition {
       condition = (
         can(regex("@sha256:[0-9a-f]{64}$", var.tokenvolt_control_plane_image)) &&
-        can(regex("^oci://.+@sha256:[0-9a-f]{64}$", var.tokenvolt_policy_plugin_url)) &&
+        (can(regex("^oci://.+@sha256:[0-9a-f]{64}$", var.tokenvolt_policy_plugin_url)) ||
+          (can(regex("^https://[^/]+/.*/sha256/[0-9a-f]{64}\\.wasm$", var.tokenvolt_policy_plugin_url)) &&
+        endswith(var.tokenvolt_policy_plugin_url, "/${var.tokenvolt_policy_plugin_sha256}.wasm"))) &&
         (can(regex("^oci://.+@sha256:[0-9a-f]{64}$", var.tokenvolt_ai_statistics_plugin_url)) ||
           (can(regex("^https://[^/]+/.*/sha256/[0-9a-f]{64}\\.wasm$", var.tokenvolt_ai_statistics_plugin_url)) &&
         endswith(var.tokenvolt_ai_statistics_plugin_url, "/${var.tokenvolt_ai_statistics_plugin_sha256}.wasm"))) &&
@@ -617,7 +619,7 @@ resource "helm_release" "tokenvolt" {
         endswith(var.tokenvolt_ai_token_rate_limit_plugin_url, "/sha256/${var.tokenvolt_ai_token_rate_limit_plugin_sha256}.wasm") &&
         (!var.tokenvolt_mock_enabled || can(regex("@sha256:[0-9a-f]{64}$", var.tokenvolt_mock_image)))
       )
-      error_message = "TokenVolt control-plane and both Wasm plugin references must be immutable digest references."
+      error_message = "TokenVolt control-plane and Wasm plugin references must be immutable digest or checksum-addressed references."
     }
   }
 
