@@ -1,0 +1,22 @@
+{{- $grafana := .Values.monitoring.grafana }}
+{{- if and .Values.monitoring.enabled $grafana.enabled $grafana.dataVolume.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-grafana-data" .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "higress-ack-ops.labels" . | nindent 4 }}
+  annotations:
+    # Grafana's SQLite database holds users, sessions and anything edited in the
+    # UI, so a release removal must not take the volume with it.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with $grafana.dataVolume.persistence.storageClassName }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $grafana.dataVolume.persistence.size }}
+{{- end }}

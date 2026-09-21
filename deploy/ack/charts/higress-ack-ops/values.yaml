@@ -166,6 +166,18 @@ monitoring:
   grafana:
     enabled: true
     dashboardsEnabled: true
+    # Grafana 13 copies its bundled plugins into GF_PATHS_PLUGINS on first start
+    # (measured ~525 MiB) and that path lives inside the writable data
+    # directory, so the volume has to hold the plugin copy plus the SQLite
+    # database (~2 MiB today). Keep the ephemeral limit above the copy size so
+    # the pod is not evicted in a loop; enable persistence to also keep users,
+    # sessions and UI edits across pod recreation.
+    dataVolume:
+      emptyDirSizeLimit: 2Gi
+      persistence:
+        enabled: false
+        storageClassName: ""
+        size: 20Gi
     # Empty keeps the in-cluster collector as the query source. ACK installs
     # set this to the ARMS intranet HTTP API so collector rollouts do not erase
     # the visible dashboard history.
