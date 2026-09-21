@@ -36,8 +36,11 @@ controlPlane:
   image: ""
   imagePullPolicy: IfNotPresent
   replicas: 1
-  # Exact browser origin accepted by the control-plane API. Leave empty to
-  # default to https://<portal.host> for private/production installations.
+  # Exact browser origins accepted by the control-plane API, comma-separated so
+  # one release can serve several portal host aliases (for example the ACK host
+  # plus its www alias). Leave empty to default to https://<portal.host> for
+  # private/production installations. Requires a control-plane image that
+  # parses a list; a single value keeps the previous behaviour.
   allowedOrigin: ""
   # Temporary HTTP-only test endpoints need a non-Secure session cookie.
   # Keep false once TLS is enabled.

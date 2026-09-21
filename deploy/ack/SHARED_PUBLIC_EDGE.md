@@ -18,18 +18,30 @@ limitations under the License.
 
 2026-09-13：启用分离入口；`ack.tokenvolt.net` 直达控制面，`api.tokenvolt.net` 进入自部署 Higress。两个域名仍共享公网 CLB，使用各自的后端组。
 
+2026-09-21：`www.tokenvolt.net` 从原包年 ECS 的门户切到 ACK 控制面的 `tokenvolt-ack-control-plane` 组，与 `ack.tokenvolt.net` 同一个后端；原 ECS 组、SNI 证书与 DNS A 记录保留，回滚只需把 `ecs_public_sites_on_ack` 改回空列表并 apply 一次。
+
 ## 配置归属
 
 `ecs_public_sites` 非空时启用共享入口。公网 CLB、80→443 跳转、HTTPS/SNI 证书引用、各域名规则、DNS 和虚拟服务器组由本目录的 OpenTofu/Terraform 管理，生命周期不依赖 `lifecycle_mode`。
 
 | 域名 | 后端 | 成员管理者 |
 | --- | --- | --- |
-| www.tokenvolt.net | 原包年 ECS:8000 | Terraform |
+| www.tokenvolt.net | TokenVolt 控制面 HTTP Service:8000（`ecs_public_sites_on_ack`，原 ECS 组保留） | ACK CCM |
 | newapi.tokenvolt.net | 原包年 ECS:3000 | Terraform |
 | ack.tokenvolt.net | TokenVolt 控制面 HTTP Service:8000 | ACK CCM |
 | api.tokenvolt.net | Higress HTTP Service:80 | ACK CCM |
 
 控制面和 Higress 的 Service 使用同一 CLB ID、`force-override-listeners=false` 和 `vgroup-port=<各自专用组 ID>:<服务端口>`。CCM 只增删自身后端，跟踪节点/Pod 扩缩容；不会管理或删除公网监听。Higress Service 仅暴露 HTTP 80，TLS 在 CLB 终止。控制面的 Allowed Origin 和 Secure Cookie 仍按公网 HTTPS 配置，公网 Ingress 不再挂内部测试证书，避免重复 TLS 重定向。
+
+### 同一控制面服务多个门户域名
+
+`www.tokenvolt.net` 与 `ack.tokenvolt.net` 指向同一个控制面组，浏览器地址栏是哪个域名，请求带的 `Origin` 就是哪个。控制面的同源校验（`requireOrigin`）覆盖凭据、账单、客户生命周期、定价等写接口，按 `ALLOWED_ORIGIN` 精确匹配：
+
+- 只列 `ack` 时，www 上「能登录、能读，所有写接口 403」。
+- 只列 `www` 时，反过来让 ack 全站写操作 403。
+- 因此 `ALLOWED_ORIGIN` 支持逗号分隔多值，由 `tokenvolt_extra_allowed_origins` 追加，例如 `https://ack.tokenvolt.net,https://www.tokenvolt.net`。
+
+上线顺序固定：先发布能解析列表的控制面镜像 → 再设置 `tokenvolt_extra_allowed_origins` 并 apply（控制面滚动重启，`ack` 不受影响）→ 最后把 `ecs_public_sites_on_ack` 设为 `["www"]` 并 apply。顺序颠倒会让先访问的域名出现写接口 403，或让两个域名同时 403。回滚：清空 `ecs_public_sites_on_ack`（www 立即回到原 ECS 门户），需要时再清空 `tokenvolt_extra_allowed_origins`。
 
 官方复用机制：[跨集群复用负载均衡与服务器组](https://help.aliyun.com/zh/ack/ack-managed-and-ack-dedicated/user-guide/use-the-ccm-to-deploy-services-across-clusters)。这里没有将原 ECS 和 ACK 混入同一后端组。
 
@@ -58,6 +70,11 @@ ecs_public_sites = {
 }
 ecs_default_site = "newapi"
 ack_edge_certificate_id = "<ack 的 CLB RSA 证书 ID>"
+
+# www 已由 ACK 控制面提供服务；ECS 组保留可回滚。
+ecs_public_sites_on_ack = ["www"]
+# 仅在发布能解析列表的控制面镜像后设置，否则精确匹配会失配：
+# tokenvolt_extra_allowed_origins = ["https://www.tokenvolt.net"]
 ```
 
 先导入已经存在的资源，不能创建重复 DNS、监听或服务器组。资源地址与导入 ID 格式如下：

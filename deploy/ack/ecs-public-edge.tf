@@ -86,22 +86,31 @@ resource "alicloud_slb_rule" "ecs" {
   frontend_port    = 443
   name             = "tokenvolt-${each.key}-ecs"
   domain           = each.value.domain
-  server_group_id  = alicloud_slb_server_group.ecs[each.key].id
+  # Sites listed in ecs_public_sites_on_ack keep their ECS server group (rollback
+  # path) but serve the ACK control-plane group, so one portal host can be moved
+  # between the legacy ECS and the cluster without recreating the rule.
+  server_group_id = contains(var.ecs_public_sites_on_ack, each.key) ? alicloud_slb_server_group.portal_http[0].id : alicloud_slb_server_group.ecs[each.key].id
   # The default site uses the listener directly; these are non-default sites.
   listener_sync             = "off"
   sticky_session            = "off"
   scheduler                 = "wrr"
   health_check              = "on"
-  health_check_uri          = each.value.health_path
+  health_check_uri          = contains(var.ecs_public_sites_on_ack, each.key) ? "/readyz" : each.value.health_path
   health_check_domain       = each.value.domain
-  health_check_connect_port = each.value.port
+  health_check_connect_port = contains(var.ecs_public_sites_on_ack, each.key) ? 0 : each.value.port
   health_check_http_code    = "http_2xx"
   health_check_interval     = 3
   health_check_timeout      = 5
   healthy_threshold         = 2
   unhealthy_threshold       = 3
   depends_on                = [alicloud_slb_listener.public_https]
-  lifecycle { prevent_destroy = true }
+  lifecycle {
+    prevent_destroy = true
+    precondition {
+      condition     = length(var.ecs_public_sites_on_ack) == 0 || var.tokenvolt_split_public_entry
+      error_message = "Serving an ECS site from the ACK control plane requires tokenvolt_split_public_entry, which owns the dedicated portal group."
+    }
+  }
 }
 
 resource "alicloud_slb_domain_extension" "ecs" {
