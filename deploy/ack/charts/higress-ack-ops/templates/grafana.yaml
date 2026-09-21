@@ -219,10 +219,19 @@ spec:
               readOnly: true
       volumes:
         - name: data
+          {{- if $grafana.dataVolume.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ printf "%s-grafana-data" .Release.Name }}
+          {{- else }}
           emptyDir:
-            # Grafana 13 copies roughly 292 MiB of bundled plugins into its
-            # writable data directory before creating its database.
-            sizeLimit: 512Mi
+            # Grafana 13 copies its bundled plugins (measured ~525 MiB: loki,
+            # tempo, elasticsearch, mssql, influxdb ...) into GF_PATHS_PLUGINS
+            # the first time it starts, and that path sits inside the writable
+            # data directory. The previous 512Mi cap was below the copy size, so
+            # kubelet evicted the pod every few minutes and each restart threw
+            # away the SQLite sessions.
+            sizeLimit: {{ $grafana.dataVolume.emptyDirSizeLimit }}
+          {{- end }}
         - name: provisioning
           configMap:
             name: higress-grafana-provisioning
