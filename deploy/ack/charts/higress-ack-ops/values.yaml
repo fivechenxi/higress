@@ -173,13 +173,20 @@ monitoring:
     # the pod is not evicted in a loop; enable persistence to also keep users,
     # sessions and UI edits across pod recreation.
     dataVolume:
+      # Grafana only needs local scratch space here: datasources and dashboards
+      # are provisioned from ConfigMaps with editable/allowUiUpdates disabled and
+      # alerts live in Prometheus plus Alertmanager, so a pod restart only costs
+      # the browser session and one re-copy of the bundled plugins. 2Gi covers
+      # that copy (~525 MiB measured) with headroom; the previous 512Mi cap was
+      # below it, which is what made kubelet evict the pod in a loop.
       emptyDirSizeLimit: 2Gi
+      # Opt-in: keeps the SQLite database (users, sessions, API keys or
+      # dashboards created in the UI) across pod recreation, at the cost of one
+      # cloud disk. 20Gi is the minimum these disk types accept, about ten to
+      # twenty CNY per month; turn it on if losing the login on every deploy
+      # matters more than that disk.
       persistence:
-        # Enabled by default: Grafana's SQLite database holds users, sessions and
-        # UI edits, and the plugin copy below only needs to happen once when the
-        # volume is persistent. Override the storage class if the cluster does
-        # not offer alicloud-disk-essd.
-        enabled: true
+        enabled: false
         storageClassName: alicloud-disk-essd
         size: 20Gi
     # Empty keeps the in-cluster collector as the query source. ACK installs
