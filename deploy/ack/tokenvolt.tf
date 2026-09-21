@@ -528,8 +528,10 @@ resource "helm_release" "tokenvolt" {
             "service.beta.kubernetes.io/backend-type"                                        = "eni"
           } : {}
         }
-        rrsaRoleName               = alicloud_ram_role.tokenvolt[0].role_name
-        allowedOrigin              = var.tokenvolt_public_host != "" ? "${var.tokenvolt_public_tls_enabled ? "https" : "http"}://${var.tokenvolt_public_host}" : ""
+        rrsaRoleName = alicloud_ram_role.tokenvolt[0].role_name
+        # Comma-separated exact origins; the control plane accepts every listed
+        # portal host alias of the same release.
+        allowedOrigin              = var.tokenvolt_public_host != "" ? join(",", concat(["${var.tokenvolt_public_tls_enabled ? "https" : "http"}://${var.tokenvolt_public_host}"], var.tokenvolt_extra_allowed_origins)) : ""
         allowInsecureSessionCookie = var.tokenvolt_public_host != "" && !var.tokenvolt_public_tls_enabled
         cloud = {
           slsRegionId = var.region

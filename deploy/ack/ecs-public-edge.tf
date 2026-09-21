@@ -86,14 +86,19 @@ resource "alicloud_slb_rule" "ecs" {
   frontend_port    = 443
   name             = "tokenvolt-${each.key}-ecs"
   domain           = each.value.domain
-  server_group_id  = alicloud_slb_server_group.ecs[each.key].id
+  # Sites listed in ecs_public_sites_on_ack keep their ECS server group (rollback
+  # path) but serve the ACK control-plane group, so one portal host can be moved
+  # between the legacy ECS and the cluster without recreating the rule.
+  server_group_id = contains(var.ecs_public_sites_on_ack, each.key) ? alicloud_slb_server_group.portal_http[0].id : alicloud_slb_server_group.ecs[each.key].id
   # The default site uses the listener directly; these are non-default sites.
-  listener_sync             = "off"
-  sticky_session            = "off"
-  scheduler                 = "wrr"
-  health_check              = "on"
-  health_check_uri          = each.value.health_path
-  health_check_domain       = each.value.domain
+  listener_sync       = "off"
+  sticky_session      = "off"
+  scheduler           = "wrr"
+  health_check        = "on"
+  health_check_uri    = contains(var.ecs_public_sites_on_ack, each.key) ? "/readyz" : each.value.health_path
+  health_check_domain = each.value.domain
+  # The provider rejects an explicit 0 ("backend port") here, and an ACK-backed
+  # site must probe the control plane's own port, guarded below.
   health_check_connect_port = each.value.port
   health_check_http_code    = "http_2xx"
   health_check_interval     = 3
@@ -101,7 +106,17 @@ resource "alicloud_slb_rule" "ecs" {
   healthy_threshold         = 2
   unhealthy_threshold       = 3
   depends_on                = [alicloud_slb_listener.public_https]
-  lifecycle { prevent_destroy = true }
+  lifecycle {
+    prevent_destroy = true
+    precondition {
+      condition     = length(var.ecs_public_sites_on_ack) == 0 || var.tokenvolt_split_public_entry
+      error_message = "Serving an ECS site from the ACK control plane requires tokenvolt_split_public_entry, which owns the dedicated portal group."
+    }
+    precondition {
+      condition     = alltrue([for name in var.ecs_public_sites_on_ack : var.ecs_public_sites[name].port == 8000])
+      error_message = "An ACK-backed portal site must use port 8000, the control plane's listening port behind the dedicated server group; any other port would fail the health check."
+    }
+  }
 }
 
 resource "alicloud_slb_domain_extension" "ecs" {

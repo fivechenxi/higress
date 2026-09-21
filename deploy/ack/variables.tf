@@ -440,6 +440,29 @@ variable "ecs_default_site" {
   default     = "newapi"
 }
 
+# 2026-09-21: www.tokenvolt.net moved from the legacy prepaid ECS to the ACK
+# control plane. The ECS server group, its SNI certificate and the DNS record
+# stay in place so the cutover is a one-line rollback.
+variable "ecs_public_sites_on_ack" {
+  description = "Keys of ecs_public_sites whose domain rule is served by the ACK control-plane group instead of the ECS group. Their ECS server group is kept for rollback."
+  type        = set(string)
+  default     = []
+  validation {
+    condition     = alltrue([for name in var.ecs_public_sites_on_ack : contains(keys(var.ecs_public_sites), name)])
+    error_message = "ecs_public_sites_on_ack entries must also exist in ecs_public_sites."
+  }
+}
+
+variable "tokenvolt_extra_allowed_origins" {
+  description = "Additional exact browser origins accepted by the control plane for host aliases that share the same portal (for example https://www.tokenvolt.net). Requires a control-plane image that parses a comma-separated ALLOWED_ORIGIN list."
+  type        = list(string)
+  default     = []
+  validation {
+    condition     = alltrue([for origin in var.tokenvolt_extra_allowed_origins : startswith(origin, "https://") || startswith(origin, "http://")])
+    error_message = "Extra allowed origins must be absolute origins including the http(s) scheme."
+  }
+}
+
 variable "ack_edge_certificate_id" {
   description = "Trusted RSA CLB certificate for the ACK host; required when TokenVolt uses the shared public edge."
   type        = string
