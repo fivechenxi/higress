@@ -302,7 +302,7 @@ variable "tokenvolt_oss_worm_enabled" {
 }
 
 variable "tokenvolt_billing" {
-  description = "Fail-closed production usage archive and invoice publication pipeline. Cutover and source certifications remain separate audited API operations."
+  description = "Non-destructive wiring for the fail-closed production usage archive and invoice publication pipeline. It must not mutate existing users, keys, models, routes, prices, logs, or objects; cutover and source certifications remain separate audited API operations."
   type = object({
     enabled        = bool
     environment    = string
