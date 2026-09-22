@@ -182,9 +182,9 @@ modelRouting:
   # tokenvolt-policy parses the authenticated request model and writes the
   # trusted x-higress-llm-model header used by the route annotations below.
   aiProxy:
-    # 2.0.0 is the latest public compatibility-format artifact accepted by the
-    # Higress 2.1 gateway (tar+gzip layer). Newer ORAS wasm-layer artifacts are
-    # rejected by this gateway build even though their digest is valid.
+    # Terraform overrides these compatibility defaults from the OSS-managed
+    # tfvars. Keep the URL immutable and pair it with the checksum Higress must
+    # verify; checksum-addressed HTTPS Wasm avoids OCI layer-format coupling.
     url: oci://higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/ai-proxy@sha256:69c17eae7b8331f37f05a651a0a1aa731fe7aff2ce30452ff4bbba7c7271818d
     sha256: 69c17eae7b8331f37f05a651a0a1aa731fe7aff2ce30452ff4bbba7c7271818d
   providers:

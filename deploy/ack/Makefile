@@ -15,8 +15,9 @@
 TOFU ?= ./scripts/tofu.sh
 CONFIG_SYNC ?= ./scripts/remote-config.sh
 ARTIFACT_SYNC ?= ./scripts/sync-artifacts.sh
+AI_PROXY_ARTIFACT ?= ./scripts/sync-ai-proxy-artifact.sh
 
-.PHONY: backend-bootstrap backend-migrate init config-pull config-push config-status config-history artifacts-sync plan start stop destroy
+.PHONY: backend-bootstrap backend-migrate init config-pull config-push config-status config-history artifacts-sync ai-proxy-artifact ai-proxy-artifact-publish plan start stop destroy
 
 backend-bootstrap:
 	./scripts/bootstrap-backend.sh
@@ -41,6 +42,12 @@ config-history:
 
 artifacts-sync:
 	$(ARTIFACT_SYNC)
+
+ai-proxy-artifact:
+	$(AI_PROXY_ARTIFACT)
+
+ai-proxy-artifact-publish:
+	$(AI_PROXY_ARTIFACT) --publish
 
 plan:
 	$(CONFIG_SYNC) prepare
