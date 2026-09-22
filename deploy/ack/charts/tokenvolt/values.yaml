@@ -48,6 +48,9 @@ controlPlane:
   image: ""
   imagePullPolicy: IfNotPresent
   replicas: 1
+  # Archive partition merges and invoice generation use bounded on-disk sort
+  # runs under /tmp while the container root filesystem stays read-only.
+  workSizeLimit: 1Gi
   # Exact browser origins accepted by the control-plane API, comma-separated so
   # one release can serve several portal host aliases (for example the ACK host
   # plus its www alias). Leave empty to default to https://<portal.host> for
