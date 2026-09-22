@@ -84,12 +84,13 @@ spec:
             {{- if .Values.controlPlane.archive.producerEnabled }}
             {{- if not .Values.controlPlane.archive.derivedEnabled }}{{ fail "archive producer requires derived workers" }}{{ end }}
             {{- if not .Values.controlPlane.archive.reconcileEnabled }}{{ fail "archive producer requires snapshot reconciler" }}{{ end }}
-            {{- if not .Values.controlPlane.archive.allowedConsumers }}{{ fail "controlPlane.archive.allowedConsumers is required" }}{{ end }}
+            {{- if eq (not (empty .Values.controlPlane.archive.allowedConsumers)) .Values.controlPlane.archive.allTokenVoltConsumers }}{{ fail "archive producer requires exactly one consumer scope" }}{{ end }}
             - {name: USAGE_ARCHIVE_PRODUCER_ENABLED, value: "true"}
             - {name: USAGE_ARCHIVE_SOURCE_ID, value: {{ required "controlPlane.archive.sourceId is required" .Values.controlPlane.archive.sourceId | quote }}}
             - {name: USAGE_ARCHIVE_ENVIRONMENT_ID, value: {{ required "controlPlane.archive.environmentId is required" .Values.controlPlane.archive.environmentId | quote }}}
             - {name: USAGE_ARCHIVE_START_CURSORS, value: {{ required "controlPlane.archive.startCursors is required" .Values.controlPlane.archive.startCursors | toJson | quote }}}
             - {name: USAGE_ARCHIVE_ALLOWED_CONSUMERS, value: {{ .Values.controlPlane.archive.allowedConsumers | toJson | quote }}}
+            - {name: USAGE_ARCHIVE_ALL_TOKENVOLT_CONSUMERS, value: {{ .Values.controlPlane.archive.allTokenVoltConsumers | quote }}}
             {{- end }}
             {{- if .Values.controlPlane.archive.derivedEnabled }}
             - {name: USAGE_ARCHIVE_DERIVED_ENABLED, value: "true"}
@@ -98,6 +99,28 @@ spec:
             {{- end }}
             {{- if .Values.controlPlane.archive.reconcileEnabled }}
             - {name: USAGE_ARCHIVE_RECONCILE_ENABLED, value: "true"}
+            {{- end }}
+            {{- if .Values.controlPlane.billing.invoicesV2Enabled }}
+            - {name: INVOICES_V2_ENABLED, value: "true"}
+            {{- end }}
+            {{- if .Values.controlPlane.billing.generationEnabled }}
+            - {name: INVOICE_GENERATION_ENABLED, value: "true"}
+            - {name: INVOICE_ENVIRONMENT_ID, value: {{ required "controlPlane.billing.environmentId is required" .Values.controlPlane.billing.environmentId | quote }} }
+            - {name: INVOICE_SOURCE_ID, value: {{ required "controlPlane.billing.sourceId is required" .Values.controlPlane.billing.sourceId | quote }} }
+            {{- end }}
+            {{- if .Values.controlPlane.billing.publicationEnabled }}
+            {{- if not .Values.controlPlane.billing.generationEnabled }}{{ fail "invoice publication requires generation" }}{{ end }}
+            {{- if not .Values.controlPlane.archive.producerEnabled }}{{ fail "invoice publication requires the production archive" }}{{ end }}
+            - {name: INVOICE_PUBLICATION_ENABLED, value: "true"}
+            {{- end }}
+            {{- if .Values.controlPlane.billing.importsEnabled }}
+            - {name: USAGE_IMPORTS_ENABLED, value: "true"}
+            {{- end }}
+            {{- if .Values.controlPlane.billing.monthlyDraftsEnabled }}
+            {{- if not .Values.controlPlane.billing.generationEnabled }}{{ fail "monthly drafts require invoice generation" }}{{ end }}
+            - {name: INVOICE_MONTHLY_DRAFTS_ENABLED, value: "true"}
+            - {name: INVOICE_MONTHLY_FIRST_MONTH, value: {{ required "controlPlane.billing.monthlyFirstMonth is required" .Values.controlPlane.billing.monthlyFirstMonth | quote }} }
+            - {name: INVOICE_MONTHLY_OWNER_ID, value: {{ required "controlPlane.billing.monthlyOwnerId is required" .Values.controlPlane.billing.monthlyOwnerId | quote }} }
             {{- end }}
             - {name: HIGRESS_QUOTA_ENABLED, value: {{ .Values.controlPlane.quotaEnabled | quote }}}
             {{- if or .Values.controlPlane.usageDashboard.environment .Values.controlPlane.usageDashboard.source }}

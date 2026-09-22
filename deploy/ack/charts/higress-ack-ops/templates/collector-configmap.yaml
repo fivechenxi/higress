@@ -1188,6 +1188,15 @@ data:
             annotations:
               summary: Usage reconciliation runs failed or were incomplete in the last 24 hours
               description: Inspect the usage job runs for the recorded failure category; source or attribution gaps block publication of the affected period.
+          - alert: TokenVoltBillingArchiveBlocked
+            expr: tokenvolt_archive_jobs{state="blocked"} > 0
+            for: 1m
+            labels:
+              severity: critical
+              component: billing-archive
+            annotations:
+              summary: The formal billing archive is blocked
+              description: At least one SLS archive, merge or projection job is permanently blocked. Source certification and invoice publication remain fail-closed until the gap is reviewed and repaired.
           # tokenvolt_usage_unknown_token_records_48h counts every request that
           # came back without token fields, failures and interruptions included,
           # and those have no usage by definition. Alerting on it means alerting

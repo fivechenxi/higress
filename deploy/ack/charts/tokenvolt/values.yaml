@@ -30,6 +30,17 @@ controlPlane:
     sourceEnvironments: {}
     startCursors: []
     allowedConsumers: []
+    allTokenVoltConsumers: false
+  billing:
+    invoicesV2Enabled: false
+    generationEnabled: false
+    publicationEnabled: false
+    environmentId: ""
+    sourceId: ""
+    importsEnabled: false
+    monthlyDraftsEnabled: false
+    monthlyFirstMonth: ""
+    monthlyOwnerId: ""
   publicService:
     enabled: false
     annotations: {}

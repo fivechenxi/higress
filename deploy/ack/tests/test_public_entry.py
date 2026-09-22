@@ -24,7 +24,7 @@ import yaml
 CHART = Path(__file__).resolve().parents[1] / 'charts/tokenvolt'
 
 
-def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, in_cluster=False, archive=None, neutoken_clusters=None):
+def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, in_cluster=False, archive=None, billing=None, neutoken_clusters=None):
     values = {
         'controlPlane': {
             'quotaEnabled': quota,
@@ -74,6 +74,8 @@ def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, 
         values['controlPlane']['usageDashboard'] = dashboard
     if archive is not None:
         values['controlPlane']['archive'] = archive
+    if billing is not None:
+        values['controlPlane']['billing'] = billing
     if neutoken_clusters is not None:
         values['higress']['neutokenSingleUseClusters'] = neutoken_clusters
     with tempfile.NamedTemporaryFile(mode='w') as f:
@@ -127,10 +129,24 @@ class PublicEntryTest(unittest.TestCase):
         self.assertEqual(json.loads(env['USAGE_ARCHIVE_START_CURSORS']), config['startCursors'])
         self.assertEqual(json.loads(env['USAGE_ARCHIVE_ALLOWED_CONSUMERS']), config['allowedConsumers'])
         self.assertEqual(json.loads(env['USAGE_ARCHIVE_SOURCE_ENVIRONMENTS']), config['sourceEnvironments'])
-        with self.assertRaisesRegex(RuntimeError, 'controlPlane.archive.allowedConsumers is required'):
+        with self.assertRaisesRegex(RuntimeError, 'exactly one consumer scope'):
             render(True, archive={**config, 'allowedConsumers': []})
         with self.assertRaisesRegex(RuntimeError, 'archive producer requires derived workers'):
             render(True, archive={**config, 'derivedEnabled': False})
+
+        production = {**config, 'allowedConsumers': [], 'allTokenVoltConsumers': True,
+                      'environmentId': 'ack-prod', 'prefix': 'usage-archive/ack-prod/',
+                      'sourceEnvironments': {'sls-access': 'ack-prod'}}
+        billing = {'invoicesV2Enabled': True, 'generationEnabled': True,
+                   'publicationEnabled': True, 'environmentId': 'ack-prod',
+                   'sourceId': 'sls-access'}
+        objects = render(True, archive=production, billing=billing)
+        deployment = next(o for o in objects if o['kind'] == 'Deployment'
+                          and o['metadata']['name'] == 'tokenvolt-control-plane')
+        env = {e['name']: e.get('value') for e in deployment['spec']['template']['spec']['containers'][0]['env']}
+        self.assertEqual(env['USAGE_ARCHIVE_ALL_TOKENVOLT_CONSUMERS'], 'true')
+        self.assertEqual(env['INVOICE_PUBLICATION_ENABLED'], 'true')
+        self.assertEqual(env['INVOICE_ENVIRONMENT_ID'], 'ack-prod')
 
     def test_managed_redis_has_one_matching_outbound_cluster(self):
         for port in (6379, 6380):

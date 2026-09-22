@@ -191,6 +191,54 @@ resource "alicloud_oss_bucket" "tokenvolt_billing" {
   server_side_encryption_rule {
     sse_algorithm = "AES256"
   }
+
+  lifecycle_rule {
+    id      = "usage-archive-24-months"
+    prefix  = "usage-archive/"
+    enabled = true
+    transitions {
+      days          = 90
+      storage_class = "IA"
+    }
+    expiration { days = 730 }
+    noncurrent_version_transition {
+      days          = 90
+      storage_class = "IA"
+    }
+    noncurrent_version_expiration { days = 730 }
+  }
+
+  lifecycle_rule {
+    id      = "invoice-evidence-five-years"
+    prefix  = "invoices/"
+    enabled = true
+    transitions {
+      days          = 90
+      storage_class = "IA"
+    }
+    expiration { days = 1825 }
+    noncurrent_version_transition {
+      days          = 90
+      storage_class = "IA"
+    }
+    noncurrent_version_expiration { days = 1825 }
+  }
+
+  lifecycle_rule {
+    id      = "usage-imports-24-months"
+    prefix  = "imports/"
+    enabled = true
+    transitions {
+      days          = 90
+      storage_class = "IA"
+    }
+    expiration { days = 730 }
+    noncurrent_version_transition {
+      days          = 90
+      storage_class = "IA"
+    }
+    noncurrent_version_expiration { days = 730 }
+  }
 }
 
 resource "alicloud_oss_bucket_acl" "tokenvolt_billing" {
@@ -515,6 +563,29 @@ resource "helm_release" "tokenvolt" {
         quotaEnabled   = var.tokenvolt_quota_enabled
         usageDashboard = var.tokenvolt_usage_dashboard
         image          = var.tokenvolt_control_plane_image
+        archive = {
+          producerEnabled       = var.tokenvolt_billing.enabled
+          derivedEnabled        = var.tokenvolt_billing.enabled
+          reconcileEnabled      = var.tokenvolt_billing.enabled
+          sourceId              = var.tokenvolt_billing.source
+          environmentId         = var.tokenvolt_billing.environment
+          prefix                = var.tokenvolt_billing.archive_prefix
+          sourceEnvironments    = var.tokenvolt_billing.enabled ? { (var.tokenvolt_billing.source) = var.tokenvolt_billing.environment } : {}
+          startCursors          = var.tokenvolt_billing.start_cursors
+          allowedConsumers      = []
+          allTokenVoltConsumers = var.tokenvolt_billing.enabled
+        }
+        billing = {
+          invoicesV2Enabled    = var.tokenvolt_billing.enabled
+          generationEnabled    = var.tokenvolt_billing.enabled
+          publicationEnabled   = var.tokenvolt_billing.enabled
+          environmentId        = var.tokenvolt_billing.environment
+          sourceId             = var.tokenvolt_billing.source
+          importsEnabled       = false
+          monthlyDraftsEnabled = var.tokenvolt_billing.enabled && var.tokenvolt_billing.monthly_drafts_enabled
+          monthlyFirstMonth    = var.tokenvolt_billing.monthly_first_month
+          monthlyOwnerId       = var.tokenvolt_billing.monthly_owner_id
+        }
         metrics = {
           metricsSecretName = local.tokenvolt_metrics_secret_name
           tokenRevision     = nonsensitive(sha256(random_password.tokenvolt_metrics_token[0].result))
