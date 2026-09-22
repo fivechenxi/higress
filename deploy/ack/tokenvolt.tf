@@ -626,6 +626,10 @@ resource "helm_release" "tokenvolt" {
       }
       modelRouting = {
         useRealBackends = var.tokenvolt_real_model_backends
+        aiProxy = {
+          url    = var.tokenvolt_ai_proxy_plugin_url
+          sha256 = var.tokenvolt_ai_proxy_plugin_sha256
+        }
       }
       imagePullSecrets = [{ name = kubernetes_secret_v1.tokenvolt_registry[0].metadata[0].name }]
     })
@@ -641,11 +645,15 @@ resource "helm_release" "tokenvolt" {
         (can(regex("^oci://.+@sha256:[0-9a-f]{64}$", var.tokenvolt_ai_statistics_plugin_url)) ||
           (can(regex("^https://[^/]+/.*/sha256/[0-9a-f]{64}\\.wasm$", var.tokenvolt_ai_statistics_plugin_url)) &&
         endswith(var.tokenvolt_ai_statistics_plugin_url, "/${var.tokenvolt_ai_statistics_plugin_sha256}.wasm"))) &&
+        ((can(regex("^oci://.+@sha256:[0-9a-f]{64}$", var.tokenvolt_ai_proxy_plugin_url)) &&
+          endswith(var.tokenvolt_ai_proxy_plugin_url, "@sha256:${var.tokenvolt_ai_proxy_plugin_sha256}")) ||
+          (can(regex("^https://[^/]+/.*/sha256/[0-9a-f]{64}\\.wasm$", var.tokenvolt_ai_proxy_plugin_url)) &&
+        endswith(var.tokenvolt_ai_proxy_plugin_url, "/${var.tokenvolt_ai_proxy_plugin_sha256}.wasm"))) &&
         endswith(var.tokenvolt_cluster_key_rate_limit_plugin_url, "/sha256/${var.tokenvolt_cluster_key_rate_limit_plugin_sha256}.wasm") &&
         endswith(var.tokenvolt_ai_token_rate_limit_plugin_url, "/sha256/${var.tokenvolt_ai_token_rate_limit_plugin_sha256}.wasm") &&
         (!var.tokenvolt_mock_enabled || can(regex("@sha256:[0-9a-f]{64}$", var.tokenvolt_mock_image)))
       )
-      error_message = "TokenVolt control-plane and Wasm plugin references must be immutable digest or checksum-addressed references."
+      error_message = "TokenVolt control-plane and Wasm plugin references, including ai-proxy, must be immutable digest or checksum-addressed references."
     }
   }
 

@@ -389,6 +389,23 @@ variable "tokenvolt_ai_statistics_plugin_sha256" {
   }
 }
 
+variable "tokenvolt_ai_proxy_plugin_url" {
+  description = "Immutable OCI digest or checksum-addressed HTTPS URL for the Higress ai-proxy Wasm plugin. Override this through the OSS-managed tfvars when promoting a compatibility fix."
+  type        = string
+  default     = "oci://higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/ai-proxy@sha256:69c17eae7b8331f37f05a651a0a1aa731fe7aff2ce30452ff4bbba7c7271818d"
+}
+
+variable "tokenvolt_ai_proxy_plugin_sha256" {
+  description = "Checksum expected by Higress: Wasm file SHA-256 for HTTPS, selected image manifest SHA-256 for OCI."
+  type        = string
+  default     = "69c17eae7b8331f37f05a651a0a1aa731fe7aff2ce30452ff4bbba7c7271818d"
+
+  validation {
+    condition     = can(regex("^[0-9a-f]{64}$", var.tokenvolt_ai_proxy_plugin_sha256))
+    error_message = "tokenvolt_ai_proxy_plugin_sha256 must be 64 lowercase hexadecimal characters."
+  }
+}
+
 variable "tokenvolt_rate_limit_redis_enabled" {
   description = "Run the temporary in-cluster Redis fallback. Keep false when managed Redis is enabled."
   type        = bool

@@ -24,7 +24,7 @@ import yaml
 CHART = Path(__file__).resolve().parents[1] / 'charts/tokenvolt'
 
 
-def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, in_cluster=False, archive=None, billing=None, neutoken_clusters=None):
+def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, in_cluster=False, archive=None, billing=None, neutoken_clusters=None, ai_proxy=None):
     values = {
         'controlPlane': {
             'quotaEnabled': quota,
@@ -78,6 +78,8 @@ def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, 
         values['controlPlane']['billing'] = billing
     if neutoken_clusters is not None:
         values['higress']['neutokenSingleUseClusters'] = neutoken_clusters
+    if ai_proxy is not None:
+        values['modelRouting'] = {'aiProxy': ai_proxy}
     with tempfile.NamedTemporaryFile(mode='w') as f:
         json.dump(values, f)
         f.flush()
@@ -90,6 +92,18 @@ def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, 
 
 
 class PublicEntryTest(unittest.TestCase):
+    def test_ai_proxy_artifact_reaches_the_runtime_publisher(self):
+        artifact = {
+            'url': 'https://example.invalid/ai-proxy/sha256/' + 'f' * 64 + '.wasm',
+            'sha256': 'f' * 64,
+        }
+        objects = render(True, ai_proxy=artifact)
+        deployment = next(o for o in objects if o['kind'] == 'Deployment'
+                          and o['metadata']['name'] == 'tokenvolt-control-plane')
+        env = {e['name']: e.get('value') for e in deployment['spec']['template']['spec']['containers'][0]['env']}
+        self.assertEqual(env['HIGRESS_AI_PROXY_PLUGIN_URL'], artifact['url'])
+        self.assertEqual(env['HIGRESS_AI_PROXY_PLUGIN_SHA256'], artifact['sha256'])
+
     def test_neutoken_connection_mitigation_is_opt_in_and_exactly_scoped(self):
         name = 'tokenvolt-neutoken-single-use-connections'
         self.assertFalse(any(o['metadata']['name'] == name for o in render(True)))
