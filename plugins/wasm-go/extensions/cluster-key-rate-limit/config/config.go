@@ -59,6 +59,9 @@ var timeWindows = map[string]int64{
 	"query_per_day":    SecondsPerDay,
 }
 
+// quotaHeaderSuffixPattern 校验分层响应头后缀，保证拼出的响应头名合法（且不能通过配置注入分隔符）。
+var quotaHeaderSuffixPattern = re.MustCompile(`^[a-z0-9]([a-z0-9-]{0,22}[a-z0-9])?$`)
+
 type ClusterKeyRateLimitConfig struct {
 	RuleName             string           // 限流规则名称
 	GlobalThreshold      *GlobalThreshold // 全局限流配置
@@ -79,6 +82,9 @@ type LimitRuleItem struct {
 	Key          string            // 根据该key值进行限流,limit_by_consumer和limit_by_per_consumer两种类型为ConsumerHeader,其他类型为对应的key值
 	LimitByPerIp LimitByPerIp      // 对端ip地址或ip段
 	ConfigItems  []LimitConfigItem // 限流配置项
+	// QuotaHeaderSuffix 非空时，该规则的计数额外写入 X-RateLimit-Limit-<suffix> /
+	// -Remaining-<suffix> / -Reset-<suffix>，用于区分同一次请求上命中的多个限流维度。
+	QuotaHeaderSuffix string
 }
 
 type LimitByPerIp struct {
@@ -198,6 +204,8 @@ func initLimitRule(json gjson.Result, config *ClusterKeyRateLimitConfig) error {
 	var ruleItems []LimitRuleItem
 	// 用于记录已出现的LimitType和Key的组合
 	seenLimitRules := make(map[string]bool)
+	// 用于记录已出现的分层响应头后缀，重复会让两层覆盖同一个响应头
+	seenQuotaHeaderSuffixes := make(map[string]bool)
 
 	for _, item := range items {
 		ruleItem, err := parseLimitRuleItem(item)
@@ -213,6 +221,13 @@ func initLimitRule(json gjson.Result, config *ClusterKeyRateLimitConfig) error {
 			log.Warnf("duplicate rule found: %s='%s' in rule_items", ruleItem.LimitType, ruleItem.Key)
 		} else {
 			seenLimitRules[ruleKey] = true
+		}
+
+		if ruleItem.QuotaHeaderSuffix != "" {
+			if seenQuotaHeaderSuffixes[ruleItem.QuotaHeaderSuffix] {
+				return fmt.Errorf("duplicate 'quota_header_suffix' %q in rule_items", ruleItem.QuotaHeaderSuffix)
+			}
+			seenQuotaHeaderSuffixes[ruleItem.QuotaHeaderSuffix] = true
 		}
 
 		ruleItems = append(ruleItems, *ruleItem)
@@ -295,6 +310,12 @@ func parseLimitRuleItem(item gjson.Result) (*LimitRuleItem, error) {
 		return nil, errors.New("at least one of 'limit_by_header', 'limit_by_param', 'limit_by_consumer', 'limit_by_cookie', 'limit_by_per_header', 'limit_by_per_param', 'limit_by_per_consumer', 'limit_by_per_cookie', 'limit_by_per_ip' must be set")
 	}
 	ruleItem.LimitType = limitType
+
+	// 可选：分层响应头后缀（小写字母/数字/短横线），用于区分同一请求上命中的多个限流维度
+	ruleItem.QuotaHeaderSuffix = strings.ToLower(strings.TrimSpace(item.Get("quota_header_suffix").String()))
+	if ruleItem.QuotaHeaderSuffix != "" && !quotaHeaderSuffixPattern.MatchString(ruleItem.QuotaHeaderSuffix) {
+		return nil, errors.New("'quota_header_suffix' must match ^[a-z0-9]([a-z0-9-]{0,22}[a-z0-9])?$")
+	}
 
 	// 初始化configItems
 	err := initConfigItems(item, &ruleItem)

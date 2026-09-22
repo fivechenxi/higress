@@ -82,14 +82,34 @@ const (
 
 	LimitContextKey = "LimitContext" // 限流上下文信息
 
+	LayerQuotasKey = "LayerQuotas" // 分层限流上下文（按 quota_header_suffix 输出响应头）
+
 	CookieHeader = "cookie"
 
 	RateLimitLimitHeader     = "X-RateLimit-Limit"     // 限制的总请求数
 	RateLimitRemainingHeader = "X-RateLimit-Remaining" // 剩余还可以发送的请求数
 	RateLimitResetHeader     = "X-RateLimit-Reset"     // 限流重置时间（触发限流时返回）
+	RateLimitScopeHeader     = "X-RateLimit-Scope"     // 通用 X-RateLimit-* 取自哪一层（规则的 quota_header_suffix）
 )
 
+// scopedRateLimitHeader 生成分层响应头名：base + "-" + suffix；suffix 为空时返回 base。
+func scopedRateLimitHeader(base, suffix string) string {
+	if suffix == "" {
+		return base
+	}
+	return base + "-" + suffix
+}
+
 type LimitContext struct {
+	count     int
+	remaining int
+	reset     int
+	scope     string // 通用头对应的分层后缀，空表示来自未分层的规则（global_threshold）
+}
+
+// LayerQuota 一条分层规则的计数结果，用于在响应中额外输出 X-RateLimit-*-<suffix>。
+type LayerQuota struct {
+	suffix    string
 	count     int
 	remaining int
 	reset     int
@@ -100,6 +120,7 @@ type MatchedRule struct {
 	key    string // 完整 Redis key
 	count  int64  // 时间窗口内的限额
 	window int64  // 时间窗口大小（秒）
+	suffix string // 分层响应头后缀；global_threshold 为空
 }
 
 func parseConfig(json gjson.Result, cfg *config.ClusterKeyRateLimitConfig) error {
@@ -170,6 +191,7 @@ func onHttpRequestHeaders(ctx wrapper.HttpContext, cfg config.ClusterKeyRateLimi
 					count:     threshold,
 					remaining: threshold - current,
 					reset:     ttl,
+					scope:     matched[i].suffix,
 				})
 				return
 			}
@@ -189,7 +211,26 @@ func onHttpRequestHeaders(ctx wrapper.HttpContext, cfg config.ClusterKeyRateLimi
 			count:     tightThreshold,
 			remaining: tightThreshold - tightCurrent,
 			reset:     tightTtl,
+			scope:     matched[tightestIdx].suffix,
 		})
+
+		// 命中的分层规则各自成对输出，客户端才能同时看到两层（通用头只是其中最紧的一层）
+		layers := make([]LayerQuota, 0, n)
+		for i := range arr {
+			if matched[i].suffix == "" {
+				continue
+			}
+			layer := arr[i].Array()
+			layers = append(layers, LayerQuota{
+				suffix:    matched[i].suffix,
+				count:     layer[0].Integer(),
+				remaining: layer[0].Integer() - layer[1].Integer(),
+				reset:     layer[2].Integer(),
+			})
+		}
+		if len(layers) > 0 {
+			ctx.SetContext(LayerQuotasKey, layers)
+		}
 
 		_ = proxywasm.ResumeHttpRequest()
 	})
@@ -207,11 +248,20 @@ func onHttpResponseHeaders(ctx wrapper.HttpContext, config config.ClusterKeyRate
 		log.Debugf("cluster-key-rate-limit: response phase reached with no LimitContext, skipping X-RateLimit-* headers")
 		return types.ActionContinue
 	}
+	layers, _ := ctx.GetContext(LayerQuotasKey).([]LayerQuota)
 	if config.ShowLimitQuotaHeader {
 		_ = proxywasm.ReplaceHttpResponseHeader(RateLimitLimitHeader, strconv.Itoa(limitContext.count))
 		_ = proxywasm.ReplaceHttpResponseHeader(RateLimitRemainingHeader, strconv.Itoa(limitContext.remaining))
-		log.Debugf("cluster-key-rate-limit: response phase wrote X-RateLimit-Limit=%d X-RateLimit-Remaining=%d",
-			limitContext.count, limitContext.remaining)
+		if limitContext.scope != "" {
+			_ = proxywasm.ReplaceHttpResponseHeader(RateLimitScopeHeader, limitContext.scope)
+		}
+		for _, layer := range layers {
+			_ = proxywasm.ReplaceHttpResponseHeader(scopedRateLimitHeader(RateLimitLimitHeader, layer.suffix), strconv.Itoa(layer.count))
+			_ = proxywasm.ReplaceHttpResponseHeader(scopedRateLimitHeader(RateLimitRemainingHeader, layer.suffix), strconv.Itoa(layer.remaining))
+			_ = proxywasm.ReplaceHttpResponseHeader(scopedRateLimitHeader(RateLimitResetHeader, layer.suffix), strconv.Itoa(layer.reset))
+		}
+		log.Debugf("cluster-key-rate-limit: response phase wrote X-RateLimit-Limit=%d X-RateLimit-Remaining=%d scope=%q layers=%d",
+			limitContext.count, limitContext.remaining, limitContext.scope, len(layers))
 	}
 	return types.ActionContinue
 }
@@ -236,6 +286,7 @@ func collectMatchedRules(ctx wrapper.HttpContext, cfg config.ClusterKeyRateLimit
 				key:    fmt.Sprintf(ClusterRateLimitFormat, cfg.RuleName, hitRule.LimitType, hitItem.TimeWindow, hitRule.Key, val),
 				count:  hitItem.Count,
 				window: hitItem.TimeWindow,
+				suffix: hitRule.QuotaHeaderSuffix,
 			})
 		}
 	}
@@ -358,6 +409,13 @@ func rejected(config config.ClusterKeyRateLimitConfig, context LimitContext) {
 	if config.ShowLimitQuotaHeader {
 		headers[RateLimitLimitHeader] = []string{strconv.Itoa(context.count)}
 		headers[RateLimitRemainingHeader] = []string{strconv.Itoa(0)}
+		// 429 时指明是哪个维度超限，客户端不必再从两个数里猜
+		if context.scope != "" {
+			headers[RateLimitScopeHeader] = []string{context.scope}
+			headers[scopedRateLimitHeader(RateLimitLimitHeader, context.scope)] = []string{strconv.Itoa(context.count)}
+			headers[scopedRateLimitHeader(RateLimitRemainingHeader, context.scope)] = []string{strconv.Itoa(0)}
+			headers[scopedRateLimitHeader(RateLimitResetHeader, context.scope)] = []string{strconv.Itoa(context.reset)}
+		}
 	}
 	_ = proxywasm.SendHttpResponseWithDetail(
 		config.RejectedCode, "cluster-key-rate-limit.rejected", util.ReconvertHeaders(headers), []byte(config.RejectedMsg), -1)

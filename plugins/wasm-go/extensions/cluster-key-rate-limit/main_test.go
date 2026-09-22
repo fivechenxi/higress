@@ -249,6 +249,35 @@ var hybridLimitConfig = func() json.RawMessage {
 	return data
 }()
 
+// 测试配置：两条分层规则（quota_header_suffix）同时命中，模拟客户级 + 客户×模型两级限流
+var scopedQuotaHeaderConfig = func() json.RawMessage {
+	data, _ := json.Marshal(map[string]interface{}{
+		"rule_name": "cluster-scoped-headers",
+		"rule_items": []map[string]interface{}{
+			{
+				"limit_by_header":     "x-tenant-id",
+				"quota_header_suffix": "customer",
+				"limit_keys": []map[string]interface{}{
+					{"key": "tenant-a", "query_per_minute": 300},
+				},
+			},
+			{
+				"limit_by_header":     "x-tenant-model",
+				"quota_header_suffix": "model",
+				"limit_keys": []map[string]interface{}{
+					{"key": "tenant-a:glm-5.2", "query_per_minute": 60},
+				},
+			},
+		},
+		"redis": map[string]interface{}{
+			"service_name": "redis.static",
+			"service_port": 6379,
+		},
+		"show_limit_quota_header": true,
+	})
+	return data
+}()
+
 // 测试配置：多条 rule_items 同时命中
 var multiRuleItemsConfig = func() json.RawMessage {
 	data, _ := json.Marshal(map[string]interface{}{
@@ -856,6 +885,88 @@ func TestOnHttpRequestHeaders(t *testing.T) {
 					require.Equal(t, "1000", h[1], "X-RateLimit-Remaining 应为 tightest(global) 的 threshold-current")
 				}
 			}
+
+			host.CompleteHttp()
+		})
+
+		// 分层规则：通用头仍取最紧一层，同时按 suffix 输出每层自己的额度
+		t.Run("scoped quota headers report every matched layer", func(t *testing.T) {
+			host, status := test.NewTestHost(scopedQuotaHeaderConfig)
+			defer host.Reset()
+			require.Equal(t, types.OnPluginStartStatusOK, status)
+
+			host.CallOnHttpRequestHeaders([][2]string{
+				{":authority", "example.com"},
+				{":path", "/api/test"},
+				{":method", "GET"},
+				{"x-tenant-id", "tenant-a"},
+				{"x-tenant-model", "tenant-a:glm-5.2"},
+			})
+
+			// customer 6/300（剩余 98.0%）比 model 1/60（剩余 98.33%）更紧
+			resp := multiRuleResp(
+				[3]int{300, 6, 60},
+				[3]int{60, 1, 60},
+			)
+			host.CallOnRedisCall(0, resp)
+			require.Nil(t, host.GetLocalResponse())
+
+			host.CallOnHttpResponseHeaders([][2]string{
+				{":status", "200"},
+				{"content-type", "application/json"},
+			})
+
+			headers := map[string]string{}
+			for _, h := range host.GetResponseHeaders() {
+				headers[strings.ToLower(h[0])] = h[1]
+			}
+			require.Equal(t, "300", headers["x-ratelimit-limit"], "通用头取最紧的 customer 层")
+			require.Equal(t, "294", headers["x-ratelimit-remaining"])
+			require.Equal(t, "customer", headers["x-ratelimit-scope"])
+			require.Equal(t, "300", headers["x-ratelimit-limit-customer"])
+			require.Equal(t, "294", headers["x-ratelimit-remaining-customer"])
+			require.Equal(t, "60", headers["x-ratelimit-reset-customer"])
+			require.Equal(t, "60", headers["x-ratelimit-limit-model"])
+			require.Equal(t, "59", headers["x-ratelimit-remaining-model"])
+			require.Equal(t, "60", headers["x-ratelimit-reset-model"])
+
+			host.CompleteHttp()
+		})
+
+		// 429 时指明是哪个维度超限
+		t.Run("rejection names the triggered layer", func(t *testing.T) {
+			host, status := test.NewTestHost(scopedQuotaHeaderConfig)
+			defer host.Reset()
+			require.Equal(t, types.OnPluginStartStatusOK, status)
+
+			host.CallOnHttpRequestHeaders([][2]string{
+				{":authority", "example.com"},
+				{":path", "/api/test"},
+				{":method", "GET"},
+				{"x-tenant-id", "tenant-a"},
+				{"x-tenant-model", "tenant-a:glm-5.2"},
+			})
+
+			resp := multiRuleResp(
+				[3]int{300, 6, 60},
+				[3]int{60, 61, 30},
+			)
+			host.CallOnRedisCall(0, resp)
+
+			localResponse := host.GetLocalResponse()
+			require.NotNil(t, localResponse)
+			require.Equal(t, uint32(429), localResponse.StatusCode)
+
+			headers := map[string]string{}
+			for _, h := range localResponse.Headers {
+				headers[strings.ToLower(h[0])] = h[1]
+			}
+			require.Equal(t, "model", headers["x-ratelimit-scope"])
+			require.Equal(t, "60", headers["x-ratelimit-limit"])
+			require.Equal(t, "0", headers["x-ratelimit-remaining"])
+			require.Equal(t, "60", headers["x-ratelimit-limit-model"])
+			require.Equal(t, "0", headers["x-ratelimit-remaining-model"])
+			require.Equal(t, "30", headers["x-ratelimit-reset-model"])
 
 			host.CompleteHttp()
 		})

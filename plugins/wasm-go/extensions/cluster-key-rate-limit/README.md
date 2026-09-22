@@ -64,6 +64,7 @@ description: 基于 Key 集群限流插件配置参考
 | limit_by_per_cookie   | string          | 否，`limit_by_*` 中选填一项 | -      | 按 Cookie 值分别计算限流；`limit_keys` **不可填字面名，仅接受 `*` 或 `regexp:...`**。精确匹配请改用 `limit_by_cookie`（去掉 `per_`） |
 | limit_by_per_ip       | string          | 否，`limit_by_*` 中选填一项 | -      | 选择客户端 IP 来源：`from-header-<header名>` 或 `from-remote-addr`；IP/CIDR 必须写在 `limit_keys[].key` 中 |
 | limit_keys            | array of object | 是                    | -      | 配置匹配键值后的限流次数                                                                                                                                             |
+| quota_header_suffix   | string          | 否                    | -      | 分层响应头后缀，见下方“分层响应头”。同一配置内不可重复                                                                                                                        |
 
 #### `rule_items` 多规则匹配语义
 
@@ -76,6 +77,48 @@ description: 基于 Key 集群限流插件配置参考
 当多条规则同时未触发、配置 `show_limit_quota_header: true` 时：
 - `X-RateLimit-Limit` / `X-RateLimit-Remaining`：取剩余比例最小（最紧约束）的命中规则
 - `X-RateLimit-Reset`（触发限流时返回）：取第一条触发的规则（按 `rule_items` 数组顺序，全局优先）
+- `X-RateLimit-Scope`：通用头取自哪一层，即该规则的 `quota_header_suffix`（未分层时不返回）
+
+##### 分层响应头（`quota_header_suffix`）
+
+一个 `rule_item` 配置 `quota_header_suffix: <suffix>` 后，只要它命中，就会额外输出该层自己的额度：
+
+| 响应头 | 说明 |
+| --- | --- |
+| `X-RateLimit-Limit-<suffix>` | 该层的时间窗口限额 |
+| `X-RateLimit-Remaining-<suffix>` | 该层的剩余请求数 |
+| `X-RateLimit-Reset-<suffix>` | 该层窗口的剩余秒数 |
+| `X-RateLimit-Scope` | 通用 `X-RateLimit-Limit` / `-Remaining` 来自哪一层 |
+
+```yaml
+rule_items:
+  - limit_by_header: "x-tenant-id"
+    quota_header_suffix: "customer"
+    limit_keys:
+      - key: "tenant-a"
+        query_per_minute: 300
+  - limit_by_header: "x-tenant-model"
+    quota_header_suffix: "model"
+    limit_keys:
+      - key: "tenant-a:glm-5.2"
+        query_per_minute: 60
+```
+
+一次命中两层的响应（客户层 6/300 比模型层 1/60 更紧，所以通用头取客户层）：
+
+```text
+X-RateLimit-Limit: 300
+X-RateLimit-Remaining: 294
+X-RateLimit-Scope: customer
+X-RateLimit-Limit-customer: 300
+X-RateLimit-Remaining-customer: 294
+X-RateLimit-Reset-customer: 60
+X-RateLimit-Limit-model: 60
+X-RateLimit-Remaining-model: 59
+X-RateLimit-Reset-model: 60
+```
+
+约束：`suffix` 只能是小写字母、数字和短横线（`^[a-z0-9]([a-z0-9-]{0,22}[a-z0-9])?$`），配置时会转成小写；同一个配置里出现重复 `suffix` 会被拒绝，避免两层互相覆盖。未配置 `suffix` 的规则（含 `global_threshold`）只参与通用头。
 
 `limit_keys` 中每一项的配置字段说明。
 

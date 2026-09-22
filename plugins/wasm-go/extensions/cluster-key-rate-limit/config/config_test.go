@@ -369,3 +369,38 @@ func TestParseClusterKeyRateLimitConfig_AcceptsSupportedLimitKeyForms(t *testing
 		})
 	}
 }
+
+func TestParseQuotaHeaderSuffix(t *testing.T) {
+	raw := func(first string, second string) string {
+		return fmt.Sprintf(`{"rule_name":"scoped","rule_items":[%s%s]}`, first, second)
+	}
+
+	t.Run("SuffixIsParsed", func(t *testing.T) {
+		var config ClusterKeyRateLimitConfig
+		item := `{"limit_by_header":"x-tenant-id","quota_header_suffix":"customer","limit_keys":[{"key":"tenant-a","query_per_minute":1}]}`
+		assert.NoError(t, ParseClusterKeyRateLimitConfig(gjson.Parse(raw(item, "")), &config))
+		assert.Equal(t, "customer", config.RuleItems[0].QuotaHeaderSuffix)
+	})
+
+	t.Run("SuffixIsNormalized", func(t *testing.T) {
+		var config ClusterKeyRateLimitConfig
+		item := `{"limit_by_header":"x-tenant-model","quota_header_suffix":" Model ","limit_keys":[{"key":"tenant-a:m","query_per_minute":1}]}`
+		assert.NoError(t, ParseClusterKeyRateLimitConfig(gjson.Parse(raw(item, "")), &config))
+		assert.Equal(t, "model", config.RuleItems[0].QuotaHeaderSuffix)
+	})
+
+	t.Run("InvalidSuffixIsRejected", func(t *testing.T) {
+		var config ClusterKeyRateLimitConfig
+		for _, suffix := range []string{"a b", "a:b", "-a", "a-", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"} {
+			item := fmt.Sprintf(`{"limit_by_header":"x-tenant-id","quota_header_suffix":%q,"limit_keys":[{"key":"tenant-a","query_per_minute":1}]}`, suffix)
+			assert.Error(t, ParseClusterKeyRateLimitConfig(gjson.Parse(raw(item, "")), &config), suffix)
+		}
+	})
+
+	t.Run("DuplicateSuffixIsRejected", func(t *testing.T) {
+		var config ClusterKeyRateLimitConfig
+		first := `{"limit_by_header":"x-tenant-id","quota_header_suffix":"customer","limit_keys":[{"key":"tenant-a","query_per_minute":1}]}`
+		second := `,{"limit_by_header":"x-tenant-model","quota_header_suffix":"customer","limit_keys":[{"key":"tenant-a:m","query_per_minute":1}]}`
+		assert.Error(t, ParseClusterKeyRateLimitConfig(gjson.Parse(raw(first, second)), &config))
+	})
+}

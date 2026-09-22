@@ -66,6 +66,7 @@ It supports three rate limiting modes:
 | limit_by_per_cookie           | string        | No (choose one of `limit_by_*` fields) | -           | Calculates a separate limit per Cookie value. `limit_keys` **MUST NOT be a literal name; only `*` or `regexp:...` is accepted**. For an exact match, use `limit_by_cookie` (drop `per_`). |
 | limit_by_per_ip               | string        | No (choose one of `limit_by_*` fields) | -           | Selects the client-IP source: `from-header-<header_name>` or `from-remote-addr`. Put IP/CIDR values in `limit_keys[].key`. |
 | limit_keys                    | array of object | Yes                               | -           | Configures the rate limits for matched key values.                          |  
+| quota_header_suffix           | string          | No                                | -           | Suffix for the scoped quota headers (see below). Must be unique within one config. |
 
 #### `rule_items` Multi-Rule Matching Semantics
 
@@ -78,6 +79,35 @@ It supports three rate limiting modes:
 When multiple rules are matched and none trigger (with `show_limit_quota_header: true`):
 - `X-RateLimit-Limit` / `X-RateLimit-Remaining`: from the matched rule with the smallest remaining ratio (tightest constraint)
 - `X-RateLimit-Reset` (returned when triggered): from the first triggered rule (in `rule_items` array order, global first)  
+- `X-RateLimit-Scope`: which layer the generic pair came from, i.e. that rule's `quota_header_suffix` (omitted for un-scoped rules)
+
+##### Scoped quota headers (`quota_header_suffix`)
+
+A `rule_item` with `quota_header_suffix: <suffix>` additionally reports its own counters whenever it matches:
+
+| Header | Meaning |
+| --- | --- |
+| `X-RateLimit-Limit-<suffix>` | That layer's window limit |
+| `X-RateLimit-Remaining-<suffix>` | That layer's remaining requests |
+| `X-RateLimit-Reset-<suffix>` | Seconds left in that layer's window |
+| `X-RateLimit-Scope` | Which layer the generic `X-RateLimit-Limit` / `-Remaining` came from |
+
+A request matching both a customer layer (6/300) and a model layer (1/60) returns:
+
+```text
+X-RateLimit-Limit: 300
+X-RateLimit-Remaining: 294
+X-RateLimit-Scope: customer
+X-RateLimit-Limit-customer: 300
+X-RateLimit-Remaining-customer: 294
+X-RateLimit-Reset-customer: 60
+X-RateLimit-Limit-model: 60
+X-RateLimit-Remaining-model: 59
+X-RateLimit-Reset-model: 60
+```
+
+`suffix` accepts lowercase letters, digits and hyphens (`^[a-z0-9]([a-z0-9-]{0,22}[a-z0-9])?$`) and is lowercased; duplicate suffixes in one config are rejected so two layers can never overwrite the same header.
+
 
 ### Configuration Fields for `limit_keys`
 
