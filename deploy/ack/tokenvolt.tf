@@ -191,54 +191,6 @@ resource "alicloud_oss_bucket" "tokenvolt_billing" {
   server_side_encryption_rule {
     sse_algorithm = "AES256"
   }
-
-  lifecycle_rule {
-    id      = "usage-archive-24-months"
-    prefix  = "usage-archive/"
-    enabled = true
-    transitions {
-      days          = 90
-      storage_class = "IA"
-    }
-    expiration { days = 730 }
-    noncurrent_version_transition {
-      days          = 90
-      storage_class = "IA"
-    }
-    noncurrent_version_expiration { days = 730 }
-  }
-
-  lifecycle_rule {
-    id      = "invoice-evidence-five-years"
-    prefix  = "invoices/"
-    enabled = true
-    transitions {
-      days          = 90
-      storage_class = "IA"
-    }
-    expiration { days = 1825 }
-    noncurrent_version_transition {
-      days          = 90
-      storage_class = "IA"
-    }
-    noncurrent_version_expiration { days = 1825 }
-  }
-
-  lifecycle_rule {
-    id      = "usage-imports-24-months"
-    prefix  = "imports/"
-    enabled = true
-    transitions {
-      days          = 90
-      storage_class = "IA"
-    }
-    expiration { days = 730 }
-    noncurrent_version_transition {
-      days          = 90
-      storage_class = "IA"
-    }
-    noncurrent_version_expiration { days = 730 }
-  }
 }
 
 resource "alicloud_oss_bucket_acl" "tokenvolt_billing" {
