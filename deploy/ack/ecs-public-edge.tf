@@ -32,6 +32,9 @@ resource "alicloud_slb_server_group" "ecs" {
   lifecycle { prevent_destroy = true }
 }
 
+# Keep the public edge open for slow model first-token responses. This must not
+# expire before the listener request timeout and turn an in-flight request into
+# an edge-generated 502.
 resource "alicloud_slb_listener" "public_https" {
   count                     = local.shared_public_edge ? 1 : 0
   load_balancer_id          = alicloud_slb_load_balancer.higress_public.id
@@ -46,7 +49,7 @@ resource "alicloud_slb_listener" "public_https" {
   enable_http2              = "on"
   gzip                      = true
   tls_cipher_policy         = "tls_cipher_policy_1_2_strict_with_1_3"
-  idle_timeout              = 60
+  idle_timeout              = 180
   request_timeout           = 180
   health_check              = "on"
   health_check_type         = "http"
@@ -72,7 +75,7 @@ resource "alicloud_slb_listener" "public_http" {
   description      = "tokenvolt-ecs-redirect-https"
   listener_forward = "on"
   forward_port     = 443
-  idle_timeout     = 60
+  idle_timeout     = 180
   request_timeout  = 180
   health_check     = "off"
   sticky_session   = "off"
