@@ -302,7 +302,7 @@ variable "tokenvolt_oss_worm_enabled" {
 }
 
 variable "tokenvolt_billing" {
-  description = "Non-destructive wiring for the fail-closed production usage archive and invoice publication pipeline. It must not mutate existing users, keys, models, routes, prices, logs, or objects; cutover and source certifications remain separate audited API operations."
+  description = "Non-destructive wiring for the fail-closed production usage archive and invoice publication pipeline. source must be a new production logical source, never a reused test/shadow source. It must not mutate existing users, keys, models, routes, prices, logs, or objects; cutover and source certifications remain separate audited API operations."
   type = object({
     enabled        = bool
     environment    = string
@@ -335,10 +335,17 @@ variable "tokenvolt_billing" {
   validation {
     condition = !var.tokenvolt_billing.enabled || (
       can(regex("^[A-Za-z0-9_-]{1,256}$", var.tokenvolt_billing.environment)) &&
-      trimspace(var.tokenvolt_billing.source) == var.tokenvolt_billing.source && var.tokenvolt_billing.source != "" &&
+      length(var.tokenvolt_billing.source) <= 512 && trimspace(var.tokenvolt_billing.source) == var.tokenvolt_billing.source && var.tokenvolt_billing.source != "" &&
       can(regex("^usage-archive/[A-Za-z0-9/_-]+/$", var.tokenvolt_billing.archive_prefix)) &&
       length(var.tokenvolt_billing.start_cursors) > 0 && length(var.tokenvolt_billing.start_cursors) <= 256 &&
-      alltrue([for v in var.tokenvolt_billing.start_cursors : v.shard.ID >= 0 && v.shard.CreatedAt > 0 && contains(["readwrite", "readonly"], v.shard.Status) && v.cursor != ""]) &&
+      length(distinct([for v in var.tokenvolt_billing.start_cursors : "${v.shard.ID}/${v.shard.CreatedAt}"])) == length(var.tokenvolt_billing.start_cursors) &&
+      alltrue([for v in var.tokenvolt_billing.start_cursors :
+        v.shard.ID >= 0 && v.shard.ID <= 2147483647 &&
+        v.shard.CreatedAt > 0 && v.shard.CreatedAt <= 2147483647 &&
+        contains(["readwrite", "readonly"], v.shard.Status) &&
+        v.shard.BeginKey != "" && v.shard.EndKey != "" &&
+        v.cursor != "" && length(v.cursor) <= 4096
+      ]) &&
       (!var.tokenvolt_billing.monthly_drafts_enabled || (can(regex("^[0-9]{4}-[0-9]{2}$", var.tokenvolt_billing.monthly_first_month)) && can(regex("^[A-Za-z0-9_-]{1,128}$", var.tokenvolt_billing.monthly_owner_id))))
     )
     error_message = "Enabled billing requires an explicit environment/source, archive prefix, reviewed shard cursors and valid optional monthly settings."

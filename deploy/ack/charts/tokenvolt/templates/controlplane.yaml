@@ -104,6 +104,7 @@ spec:
             - {name: INVOICES_V2_ENABLED, value: "true"}
             {{- end }}
             {{- if .Values.controlPlane.billing.generationEnabled }}
+            {{- if not .Values.controlPlane.billing.invoicesV2Enabled }}{{ fail "invoice generation requires invoices v2" }}{{ end }}
             - {name: INVOICE_GENERATION_ENABLED, value: "true"}
             - {name: INVOICE_ENVIRONMENT_ID, value: {{ required "controlPlane.billing.environmentId is required" .Values.controlPlane.billing.environmentId | quote }} }
             - {name: INVOICE_SOURCE_ID, value: {{ required "controlPlane.billing.sourceId is required" .Values.controlPlane.billing.sourceId | quote }} }
@@ -111,9 +112,13 @@ spec:
             {{- if .Values.controlPlane.billing.publicationEnabled }}
             {{- if not .Values.controlPlane.billing.generationEnabled }}{{ fail "invoice publication requires generation" }}{{ end }}
             {{- if not .Values.controlPlane.archive.producerEnabled }}{{ fail "invoice publication requires the production archive" }}{{ end }}
+            {{- if not .Values.controlPlane.archive.allTokenVoltConsumers }}{{ fail "invoice publication requires the all-TokenVolt consumer scope" }}{{ end }}
+            {{- if ne .Values.controlPlane.billing.environmentId .Values.controlPlane.archive.environmentId }}{{ fail "invoice publication environment must match the archive" }}{{ end }}
+            {{- if ne .Values.controlPlane.billing.sourceId .Values.controlPlane.archive.sourceId }}{{ fail "invoice publication source must match the archive" }}{{ end }}
             - {name: INVOICE_PUBLICATION_ENABLED, value: "true"}
             {{- end }}
             {{- if .Values.controlPlane.billing.importsEnabled }}
+            {{- if not .Values.controlPlane.billing.generationEnabled }}{{ fail "usage imports require invoice generation" }}{{ end }}
             - {name: USAGE_IMPORTS_ENABLED, value: "true"}
             {{- end }}
             {{- if .Values.controlPlane.billing.monthlyDraftsEnabled }}

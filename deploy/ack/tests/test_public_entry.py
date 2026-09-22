@@ -147,6 +147,13 @@ class PublicEntryTest(unittest.TestCase):
         self.assertEqual(env['USAGE_ARCHIVE_ALL_TOKENVOLT_CONSUMERS'], 'true')
         self.assertEqual(env['INVOICE_PUBLICATION_ENABLED'], 'true')
         self.assertEqual(env['INVOICE_ENVIRONMENT_ID'], 'ack-prod')
+        with self.assertRaisesRegex(RuntimeError, 'all-TokenVolt consumer scope'):
+            render(True, archive={**production, 'allowedConsumers': ['tv-test'],
+                                  'allTokenVoltConsumers': False}, billing=billing)
+        with self.assertRaisesRegex(RuntimeError, 'environment must match'):
+            render(True, archive=production, billing={**billing, 'environmentId': 'other'})
+        with self.assertRaisesRegex(RuntimeError, 'source must match'):
+            render(True, archive=production, billing={**billing, 'sourceId': 'other'})
 
     def test_managed_redis_has_one_matching_outbound_cluster(self):
         for port in (6379, 6380):
