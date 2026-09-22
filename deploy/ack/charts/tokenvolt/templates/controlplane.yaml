@@ -183,8 +183,8 @@ spec:
             runAsUser: 100
             runAsGroup: 101
             capabilities: {drop: [ALL]}
-          {{- if or .Values.controlPlane.metrics.metricsSecretName (and .Values.higress.gatewayConfigPublisher.enabled .Values.modelRouting.useRealBackends) }}
           volumeMounts:
+            - {name: controlplane-work, mountPath: /tmp}
             {{- if and .Values.higress.gatewayConfigPublisher.enabled .Values.modelRouting.useRealBackends }}
             - {name: gateway-bootstrap, mountPath: /etc/tokenvolt/gateway-bootstrap, readOnly: true}
             - {name: provider-credentials, mountPath: /var/run/tokenvolt/provider-credentials, readOnly: true}
@@ -192,9 +192,10 @@ spec:
             {{- if .Values.controlPlane.metrics.metricsSecretName }}
             - {name: controlplane-metrics, mountPath: /etc/tokenvolt/metrics, readOnly: true}
             {{- end }}
-          {{- end }}
-      {{- if or .Values.controlPlane.metrics.metricsSecretName (and .Values.higress.gatewayConfigPublisher.enabled .Values.modelRouting.useRealBackends) }}
       volumes:
+        - name: controlplane-work
+          emptyDir:
+            sizeLimit: {{ required "controlPlane.workSizeLimit must bound the writable work volume" .Values.controlPlane.workSizeLimit | quote }}
         {{- if and .Values.higress.gatewayConfigPublisher.enabled .Values.modelRouting.useRealBackends }}
         - name: gateway-bootstrap
           configMap: {name: tokenvolt-gateway-bootstrap}
@@ -209,7 +210,6 @@ spec:
               - key: {{ .Values.controlPlane.metrics.metricsTokenKey | quote }}
                 path: token
         {{- end }}
-      {{- end }}
 
 {{- if .Values.controlPlane.publicService.enabled }}
 ---

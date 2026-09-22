@@ -92,6 +92,18 @@ def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, 
 
 
 class PublicEntryTest(unittest.TestCase):
+    def test_control_plane_has_bounded_writable_work_volume(self):
+        objects = render(True)
+        deployment = next(o for o in objects if o['kind'] == 'Deployment'
+                          and o['metadata']['name'] == 'tokenvolt-control-plane')
+        pod = deployment['spec']['template']['spec']
+        container = pod['containers'][0]
+        mounts = {m['name']: m for m in container['volumeMounts']}
+        volumes = {v['name']: v for v in pod['volumes']}
+        self.assertTrue(container['securityContext']['readOnlyRootFilesystem'])
+        self.assertEqual(mounts['controlplane-work']['mountPath'], '/tmp')
+        self.assertEqual(volumes['controlplane-work']['emptyDir']['sizeLimit'], '1Gi')
+
     def test_ai_proxy_artifact_reaches_the_runtime_publisher(self):
         artifact = {
             'url': 'https://example.invalid/ai-proxy/sha256/' + 'f' * 64 + '.wasm',
