@@ -301,6 +301,60 @@ variable "tokenvolt_oss_worm_enabled" {
   default     = false
 }
 
+variable "tokenvolt_billing" {
+  description = "Non-destructive wiring for the automatic production SLS coverage and invoice pipeline. Existing users, keys, models, routes, prices and logs are never mutated or backfilled."
+  type = object({
+    enabled          = bool
+    environment      = string
+    source           = string
+    archive_prefix   = string
+    billing_start_at = string
+    start_cursors = list(object({
+      shard = object({
+        ID        = number
+        CreatedAt = number
+        Status    = string
+        BeginKey  = string
+        EndKey    = string
+      })
+      cursor = string
+    }))
+    monthly_drafts_enabled = bool
+    monthly_first_month    = string
+    monthly_owner_id       = string
+  })
+  default = {
+    enabled                = false
+    environment            = ""
+    source                 = ""
+    archive_prefix         = ""
+    billing_start_at       = ""
+    start_cursors          = []
+    monthly_drafts_enabled = false
+    monthly_first_month    = ""
+    monthly_owner_id       = ""
+  }
+  validation {
+    condition = !var.tokenvolt_billing.enabled || (
+      can(regex("^[A-Za-z0-9_-]{1,256}$", var.tokenvolt_billing.environment)) &&
+      length(var.tokenvolt_billing.source) <= 512 && trimspace(var.tokenvolt_billing.source) == var.tokenvolt_billing.source && var.tokenvolt_billing.source != "" &&
+      can(regex("^usage-archive/[A-Za-z0-9/_-]+/$", var.tokenvolt_billing.archive_prefix)) &&
+      can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:00:00Z$", var.tokenvolt_billing.billing_start_at)) &&
+      length(var.tokenvolt_billing.start_cursors) > 0 && length(var.tokenvolt_billing.start_cursors) <= 256 &&
+      length(distinct([for v in var.tokenvolt_billing.start_cursors : "${v.shard.ID}/${v.shard.CreatedAt}"])) == length(var.tokenvolt_billing.start_cursors) &&
+      alltrue([for v in var.tokenvolt_billing.start_cursors :
+        v.shard.ID >= 0 && v.shard.ID <= 2147483647 &&
+        v.shard.CreatedAt > 0 && v.shard.CreatedAt <= 2147483647 &&
+        contains(["readwrite", "readonly"], v.shard.Status) &&
+        v.shard.BeginKey != "" && v.shard.EndKey != "" &&
+        v.cursor != "" && length(v.cursor) <= 4096
+      ]) &&
+      (!var.tokenvolt_billing.monthly_drafts_enabled || (can(regex("^[0-9]{4}-[0-9]{2}$", var.tokenvolt_billing.monthly_first_month)) && can(regex("^[A-Za-z0-9_-]{1,128}$", var.tokenvolt_billing.monthly_owner_id))))
+    )
+    error_message = "Enabled billing requires an explicit environment/source, UTC-hour billing start, archive prefix, reviewed shard cursors and valid optional monthly settings."
+  }
+}
+
 variable "tokenvolt_policy_plugin_url" {
   description = "Immutable OCI digest or checksum-addressed HTTPS URL for the TokenVolt policy Wasm plugin."
   type        = string

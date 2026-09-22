@@ -1188,6 +1188,33 @@ data:
             annotations:
               summary: Usage reconciliation runs failed or were incomplete in the last 24 hours
               description: Inspect the usage job runs for the recorded failure category; source or attribution gaps block publication of the affected period.
+          - alert: TokenVoltBillingArchiveBlocked
+            expr: tokenvolt_archive_jobs{state="blocked"} > 0
+            for: 1m
+            labels:
+              severity: critical
+              component: billing-archive
+            annotations:
+              summary: The formal billing archive is blocked
+              description: At least one SLS archive, merge or projection job is permanently blocked. Automatic coverage and invoice publication remain fail-closed until the gap is repaired.
+          - alert: TokenVoltBillingArchiveTopologyInvalid
+            expr: tokenvolt_billing_start_unixtime > 0 and (tokenvolt_archive_topology_valid < 1 or time() - tokenvolt_archive_topology_observed_unixtime > 120)
+            for: 1m
+            labels:
+              severity: critical
+              component: billing-archive
+            annotations:
+              summary: The production SLS shard topology is invalid
+              description: The live SLS shards no longer match the configured immutable starts. Automatic coverage and invoice publication are stopped until the deployment configuration is reviewed.
+          - alert: TokenVoltBillingCoverageStalled
+            expr: tokenvolt_billing_coverage_through_unixtime > 0 and time() - tokenvolt_billing_coverage_through_unixtime > 10800
+            for: 1m
+            labels:
+              severity: critical
+              component: billing-archive
+            annotations:
+              summary: Automatic billing coverage stopped advancing
+              description: The latest completed hourly SLS watermark is more than three hours old. Inspect topology, blocked jobs, archive checkpoints and projection workers.
           # tokenvolt_usage_unknown_token_records_48h counts every request that
           # came back without token fields, failures and interruptions included,
           # and those have no usage by definition. Alerting on it means alerting

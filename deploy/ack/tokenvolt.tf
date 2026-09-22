@@ -515,6 +515,30 @@ resource "helm_release" "tokenvolt" {
         quotaEnabled   = var.tokenvolt_quota_enabled
         usageDashboard = var.tokenvolt_usage_dashboard
         image          = var.tokenvolt_control_plane_image
+        archive = {
+          producerEnabled       = var.tokenvolt_billing.enabled
+          derivedEnabled        = var.tokenvolt_billing.enabled
+          reconcileEnabled      = var.tokenvolt_billing.enabled
+          sourceId              = var.tokenvolt_billing.source
+          environmentId         = var.tokenvolt_billing.environment
+          prefix                = var.tokenvolt_billing.archive_prefix
+          sourceEnvironments    = var.tokenvolt_billing.enabled ? { (var.tokenvolt_billing.source) = var.tokenvolt_billing.environment } : {}
+          startCursors          = var.tokenvolt_billing.start_cursors
+          allowedConsumers      = []
+          allTokenVoltConsumers = var.tokenvolt_billing.enabled
+        }
+        billing = {
+          invoicesV2Enabled    = var.tokenvolt_billing.enabled
+          generationEnabled    = var.tokenvolt_billing.enabled
+          publicationEnabled   = var.tokenvolt_billing.enabled
+          startAt              = var.tokenvolt_billing.billing_start_at
+          environmentId        = var.tokenvolt_billing.environment
+          sourceId             = var.tokenvolt_billing.source
+          importsEnabled       = false
+          monthlyDraftsEnabled = var.tokenvolt_billing.enabled && var.tokenvolt_billing.monthly_drafts_enabled
+          monthlyFirstMonth    = var.tokenvolt_billing.monthly_first_month
+          monthlyOwnerId       = var.tokenvolt_billing.monthly_owner_id
+        }
         metrics = {
           metricsSecretName = local.tokenvolt_metrics_secret_name
           tokenRevision     = nonsensitive(sha256(random_password.tokenvolt_metrics_token[0].result))
