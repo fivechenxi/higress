@@ -35,6 +35,7 @@ controlPlane:
     invoicesV2Enabled: false
     generationEnabled: false
     publicationEnabled: false
+    startAt: ""
     environmentId: ""
     sourceId: ""
     importsEnabled: false

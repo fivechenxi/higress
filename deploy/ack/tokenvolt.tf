@@ -531,6 +531,7 @@ resource "helm_release" "tokenvolt" {
           invoicesV2Enabled    = var.tokenvolt_billing.enabled
           generationEnabled    = var.tokenvolt_billing.enabled
           publicationEnabled   = var.tokenvolt_billing.enabled
+          startAt              = var.tokenvolt_billing.billing_start_at
           environmentId        = var.tokenvolt_billing.environment
           sourceId             = var.tokenvolt_billing.source
           importsEnabled       = false

@@ -139,13 +139,14 @@ class PublicEntryTest(unittest.TestCase):
                       'sourceEnvironments': {'sls-access': 'ack-prod'}}
         billing = {'invoicesV2Enabled': True, 'generationEnabled': True,
                    'publicationEnabled': True, 'environmentId': 'ack-prod',
-                   'sourceId': 'sls-access'}
+                   'sourceId': 'sls-access', 'startAt': '2026-10-01T00:00:00Z'}
         objects = render(True, archive=production, billing=billing)
         deployment = next(o for o in objects if o['kind'] == 'Deployment'
                           and o['metadata']['name'] == 'tokenvolt-control-plane')
         env = {e['name']: e.get('value') for e in deployment['spec']['template']['spec']['containers'][0]['env']}
         self.assertEqual(env['USAGE_ARCHIVE_ALL_TOKENVOLT_CONSUMERS'], 'true')
         self.assertEqual(env['INVOICE_PUBLICATION_ENABLED'], 'true')
+        self.assertEqual(env['INVOICE_BILLING_START_AT'], billing['startAt'])
         self.assertEqual(env['INVOICE_ENVIRONMENT_ID'], 'ack-prod')
         with self.assertRaisesRegex(RuntimeError, 'all-TokenVolt consumer scope'):
             render(True, archive={**production, 'allowedConsumers': ['tv-test'],

@@ -302,12 +302,13 @@ variable "tokenvolt_oss_worm_enabled" {
 }
 
 variable "tokenvolt_billing" {
-  description = "Non-destructive wiring for the fail-closed production usage archive and invoice publication pipeline. source must be a new production logical source, never a reused test/shadow source. It must not mutate existing users, keys, models, routes, prices, logs, or objects; cutover and source certifications remain separate audited API operations."
+  description = "Non-destructive wiring for the automatic production SLS coverage and invoice pipeline. Existing users, keys, models, routes, prices and logs are never mutated or backfilled."
   type = object({
-    enabled        = bool
-    environment    = string
-    source         = string
-    archive_prefix = string
+    enabled          = bool
+    environment      = string
+    source           = string
+    archive_prefix   = string
+    billing_start_at = string
     start_cursors = list(object({
       shard = object({
         ID        = number
@@ -327,6 +328,7 @@ variable "tokenvolt_billing" {
     environment            = ""
     source                 = ""
     archive_prefix         = ""
+    billing_start_at       = ""
     start_cursors          = []
     monthly_drafts_enabled = false
     monthly_first_month    = ""
@@ -337,6 +339,7 @@ variable "tokenvolt_billing" {
       can(regex("^[A-Za-z0-9_-]{1,256}$", var.tokenvolt_billing.environment)) &&
       length(var.tokenvolt_billing.source) <= 512 && trimspace(var.tokenvolt_billing.source) == var.tokenvolt_billing.source && var.tokenvolt_billing.source != "" &&
       can(regex("^usage-archive/[A-Za-z0-9/_-]+/$", var.tokenvolt_billing.archive_prefix)) &&
+      can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:00:00Z$", var.tokenvolt_billing.billing_start_at)) &&
       length(var.tokenvolt_billing.start_cursors) > 0 && length(var.tokenvolt_billing.start_cursors) <= 256 &&
       length(distinct([for v in var.tokenvolt_billing.start_cursors : "${v.shard.ID}/${v.shard.CreatedAt}"])) == length(var.tokenvolt_billing.start_cursors) &&
       alltrue([for v in var.tokenvolt_billing.start_cursors :
@@ -348,7 +351,7 @@ variable "tokenvolt_billing" {
       ]) &&
       (!var.tokenvolt_billing.monthly_drafts_enabled || (can(regex("^[0-9]{4}-[0-9]{2}$", var.tokenvolt_billing.monthly_first_month)) && can(regex("^[A-Za-z0-9_-]{1,128}$", var.tokenvolt_billing.monthly_owner_id))))
     )
-    error_message = "Enabled billing requires an explicit environment/source, archive prefix, reviewed shard cursors and valid optional monthly settings."
+    error_message = "Enabled billing requires an explicit environment/source, UTC-hour billing start, archive prefix, reviewed shard cursors and valid optional monthly settings."
   }
 }
 

@@ -116,6 +116,7 @@ spec:
             {{- if ne .Values.controlPlane.billing.environmentId .Values.controlPlane.archive.environmentId }}{{ fail "invoice publication environment must match the archive" }}{{ end }}
             {{- if ne .Values.controlPlane.billing.sourceId .Values.controlPlane.archive.sourceId }}{{ fail "invoice publication source must match the archive" }}{{ end }}
             - {name: INVOICE_PUBLICATION_ENABLED, value: "true"}
+            - {name: INVOICE_BILLING_START_AT, value: {{ required "controlPlane.billing.startAt is required" .Values.controlPlane.billing.startAt | quote }} }
             {{- end }}
             {{- if .Values.controlPlane.billing.importsEnabled }}
             {{- if not .Values.controlPlane.billing.generationEnabled }}{{ fail "usage imports require invoice generation" }}{{ end }}
