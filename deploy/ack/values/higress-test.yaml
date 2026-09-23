@@ -19,6 +19,16 @@ global:
   ingressClass: higress
   createIngressClass: true
 
+# Enable only after ALB controller, two-zone vSwitches, certificate and both
+# 900-second timeout quotas have been verified. CLB remains in place.
+albIngress:
+  enabled: false
+  host: ""
+  vSwitchIds: []
+  certificateId: ""
+  requestTimeout: 900
+  idleTimeout: 900
+
 meshConfig:
   # Keep the billing fields structured and omit prompt/response bodies. The
   # TokenVolt auth plugin overwrites x-mse-consumer before this value is logged.
