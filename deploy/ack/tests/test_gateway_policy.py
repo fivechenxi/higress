@@ -217,7 +217,7 @@ class GatewayPolicyTest(unittest.TestCase):
         ranking = next(panel for panel in dashboard['panels'] if panel['id'] == 10)
         self.assertEqual(ranking['type'], 'table')
         self.assertEqual(ranking['transformations'][0]['id'], 'joinByLabels')
-        self.assertEqual(ranking['transformations'][0]['options']['join'], ['ai_provider'])
+        self.assertEqual(ranking['transformations'][0]['options']['join'], ['public_ai_provider'])
         self.assertNotIn('route', {item['name'] for item in dashboard['templating']['list']})
         self.assertNotIn('p99', dashboard_json.lower())
         self.assertIn('tokenvolt:provider_model_identity:info', dashboard_json)

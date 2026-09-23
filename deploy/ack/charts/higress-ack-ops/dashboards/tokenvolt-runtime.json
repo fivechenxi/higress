@@ -32,7 +32,7 @@
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12}, "id": 2,
       "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
-        {"expr": "sum by (ai_model,ai_provider) (label_replace(label_replace(label_replace(rate(route_upstream_model_consumer_metric_llm_request_count[5m]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\") * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end()), \"ai_model\", \"$1\", \"public_ai_model\", \"(.+)\"), \"ai_provider\", \"$1\", \"public_ai_provider\", \"(.+)\")) * 60", "legendFormat": "{{ai_model}} · {{ai_provider}}", "refId": "A"}
+        {"expr": "sum by (public_ai_model,public_ai_provider) (sum by (provider_id) (label_replace(rate(tokenvolt:ai_requests_total[5m]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\")) * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end())) * 60", "legendFormat": "{{public_ai_model}} · {{public_ai_provider}}", "refId": "A"}
       ],
       "title": "RPM 趋势", "type": "timeseries"
     },
@@ -42,7 +42,7 @@
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12}, "id": 3,
       "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
-        {"expr": "sum by (ai_model,ai_provider) (label_replace(label_replace(label_replace((rate(route_upstream_model_consumer_metric_input_token[5m]) + rate(route_upstream_model_consumer_metric_output_token[5m])) * 60, \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\") * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end()), \"ai_model\", \"$1\", \"public_ai_model\", \"(.+)\"), \"ai_provider\", \"$1\", \"public_ai_provider\", \"(.+)\"))", "legendFormat": "{{ai_model}} · {{ai_provider}}", "refId": "A"}
+        {"expr": "sum by (public_ai_model,public_ai_provider) (sum by (provider_id) (label_replace((rate(tokenvolt:ai_input_tokens_total[5m]) + rate(tokenvolt:ai_output_tokens_total[5m])) * 60, \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\")) * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end()))", "legendFormat": "{{public_ai_model}} · {{public_ai_provider}}", "refId": "A"}
       ],
       "title": "TPM 趋势", "type": "timeseries"
     },
@@ -52,7 +52,7 @@
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20}, "id": 4,
       "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
-        {"expr": "histogram_quantile(0.90, sum by (le,ai_model,ai_provider) (label_replace(label_replace(label_replace(rate(higress_ai_ttft_milliseconds_bucket[5m]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\") * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end()), \"ai_model\", \"$1\", \"public_ai_model\", \"(.+)\"), \"ai_provider\", \"$1\", \"public_ai_provider\", \"(.+)\")))", "legendFormat": "{{ai_model}} · {{ai_provider}}", "refId": "A"}
+        {"expr": "histogram_quantile(0.90, sum by (le,public_ai_model,public_ai_provider) (sum by (le,provider_id) (label_replace(rate(tokenvolt:ai_ttft_milliseconds_bucket[5m]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\")) * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end())))", "legendFormat": "{{public_ai_model}} · {{public_ai_provider}}", "refId": "A"}
       ],
       "title": "TTFT P90 趋势", "type": "timeseries"
     },
@@ -62,7 +62,7 @@
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20}, "id": 5,
       "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
-        {"expr": "histogram_quantile(0.90, sum by (le,ai_model,ai_provider) (label_replace(label_replace(label_replace(rate(higress_ai_tpot_milliseconds_bucket[5m]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\") * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end()), \"ai_model\", \"$1\", \"public_ai_model\", \"(.+)\"), \"ai_provider\", \"$1\", \"public_ai_provider\", \"(.+)\")))", "legendFormat": "{{ai_model}} · {{ai_provider}}", "refId": "A"}
+        {"expr": "histogram_quantile(0.90, sum by (le,public_ai_model,public_ai_provider) (sum by (le,provider_id) (label_replace(rate(tokenvolt:ai_tpot_milliseconds_bucket[5m]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\")) * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end())))", "legendFormat": "{{public_ai_model}} · {{public_ai_provider}}", "refId": "A"}
       ],
       "title": "TPOT P90 趋势", "type": "timeseries"
     },
@@ -71,7 +71,7 @@
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 8, "lineWidth": 2, "showPoints": "never"}, "max": 1, "min": 0, "unit": "percentunit"}, "overrides": []},
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28}, "id": 6,
       "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "asc"}},
-      "targets": [{"expr": "1 - sum by (ai_model,ai_provider) (label_replace(label_replace(label_replace(rate(route_upstream_model_consumer_metric_llm_failure_count[5m]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\") * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end()), \"ai_model\", \"$1\", \"public_ai_model\", \"(.+)\"), \"ai_provider\", \"$1\", \"public_ai_provider\", \"(.+)\")) / clamp_min(sum by (ai_model,ai_provider) (label_replace(label_replace(label_replace(rate(route_upstream_model_consumer_metric_llm_request_count[5m]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\") * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end()), \"ai_model\", \"$1\", \"public_ai_model\", \"(.+)\"), \"ai_provider\", \"$1\", \"public_ai_provider\", \"(.+)\")), 0.000001)", "legendFormat": "{{ai_model}} · {{ai_provider}}", "refId": "A"}],
+      "targets": [{"expr": "1 - sum by (public_ai_model,public_ai_provider) (sum by (provider_id) (label_replace(rate(tokenvolt:ai_failures_total[5m]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\")) * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end())) / clamp_min(sum by (public_ai_model,public_ai_provider) (sum by (provider_id) (label_replace(rate(tokenvolt:ai_requests_total[5m]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\")) * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end())), 0.000001)", "legendFormat": "{{public_ai_model}} · {{public_ai_provider}}", "refId": "A"}],
       "title": "成功率趋势", "type": "timeseries"
     },
     {
