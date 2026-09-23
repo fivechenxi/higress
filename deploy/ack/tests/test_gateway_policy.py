@@ -213,12 +213,15 @@ class GatewayPolicyTest(unittest.TestCase):
             'tokenvolt-request-details.json',
         })
         dashboard = json.loads(dashboard_data['tokenvolt-model-quality.json'])
+        dashboard_json = json.dumps(dashboard)
         ranking = next(panel for panel in dashboard['panels'] if panel['id'] == 10)
         self.assertEqual(ranking['type'], 'table')
         self.assertEqual(ranking['transformations'][0]['id'], 'joinByLabels')
         self.assertEqual(ranking['transformations'][0]['options']['join'], ['ai_provider'])
         self.assertNotIn('route', {item['name'] for item in dashboard['templating']['list']})
-        self.assertNotIn('p99', json.dumps(dashboard).lower())
+        self.assertNotIn('p99', dashboard_json.lower())
+        self.assertIn('tokenvolt:provider_model_identity:info', dashboard_json)
+        self.assertIn('@ end()', dashboard_json)
 
         runtime = json.loads(dashboard_data['tokenvolt-runtime.json'])
         runtime_table = runtime['panels'][0]
@@ -227,10 +230,14 @@ class GatewayPolicyTest(unittest.TestCase):
         self.assertNotIn('route', {item['name'] for item in runtime['templating']['list']})
         self.assertNotIn('p99', json.dumps(runtime).lower())
 
-        collector = by_kind_name[('ConfigMap', 'higress-metrics-collector')]['data']['prometheus.yml']
+        collector_data = by_kind_name[('ConfigMap', 'higress-metrics-collector')]['data']
+        collector = collector_data['prometheus.yml']
         config = yaml.safe_load(collector)
+        rules = collector_data['recording-rules.yml']
+        self.assertIn('tokenvolt:provider_model_identity:info', rules)
+        self.assertIn('group_left (public_ai_model,public_ai_provider)', rules)
         self.assertNotIn('p99_rate5m',
-                         by_kind_name[('ConfigMap', 'higress-metrics-collector')]['data']['recording-rules.yml'])
+                         rules)
         self.assertNotIn('p99',
                          by_kind_name[('ConfigMap', 'higress-ack-promql')]['data'])
         gateway_scrape = next(job for job in config['scrape_configs']
@@ -257,6 +264,12 @@ class GatewayPolicyTest(unittest.TestCase):
             {'source_labels': ['ai_consumer'], 'regex': '.+', 'action': 'drop'},
             config['remote_write'][0]['write_relabel_configs'],
         )
+
+        state_metrics = by_kind_name[('Deployment', 'higress-hpa-state-metrics')]
+        state_metrics_args = state_metrics['spec']['template']['spec']['containers'][0]['args']
+        annotation_allowlist = next(arg for arg in state_metrics_args
+                                    if arg.startswith('--metric-annotations-allowlist='))
+        self.assertIn('higress.io/destination', annotation_allowlist)
 
 
 if __name__ == '__main__':
