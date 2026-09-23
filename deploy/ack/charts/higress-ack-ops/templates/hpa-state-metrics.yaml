@@ -90,7 +90,7 @@ spec:
           args:
             - --resources=horizontalpodautoscalers,ingresses,pods,deployments
             - --namespaces={{ join "," $workloadNamespaces }}
-            - --metric-annotations-allowlist=ingresses=[higress.io/exact-match-header-x-higress-llm-model,higress.io/exact-match-header-x-tokenvolt-provider,tokenvolt.ai/publication-id]
+            - --metric-annotations-allowlist=ingresses=[higress.io/exact-match-header-x-higress-llm-model,higress.io/exact-match-header-x-tokenvolt-provider,higress.io/destination,tokenvolt.ai/publication-id]
             - --metric-labels-allowlist=pods=[app]
           ports:
             - name: metrics
