@@ -446,6 +446,8 @@ albIngress:
   requestTimeout: 60
   # -- Listener idle timeout in seconds; 900 requires an approved quota.
   idleTimeout: 15
+  # -- ALB health-check port; 0 uses the backend service port.
+  healthPort: 0
   # -- Gateway HTTP path used by ALB GET health checks.
   healthPath: /healthz
 

@@ -23,11 +23,15 @@ global:
 # 900-second timeout quotas have been verified. CLB remains in place.
 albIngress:
   enabled: false
-  host: ""
+  # Only the model API moves to this Gateway-backed ALB. ack/www stay on CLB.
+  host: api.tokenvolt.net
   vSwitchIds: []
   certificateId: ""
   requestTimeout: 900
   idleTimeout: 900
+  # Match the existing CLB check of the Gateway Pod agent, not model routes.
+  healthPort: 15020
+  healthPath: /healthz/ready
 
 meshConfig:
   # Keep the billing fields structured and omit prompt/response bodies. The

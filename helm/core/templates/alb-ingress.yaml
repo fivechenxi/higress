@@ -7,6 +7,8 @@
 {{- if eq (index $alb.vSwitchIds 0) (index $alb.vSwitchIds 1) }}{{ fail "albIngress.vSwitchIds must be distinct" }}{{ end }}
 {{- range $alb.vSwitchIds }}{{ if not . }}{{ fail "albIngress.vSwitchIds entries must be nonempty" }}{{ end }}{{ end }}
 {{- if or (lt (int $alb.requestTimeout) 1) (lt (int $alb.idleTimeout) 1) }}{{ fail "albIngress timeouts must be positive seconds" }}{{ end }}
+{{- if or (lt (int $alb.healthPort) 0) (gt (int $alb.healthPort) 65535) }}{{ fail "albIngress.healthPort must be 0 or a valid TCP port" }}{{ end }}
+{{- if not (hasPrefix "/" $alb.healthPath) }}{{ fail "albIngress.healthPath must start with /" }}{{ end }}
 {{- if eq .Values.gateway.service.type "None" }}{{ fail "albIngress requires the gateway Service" }}{{ end }}
 {{- $httpPort := false }}
 {{- range .Values.gateway.service.ports }}{{ if eq (int .port) 80 }}{{ $httpPort = true }}{{ end }}{{ end }}
@@ -58,6 +60,7 @@ metadata:
     alb.ingress.kubernetes.io/healthcheck-enabled: "true"
     alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
     alb.ingress.kubernetes.io/healthcheck-method: GET
+    alb.ingress.kubernetes.io/healthcheck-connect-port: {{ $alb.healthPort | quote }}
     alb.ingress.kubernetes.io/healthcheck-path: {{ $alb.healthPath | quote }}
     alb.ingress.kubernetes.io/healthcheck-httpcode: http_2xx
 spec:

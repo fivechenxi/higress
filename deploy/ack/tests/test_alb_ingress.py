@@ -41,6 +41,13 @@ def render(*options):
 
 
 class AlbIngressTest(unittest.TestCase):
+    def test_ack_overlay_has_api_only_and_900_second_targets(self):
+        alb = yaml.safe_load(OVERLAY.read_text())['albIngress']
+        self.assertFalse(alb['enabled'])
+        self.assertEqual(alb['host'], 'api.tokenvolt.net')
+        self.assertEqual((alb['requestTimeout'], alb['idleTimeout']), (900, 900))
+        self.assertEqual((alb['healthPort'], alb['healthPath']), (15020, '/healthz/ready'))
+
     def test_default_does_not_create_alb_or_change_clb_service(self):
         baseline = render()
         enabled = render(*OPTIONS)
@@ -78,7 +85,8 @@ class AlbIngressTest(unittest.TestCase):
         self.assertEqual(ingress['spec']['rules'][0]['http']['paths'][0]['backend'],
                          {'service': {'name': 'higress-gateway', 'port': {'number': 80}}})
         annotations = ingress['metadata']['annotations']
-        self.assertEqual(annotations['alb.ingress.kubernetes.io/healthcheck-path'], '/healthz')
+        self.assertEqual(annotations['alb.ingress.kubernetes.io/healthcheck-path'], '/healthz/ready')
+        self.assertEqual(annotations['alb.ingress.kubernetes.io/healthcheck-connect-port'], '15020')
         self.assertEqual(annotations['alb.ingress.kubernetes.io/healthcheck-method'], 'GET')
 
     def test_enabled_requires_independent_edge_inputs(self):

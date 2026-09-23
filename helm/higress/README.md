@@ -38,6 +38,7 @@ The command removes all the Kubernetes components associated with the chart and 
 | albIngress.certificateId | string | `""` | ALB Certificate Management Service ID for the HTTPS listener. |
 | albIngress.enabled | bool | `false` | Create a separate ACK-managed ALB without changing the Gateway Service. |
 | albIngress.healthPath | string | `"/healthz"` | Gateway HTTP path used by ALB GET health checks. |
+| albIngress.healthPort | int | `0` | ALB health-check port; 0 uses the backend service port. |
 | albIngress.host | string | `""` | Public host served by the ALB Ingress. |
 | albIngress.idleTimeout | int | `15` | Listener idle timeout in seconds; 900 requires an approved quota. |
 | albIngress.name | string | `"higress-gateway-alb"` | Name of the new AlbConfig, IngressClass, and Ingress; must be unused. |
