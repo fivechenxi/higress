@@ -1,0 +1,82 @@
+{{- if .Values.albIngress.enabled }}
+{{- $alb := .Values.albIngress }}
+{{- $name := required "albIngress.name is required" $alb.name }}
+{{- $host := required "albIngress.host is required" $alb.host }}
+{{- $cert := required "albIngress.certificateId is required" $alb.certificateId }}
+{{- if ne (len $alb.vSwitchIds) 2 }}{{ fail "albIngress.vSwitchIds must contain two vSwitch IDs in different ALB-supported zones" }}{{ end }}
+{{- if eq (index $alb.vSwitchIds 0) (index $alb.vSwitchIds 1) }}{{ fail "albIngress.vSwitchIds must be distinct" }}{{ end }}
+{{- range $alb.vSwitchIds }}{{ if not . }}{{ fail "albIngress.vSwitchIds entries must be nonempty" }}{{ end }}{{ end }}
+{{- if or (lt (int $alb.requestTimeout) 1) (lt (int $alb.idleTimeout) 1) }}{{ fail "albIngress timeouts must be positive seconds" }}{{ end }}
+{{- if or (lt (int $alb.healthPort) 0) (gt (int $alb.healthPort) 65535) }}{{ fail "albIngress.healthPort must be 0 or a valid TCP port" }}{{ end }}
+{{- if not (hasPrefix "/" $alb.healthPath) }}{{ fail "albIngress.healthPath must start with /" }}{{ end }}
+{{- if eq .Values.gateway.service.type "None" }}{{ fail "albIngress requires the gateway Service" }}{{ end }}
+{{- $httpPort := false }}
+{{- range .Values.gateway.service.ports }}{{ if eq (int .port) 80 }}{{ $httpPort = true }}{{ end }}{{ end }}
+{{- if not $httpPort }}{{ fail "albIngress requires gateway.service port 80" }}{{ end }}
+apiVersion: alibabacloud.com/v1
+kind: AlbConfig
+metadata:
+  name: {{ $name | quote }}
+spec:
+  config:
+    name: {{ $name | quote }}
+    addressType: Internet
+    zoneMappings:
+    {{- range $alb.vSwitchIds }}
+      - vSwitchId: {{ . | quote }}
+    {{- end }}
+  listeners:
+    - port: 80
+      protocol: HTTP
+      requestTimeout: {{ $alb.requestTimeout }}
+      idleTimeout: {{ $alb.idleTimeout }}
+    - port: 443
+      protocol: HTTPS
+      requestTimeout: {{ $alb.requestTimeout }}
+      idleTimeout: {{ $alb.idleTimeout }}
+      certificates:
+        - CertificateId: {{ $cert | quote }}
+          IsDefault: true
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: {{ $name | quote }}
+spec:
+  controller: ingress.k8s.alibabacloud/alb
+  parameters:
+    apiGroup: alibabacloud.com
+    kind: AlbConfig
+    name: {{ $name | quote }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name | quote }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "true"
+    alb.ingress.kubernetes.io/healthcheck-enabled: "true"
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-method: GET
+    alb.ingress.kubernetes.io/healthcheck-connect-port: {{ $alb.healthPort | quote }}
+    alb.ingress.kubernetes.io/healthcheck-path: {{ $alb.healthPath | quote }}
+    alb.ingress.kubernetes.io/healthcheck-httpcode: http_2xx
+spec:
+  ingressClassName: {{ $name | quote }}
+  tls:
+    - hosts:
+        - {{ $host | quote }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "gateway.name" . }}
+                port:
+                  number: 80
+{{- end }}

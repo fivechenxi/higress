@@ -429,6 +429,28 @@ meshConfig:
   # What we may configure in mesh config is the ".global" - and use of other suffixes.
   # No hurry to do this in 1.6, we're trying to prove the code.
 
+# Separate, opt-in ACK ALB edge. The existing gateway LoadBalancer Service and
+# its CLB annotations are independent and are not changed by this setting.
+albIngress:
+  # -- Create a separate ACK-managed ALB without changing the Gateway Service.
+  enabled: false
+  # -- Name of the new AlbConfig, IngressClass, and Ingress; must be unused.
+  name: higress-gateway-alb
+  # -- Public host served by the ALB Ingress.
+  host: ""
+  # -- Two vSwitch IDs in different ALB-supported zones of the cluster VPC.
+  vSwitchIds: []
+  # -- ALB Certificate Management Service ID for the HTTPS listener.
+  certificateId: ""
+  # -- Listener request timeout in seconds; 900 requires an approved quota.
+  requestTimeout: 60
+  # -- Listener idle timeout in seconds; 900 requires an approved quota.
+  idleTimeout: 15
+  # -- ALB health-check port; 0 uses the backend service port.
+  healthPort: 0
+  # -- Gateway HTTP path used by ALB GET health checks.
+  healthPath: /healthz
+
 gateway:
   name: "higress-gateway"
   # -- Number of Higress Gateway pods
