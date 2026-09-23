@@ -1,6 +1,6 @@
 {
   "annotations": {"list": []},
-  "description": "最近五分钟的模型与厂商实时运行状态。",
+  "description": "按所选时间范围汇总模型与厂商运行状态，并展示对应历史趋势。",
   "editable": true, "graphTooltip": 1, "id": null,
   "links": [{"title": "模型质量", "type": "link", "url": "/grafana/d/tokenvolt-model-quality"}, {"title": "请求明细", "type": "link", "url": "/grafana/d/tokenvolt-request-details"}, {"title": "基础监控", "type": "link", "url": "/grafana/d/tokenvolt-infrastructure"}],
   "panels": [
@@ -14,17 +14,16 @@
       "gridPos": {"h": 12, "w": 24, "x": 0, "y": 0}, "id": 1,
       "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true, "sortBy": [{"desc": true, "displayName": "RPM"}]},
       "targets": [
-        {"expr": "label_replace(tokenvolt:provider_model_success_ratio:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"runtime_metric\", \"成功率\", \"\", \"\")", "instant": true, "refId": "A"},
-        {"expr": "label_replace(tokenvolt:provider_model_logical_rpm:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"runtime_metric\", \"RPM\", \"\", \"\")", "instant": true, "refId": "B"},
-        {"expr": "label_replace(tokenvolt:provider_model_total_tpm:rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"runtime_metric\", \"TPM\", \"\", \"\")", "instant": true, "refId": "C"},
-        {"expr": "label_replace(tokenvolt:provider_model_ttft_milliseconds:p50_rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"runtime_metric\", \"TTFT P50\", \"\", \"\")", "instant": true, "refId": "D"},
-        {"expr": "label_replace(tokenvolt:provider_model_ttft_milliseconds:p90_rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"runtime_metric\", \"TTFT P90\", \"\", \"\")", "instant": true, "refId": "E"},
-        {"expr": "label_replace(tokenvolt:provider_model_tpot_milliseconds:p50_rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"runtime_metric\", \"TPOT P50\", \"\", \"\")", "instant": true, "refId": "F"},
-        {"expr": "label_replace(tokenvolt:provider_model_tpot_milliseconds:p90_rate5m{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"runtime_metric\", \"TPOT P90\", \"\", \"\")", "instant": true, "refId": "G"}
-        ,{"expr": "label_replace(tokenvolt:configured_provider_model:info{ai_model=~\"$model\",ai_provider=~\"$provider\"}, \"runtime_metric\", \"已配置\", \"\", \"\")", "instant": true, "refId": "H"}
+        {"expr": "label_replace(1 - sum by (public_ai_model,public_ai_provider) (sum by (provider_id) (label_replace(increase(tokenvolt:ai_failures_total[$__range]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\")) * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end())) / clamp_min(sum by (public_ai_model,public_ai_provider) (sum by (provider_id) (label_replace(increase(tokenvolt:ai_requests_total[$__range]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\")) * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end())), 1), \"runtime_metric\", \"成功率\", \"\", \"\")", "instant": true, "refId": "A"},
+        {"expr": "label_replace(sum by (public_ai_model,public_ai_provider) (sum by (provider_id) (label_replace(increase(tokenvolt:ai_requests_total[$__range]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\")) * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end())) / ($__range_s / 60), \"runtime_metric\", \"RPM\", \"\", \"\")", "instant": true, "refId": "B"},
+        {"expr": "label_replace(sum by (public_ai_model,public_ai_provider) (sum by (provider_id) (label_replace(increase(tokenvolt:ai_input_tokens_total[$__range]) + increase(tokenvolt:ai_output_tokens_total[$__range]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\")) * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end())) / ($__range_s / 60), \"runtime_metric\", \"TPM\", \"\", \"\")", "instant": true, "refId": "C"},
+        {"expr": "label_replace(histogram_quantile(0.50, sum by (le,public_ai_model,public_ai_provider) (sum by (le,provider_id) (label_replace(increase(tokenvolt:ai_ttft_milliseconds_bucket[$__range]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\")) * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end()))), \"runtime_metric\", \"TTFT P50\", \"\", \"\")", "instant": true, "refId": "D"},
+        {"expr": "label_replace(histogram_quantile(0.90, sum by (le,public_ai_model,public_ai_provider) (sum by (le,provider_id) (label_replace(increase(tokenvolt:ai_ttft_milliseconds_bucket[$__range]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\")) * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end()))), \"runtime_metric\", \"TTFT P90\", \"\", \"\")", "instant": true, "refId": "E"},
+        {"expr": "label_replace(histogram_quantile(0.50, sum by (le,public_ai_model,public_ai_provider) (sum by (le,provider_id) (label_replace(increase(tokenvolt:ai_tpot_milliseconds_bucket[$__range]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\")) * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end()))), \"runtime_metric\", \"TPOT P50\", \"\", \"\")", "instant": true, "refId": "F"},
+        {"expr": "label_replace(histogram_quantile(0.90, sum by (le,public_ai_model,public_ai_provider) (sum by (le,provider_id) (label_replace(increase(tokenvolt:ai_tpot_milliseconds_bucket[$__range]), \"provider_id\", \"$1\", \"ai_provider\", \"(.+)\")) * on (provider_id) group_left (public_ai_model,public_ai_provider) (tokenvolt:provider_model_identity:info{public_ai_model=~\"$model\",public_ai_provider=~\"$provider\"} @ end()))), \"runtime_metric\", \"TPOT P90\", \"\", \"\")", "instant": true, "refId": "G"}
       ],
-      "title": "厂商实时运行状态（一个模型 × 厂商一行）",
-      "transformations": [{"id": "joinByLabels", "options": {"join": ["ai_model", "ai_provider"], "value": "runtime_metric"}}], "type": "table"
+      "title": "厂商选定时段运行状态（一个模型 × 厂商一行）",
+      "transformations": [{"id": "joinByLabels", "options": {"join": ["public_ai_model", "public_ai_provider"], "value": "runtime_metric"}}], "type": "table"
     },
     {
       "datasource": {"type": "prometheus", "uid": "$datasource"},

@@ -226,7 +226,8 @@ class GatewayPolicyTest(unittest.TestCase):
         runtime = json.loads(dashboard_data['tokenvolt-runtime.json'])
         runtime_table = runtime['panels'][0]
         self.assertEqual(runtime_table['transformations'][0]['options']['join'],
-                         ['ai_model', 'ai_provider'])
+                         ['public_ai_model', 'public_ai_provider'])
+        self.assertNotIn('已配置', json.dumps(runtime_table))
         self.assertNotIn('route', {item['name'] for item in runtime['templating']['list']})
         self.assertNotIn('p99', json.dumps(runtime).lower())
 
