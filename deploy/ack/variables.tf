@@ -283,6 +283,31 @@ variable "tokenvolt_ghcr_token" {
   default     = ""
 }
 
+variable "tokenvolt_acr_registry" {
+  description = "Exact Beijing ACR registry hostname used in TokenVolt image references; leave empty until switching ACK pulls to ACR."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.tokenvolt_acr_registry == "" || can(regex("^[a-z0-9][a-z0-9.-]*\\.cr\\.aliyuncs\\.com$", var.tokenvolt_acr_registry))
+    error_message = "tokenvolt_acr_registry must be an Aliyun ACR hostname without a scheme, path, or port."
+  }
+}
+
+variable "tokenvolt_acr_username" {
+  description = "Username for private TokenVolt ACR pulls. Pass through TF_VAR_tokenvolt_acr_username; never commit it."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "tokenvolt_acr_password" {
+  description = "Password for private TokenVolt ACR pulls. Pass through TF_VAR_tokenvolt_acr_password; never commit it."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "tokenvolt_rds_vswitch_id" {
   description = "Existing vSwitch used by the production-candidate RDS PostgreSQL instance. It must be in the selected VPC and the ACK availability zone."
   type        = string

@@ -62,6 +62,43 @@ make stop
 镜像的 Plan 会按原有安全校验失败。policy Wasm 的北京 OSS HTTPS 地址不需要
 registry 凭据。
 
+## TokenVolt 镜像切换到北京 ACR
+
+发布工作流完成 GHCR 和北京 ACR 双推送后，先从该次 GitHub Release 的
+`IMAGE_DIGESTS.txt` 核对 **ACR 仓库对应的 digest**。只在需要实际切换 ACK 时
+修改远端配置；本仓库的默认 GHCR 镜像和旧版本不随凭据配置自动切换。
+
+```bash
+cd deploy/ack
+make init
+make config-pull
+make config-status
+```
+
+将本地 `terraform.tfvars` 中的 `tokenvolt_acr_registry` 设为镜像引用中的完整
+registry **主机名**（不含 `https://` 或仓库路径），并把
+`tokenvolt_control_plane_image` 设为该 ACR 仓库的
+`<registry>/<namespace>/<repository>@sha256:<digest>`。若启用了
+`tokenvolt_mock_enabled` 且 fixture 也要从 ACR 拉取，同样更新
+`tokenvolt_mock_image` 为其独立的 ACR digest。镜像主机名必须与
+`tokenvolt_acr_registry` 完全一致；仓库路径和 digest 均须从发布产物核对，
+不能将 GHCR digest 假定为 ACR digest。确认所选公网或 VPC registry 地址可从
+ACK 节点访问。
+
+ACR 用户名和密码仅通过 `TF_VAR_tokenvolt_acr_username`、
+`TF_VAR_tokenvolt_acr_password` 注入 OpenTofu 进程，**不要写入 tfvars、Git、
+命令历史或 PR**。现有 `TF_VAR_tokenvolt_ghcr_token` 仍需提供，以保留 GHCR
+镜像与 OCI 插件的拉取能力。OpenTofu 会将两个 registry 的认证合并到现有的
+`tokenvolt-ghcr` Kubernetes Secret，并同步到 `higress-system`；Secret 名称
+是历史名称，不表示只支持 GHCR。OpenTofu 的远端 State 也会保存 Secret 数据，
+应按敏感凭据管理 State 的访问权限和版本历史。
+
+切换窗口中先确认 `make config-status` 没有本地与 OSS 的并发修改，必要时查看
+`make config-history`；再执行 `make config-push`、`make plan`。获得单独部署
+授权后才执行 `make start`。应用后检查目标 Pod 的 image、imageID、Ready
+状态和近期事件，确认实际运行的是本次 ACR digest。回退时用此前已核对的
+GHCR digest 恢复镜像引用，再按同样流程同步配置和部署。
+
 `plan/start/stop` 执行前会比较本地、OSS 和上次同步版本：
 
 - OSS 较新且本地未修改：自动拉取；
