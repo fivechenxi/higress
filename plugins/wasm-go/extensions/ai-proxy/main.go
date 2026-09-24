@@ -790,6 +790,9 @@ func normalizeOpenAiRequestBody(body []byte, disableStreamUsageStats bool) []byt
 	return body
 }
 
+// tokenVoltMinimumBackendTopP is the positive epsilon sent when the public API
+// receives top_p=0. Some providers reject exact zero, while this value keeps
+// the request effectively deterministic.
 const tokenVoltMinimumBackendTopP = 1e-8
 
 // normalizeTokenVoltOpenAiChatRequestBody translates two legacy/public Chat

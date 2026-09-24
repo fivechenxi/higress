@@ -250,7 +250,7 @@ func Test_normalizeTokenVoltOpenAiChatRequestBody(t *testing.T) {
 		}
 	})
 
-	t.Run("explicit modern fields win", func(t *testing.T) {
+	t.Run("preserves modern fields and removes legacy fields", func(t *testing.T) {
 		in := []byte(`{"functions":[{"name":"legacy"}],"function_call":{"name":"legacy"},"tools":[{"type":"function","function":{"name":"modern"}}],"tool_choice":"required"}`)
 		got := normalizeTokenVoltOpenAiChatRequestBody(in)
 
