@@ -383,6 +383,11 @@ func onHttpRequestBody(ctx wrapper.HttpContext, pluginConfig config.PluginConfig
 		if settingErr != nil {
 			log.Errorf("failed to replace request body by custom settings: %v", settingErr)
 		}
+		// TokenVolt fork-only: keep the public Chat contract stable when a generic
+		// OpenAI-compatible channel implements only the current tools/top_p dialect.
+		if providerConfig.IsOpenAIProtocol() && apiName == provider.ApiNameChatCompletion {
+			newBody = normalizeTokenVoltOpenAiChatRequestBody(newBody)
+		}
 		// 仅 /v1/chat/completions 和 /v1/completions 接口支持 stream_options 参数
 		// generic provider 不做能力映射，不添加 stream_options
 		if providerConfig.IsOpenAIProtocol() && !providerConfig.IsGeneric() && (apiName == provider.ApiNameChatCompletion || apiName == provider.ApiNameCompletion) {
@@ -782,6 +787,85 @@ func normalizeOpenAiRequestBody(body []byte, disableStreamUsageStats bool) []byt
 			log.Errorf("set include_usage failed, err:%s", err)
 		}
 	}
+	return body
+}
+
+// tokenVoltMinimumBackendTopP is the positive epsilon sent when the public API
+// receives top_p=0. Some providers reject exact zero, while this value keeps
+// the request effectively deterministic.
+const tokenVoltMinimumBackendTopP = 1e-8
+
+// normalizeTokenVoltOpenAiChatRequestBody translates two legacy/public Chat
+// compatibility cases before the request reaches the selected model channel.
+// Unknown fields are left untouched and explicit modern fields always win.
+func normalizeTokenVoltOpenAiChatRequestBody(body []byte) []byte {
+	topP := gjson.GetBytes(body, "top_p")
+	if topP.Exists() && topP.Type == gjson.Number && topP.Float() == 0 {
+		updated, err := sjson.SetBytes(body, "top_p", tokenVoltMinimumBackendTopP)
+		if err != nil {
+			log.Errorf("normalize TokenVolt top_p failed, err:%s", err)
+		} else {
+			body = updated
+		}
+	}
+
+	functions := gjson.GetBytes(body, "functions")
+	if functions.Exists() && functions.IsArray() {
+		if !gjson.GetBytes(body, "tools").Exists() {
+			legacyFunctions := functions.Array()
+			tools := make([]any, 0, len(legacyFunctions))
+			for _, function := range legacyFunctions {
+				tools = append(tools, map[string]any{
+					"type":     "function",
+					"function": function.Value(),
+				})
+			}
+			updated, err := sjson.SetBytes(body, "tools", tools)
+			if err != nil {
+				log.Errorf("normalize TokenVolt legacy functions failed, err:%s", err)
+			} else {
+				body = updated
+			}
+		}
+		updated, err := sjson.DeleteBytes(body, "functions")
+		if err != nil {
+			log.Errorf("remove TokenVolt legacy functions failed, err:%s", err)
+		} else {
+			body = updated
+		}
+	}
+
+	functionCall := gjson.GetBytes(body, "function_call")
+	if functionCall.Exists() {
+		var toolChoice any
+		switch {
+		case functionCall.Type == gjson.String:
+			toolChoice = functionCall.String()
+		case functionCall.IsObject():
+			toolChoice = map[string]any{
+				"type":     "function",
+				"function": functionCall.Value(),
+			}
+		}
+		if toolChoice == nil {
+			return body
+		}
+		if !gjson.GetBytes(body, "tool_choice").Exists() {
+			updated, err := sjson.SetBytes(body, "tool_choice", toolChoice)
+			if err != nil {
+				log.Errorf("normalize TokenVolt legacy function_call failed, err:%s", err)
+			} else {
+				body = updated
+			}
+		}
+		updated, err := sjson.DeleteBytes(body, "function_call")
+		if err != nil {
+			log.Errorf("remove TokenVolt legacy function_call failed, err:%s", err)
+		} else {
+			body = updated
+		}
+	}
+
 	return body
 }
 
