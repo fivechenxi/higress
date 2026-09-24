@@ -132,17 +132,26 @@ resource "kubernetes_secret_v1" "tokenvolt_public_tls" {
 }
 
 resource "alicloud_alidns_record" "model_api" {
-  # First adoption must still be staged and verified with DNS pinned to the CLB.
+  # ALB creation and DNS cutover are independently enabled so a new edge can be
+  # validated before traffic moves. Rollback keeps the existing CLB available.
   depends_on  = [alicloud_slb_domain_extension.model_api, alicloud_slb_rule.model_api, helm_release.tokenvolt]
   count       = var.tokenvolt_split_public_entry ? 1 : 0
   domain_name = "tokenvolt.net"
   rr          = trimsuffix(var.tokenvolt_data_public_host, ".tokenvolt.net")
-  type        = "A"
-  value       = alicloud_slb_load_balancer.higress_public.address
+  type        = var.higress_alb_dns_enabled ? "CNAME" : "A"
+  value       = var.higress_alb_dns_enabled ? trimsuffix(var.higress_alb_dns_name, ".") : alicloud_slb_load_balancer.higress_public.address
   ttl         = 600
   status      = "ENABLE"
   lifecycle {
     prevent_destroy = true
     ignore_changes  = [remark]
+    precondition {
+      condition     = !var.higress_alb_dns_enabled || var.higress_alb_ingress_enabled
+      error_message = "higress_alb_dns_enabled requires higress_alb_ingress_enabled."
+    }
+    precondition {
+      condition     = !var.higress_alb_dns_enabled || trimspace(var.higress_alb_dns_name) != ""
+      error_message = "higress_alb_dns_name is required when the ALB DNS cutover is enabled."
+    }
   }
 }
