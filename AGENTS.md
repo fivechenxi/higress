@@ -215,3 +215,7 @@ Design, TASK, or issue-spec workflow described below.
 This exception does not apply to Higress source code, shared Helm charts,
 Wasm plugins, upstream workflows, or any change intended for submission to
 the upstream repository.
+
+## TokenVolt fork-only changes
+
+This repository is the TokenVolt-maintained fork of Higress. Changes made for TokenVolt, including changes under `plugins/wasm-go/**`, do not need to be proposed or submitted to the upstream Higress repository. Agents may directly implement, test, review, release, and maintain these changes in this fork when requested by the repository owner. Do not open upstream issues or pull requests unless explicitly requested. Preserve upstream compatibility where practical, clearly mark TokenVolt-specific behavior, and include regression tests for production fixes.
