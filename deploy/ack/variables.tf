@@ -653,9 +653,21 @@ variable "ack_alb_ingress_controller_enabled" {
 }
 
 variable "higress_alb_ingress_enabled" {
-  description = "Create the opt-in ALB public edge for the Higress Gateway. DNS remains separately managed."
+  description = "Create the opt-in ALB public edge for the Higress Gateway."
   type        = bool
   default     = false
+}
+
+variable "higress_alb_dns_enabled" {
+  description = "Point the managed model API DNS record at the ACK-managed ALB. Kept separate from ALB creation for staged cutover and rollback."
+  type        = bool
+  default     = false
+}
+
+variable "higress_alb_dns_name" {
+  description = "ACK-managed ALB DNS name used as the model API CNAME target after an approved cutover."
+  type        = string
+  default     = ""
 }
 
 variable "higress_alb_vswitch_ids" {
