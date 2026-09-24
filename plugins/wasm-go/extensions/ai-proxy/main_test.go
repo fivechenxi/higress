@@ -215,6 +215,84 @@ func Test_normalizeOpenAiRequestBody(t *testing.T) {
 	})
 }
 
+func Test_normalizeTokenVoltOpenAiChatRequestBody(t *testing.T) {
+	t.Run("converts legacy functions and named function call", func(t *testing.T) {
+		in := []byte(`{"model":"x","functions":[{"name":"weather","description":"lookup","parameters":{"type":"object"}}],"function_call":{"name":"weather"},"unknown_extension":{"keep":true}}`)
+		got := normalizeTokenVoltOpenAiChatRequestBody(in)
+
+		if gjson.GetBytes(got, "functions").Exists() || gjson.GetBytes(got, "function_call").Exists() {
+			t.Fatalf("legacy fields were not removed: %s", got)
+		}
+		if value := gjson.GetBytes(got, "tools.0.type").String(); value != "function" {
+			t.Fatalf("tools.0.type = %q, want function: %s", value, got)
+		}
+		if value := gjson.GetBytes(got, "tools.0.function.name").String(); value != "weather" {
+			t.Fatalf("tools.0.function.name = %q, want weather: %s", value, got)
+		}
+		if value := gjson.GetBytes(got, "tool_choice.type").String(); value != "function" {
+			t.Fatalf("tool_choice.type = %q, want function: %s", value, got)
+		}
+		if value := gjson.GetBytes(got, "tool_choice.function.name").String(); value != "weather" {
+			t.Fatalf("tool_choice.function.name = %q, want weather: %s", value, got)
+		}
+		if !gjson.GetBytes(got, "unknown_extension.keep").Bool() {
+			t.Fatalf("unknown field was not preserved: %s", got)
+		}
+	})
+
+	t.Run("converts string function call", func(t *testing.T) {
+		got := normalizeTokenVoltOpenAiChatRequestBody([]byte(`{"function_call":"auto"}`))
+		if value := gjson.GetBytes(got, "tool_choice").String(); value != "auto" {
+			t.Fatalf("tool_choice = %q, want auto: %s", value, got)
+		}
+		if gjson.GetBytes(got, "function_call").Exists() {
+			t.Fatalf("function_call was not removed: %s", got)
+		}
+	})
+
+	t.Run("explicit modern fields win", func(t *testing.T) {
+		in := []byte(`{"functions":[{"name":"legacy"}],"function_call":{"name":"legacy"},"tools":[{"type":"function","function":{"name":"modern"}}],"tool_choice":"required"}`)
+		got := normalizeTokenVoltOpenAiChatRequestBody(in)
+
+		if value := gjson.GetBytes(got, "tools.0.function.name").String(); value != "modern" {
+			t.Fatalf("tools were overwritten: %s", got)
+		}
+		if value := gjson.GetBytes(got, "tool_choice").String(); value != "required" {
+			t.Fatalf("tool_choice was overwritten: %s", got)
+		}
+		if gjson.GetBytes(got, "functions").Exists() || gjson.GetBytes(got, "function_call").Exists() {
+			t.Fatalf("legacy fields were not removed: %s", got)
+		}
+	})
+
+	t.Run("maps zero top p to backend minimum", func(t *testing.T) {
+		got := normalizeTokenVoltOpenAiChatRequestBody([]byte(`{"top_p":0,"temperature":0}`))
+		if value := gjson.GetBytes(got, "top_p").Float(); value != tokenVoltMinimumBackendTopP {
+			t.Fatalf("top_p = %v, want %v: %s", value, tokenVoltMinimumBackendTopP, got)
+		}
+		if value := gjson.GetBytes(got, "temperature").Float(); value != 0 {
+			t.Fatalf("temperature changed unexpectedly: %s", got)
+		}
+	})
+
+	t.Run("preserves nonzero and nonnumeric top p", func(t *testing.T) {
+		for _, input := range []string{`{"top_p":0.8}`, `{"top_p":"0"}`, `{"top_p":null}`} {
+			got := normalizeTokenVoltOpenAiChatRequestBody([]byte(input))
+			if string(got) != input {
+				t.Fatalf("normalize(%s) = %s", input, got)
+			}
+		}
+	})
+
+	t.Run("preserves malformed legacy fields for upstream validation", func(t *testing.T) {
+		input := `{"functions":"invalid","function_call":["invalid"]}`
+		got := normalizeTokenVoltOpenAiChatRequestBody([]byte(input))
+		if string(got) != input {
+			t.Fatalf("normalize(%s) = %s", input, got)
+		}
+	})
+}
+
 func Test_convertResponseBodyToClaude_glue(t *testing.T) {
 	ctx := test.NewMockHttpContext()
 	openaiBody := []byte(`{"id":"id1","object":"chat.completion","created":1,"model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"hello"}}]}`)
