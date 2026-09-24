@@ -115,6 +115,8 @@ const (
 
 	LimitRedisContextKey        = "LimitRedisContext"
 	ResponseCountableContextKey = "ResponseCountableContext"
+	ResponseSSEContextKey       = "ResponseSSEContext"
+	ResponseSSEFramerContextKey = "ResponseSSEFramerContext"
 
 	CookieHeader = "cookie"
 
@@ -252,7 +254,10 @@ func onHttpResponseHeaders(ctx wrapper.HttpContext, _ config.AiTokenRateLimitCon
 	ctx.SetContext(ResponseCountableContextKey, countable)
 	if !countable {
 		ctx.DontReadResponseBody()
+		return types.ActionContinue
 	}
+	contentType, _ := proxywasm.GetHttpResponseHeader("content-type")
+	ctx.SetContext(ResponseSSEContextKey, strings.Contains(strings.ToLower(contentType), "text/event-stream"))
 	return types.ActionContinue
 }
 
@@ -261,11 +266,28 @@ func onHttpStreamingBody(ctx wrapper.HttpContext, cfg config.AiTokenRateLimitCon
 	if !countable {
 		return data
 	}
-	if usage := tokenusage.GetTokenUsage(ctx, data); usage.TotalToken > 0 {
-		log.Debugf("ai-token-ratelimit: token usage detected input=%d output=%d total=%d",
-			usage.InputToken, usage.OutputToken, usage.TotalToken)
-		ctx.SetContext(tokenusage.CtxKeyInputToken, usage.InputToken)
-		ctx.SetContext(tokenusage.CtxKeyOutputToken, usage.OutputToken)
+	if isSSE, _ := ctx.GetContext(ResponseSSEContextKey).(bool); isSSE {
+		framer, ok := ctx.GetContext(ResponseSSEFramerContextKey).(*sseFramer)
+		if !ok || framer == nil {
+			framer = &sseFramer{}
+			ctx.SetContext(ResponseSSEFramerContextKey, framer)
+		}
+		for _, event := range framer.frameCallback(data) {
+			recordTokenUsage(ctx, event)
+		}
+		if endOfStream {
+			lastEvent, overflowCount := framer.drain()
+			if len(lastEvent) > 0 {
+				recordTokenUsage(ctx, lastEvent)
+			}
+			if overflowCount > 0 {
+				log.Warnf("ai-token-ratelimit: discarded %d oversized incomplete SSE event(s)", overflowCount)
+			}
+		}
+	} else {
+		// Preserve the existing JSON/non-SSE behavior. The production loss fixed
+		// here is specific to complete SSE events being split across callbacks.
+		recordTokenUsage(ctx, data)
 	}
 	if !endOfStream {
 		return data
@@ -322,6 +344,15 @@ func onHttpStreamingBody(ctx wrapper.HttpContext, cfg config.AiTokenRateLimitCon
 		log.Errorf("redis call failed: %v", err)
 	}
 	return data
+}
+
+func recordTokenUsage(ctx wrapper.HttpContext, data []byte) {
+	if usage := tokenusage.GetTokenUsage(ctx, data); usage.TotalToken > 0 {
+		log.Debugf("ai-token-ratelimit: token usage detected input=%d output=%d total=%d",
+			usage.InputToken, usage.OutputToken, usage.TotalToken)
+		ctx.SetContext(tokenusage.CtxKeyInputToken, usage.InputToken)
+		ctx.SetContext(tokenusage.CtxKeyOutputToken, usage.OutputToken)
+	}
 }
 
 // collectMatchedRules 遍历 global_threshold 和 rule_items，返回所有命中规则。
