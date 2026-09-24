@@ -463,13 +463,22 @@ resource "kubernetes_secret_v1" "tokenvolt_registry" {
   type = "kubernetes.io/dockerconfigjson"
   data = {
     ".dockerconfigjson" = jsonencode({
-      auths = {
-        "ghcr.io" = {
-          username = var.tokenvolt_ghcr_username
-          password = var.tokenvolt_ghcr_token
-          auth     = base64encode("${var.tokenvolt_ghcr_username}:${var.tokenvolt_ghcr_token}")
+      auths = merge(
+        {
+          "ghcr.io" = {
+            username = var.tokenvolt_ghcr_username
+            password = var.tokenvolt_ghcr_token
+            auth     = base64encode("${var.tokenvolt_ghcr_username}:${var.tokenvolt_ghcr_token}")
+          }
+        },
+        var.tokenvolt_acr_registry == "" ? {} : {
+          (var.tokenvolt_acr_registry) = {
+            username = var.tokenvolt_acr_username
+            password = var.tokenvolt_acr_password
+            auth     = base64encode("${var.tokenvolt_acr_username}:${var.tokenvolt_acr_password}")
+          }
         }
-      }
+      )
     })
   }
 
@@ -477,6 +486,21 @@ resource "kubernetes_secret_v1" "tokenvolt_registry" {
     precondition {
       condition     = var.tokenvolt_ghcr_token != ""
       error_message = "tokenvolt_ghcr_token is required when TokenVolt private GHCR images are enabled."
+    }
+    precondition {
+      condition = var.tokenvolt_acr_registry == "" ? (
+        var.tokenvolt_acr_username == "" && var.tokenvolt_acr_password == ""
+        ) : (
+        var.tokenvolt_acr_username != "" && var.tokenvolt_acr_password != ""
+      )
+      error_message = "Set tokenvolt_acr_registry, tokenvolt_acr_username, and tokenvolt_acr_password together."
+    }
+    precondition {
+      condition = alltrue([
+        for image in concat([var.tokenvolt_control_plane_image], var.tokenvolt_mock_enabled ? [var.tokenvolt_mock_image] : []) :
+        !can(regex("^[^/]+\\.cr\\.aliyuncs\\.com/", image)) || split("/", image)[0] == var.tokenvolt_acr_registry
+      ])
+      error_message = "TokenVolt ACR image hostname must match tokenvolt_acr_registry so ACK receives the matching pull credential."
     }
   }
 }
