@@ -5,10 +5,90 @@ on:
     branches: [main]
   pull_request:
     branches: ["*"]
+    # labeled/unlabeled keep the `run-conformance` opt-in label effective
+    # without waiting for a new commit.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+# A superseded pull-request run is worthless: the 30+ minute conformance suite
+# would validate a commit nobody merges. Cancel it as soon as a newer push
+# arrives. Main pushes are serialized rather than cancelled, so the branch tip
+# always keeps one complete result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GO_VERSION: 1.26
 jobs:
+  # Classify the change once, so that work which cannot affect the gateway data
+  # plane (docs, deploy/, helm/, this workflow) does not pay for the 30+ minute
+  # conformance suites. Fails open: whenever the diff cannot be computed, every
+  # suite runs, i.e. the previous behaviour is preserved.
+  changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+      conformance: ${{ steps.classify.outputs.conformance }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Classify changed files
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          # Paths that can change build output or data-plane behaviour. Anything
+          # else (docs, deploy/ack, helm, .github) cannot break the gateway.
+          code_re='\.go$|(^|/)go\.(mod|sum|work)$|(^|/)Makefile(\.core\.mk)?$|^(api|build|cmd|internal|pkg|plugins|registry|samples|test|tools)/'
+
+          labels=""
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            labels=$(jq -r '.pull_request.labels[]?.name' "$GITHUB_EVENT_PATH" 2>/dev/null | paste -sd, - || true)
+          fi
+
+          code=true
+          basis="fail-open (no base commit to diff)"
+          if [ -n "${BASE_SHA:-}" ] \
+            && { git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
+                 || git fetch --no-tags --depth=1 origin "$BASE_SHA" >/dev/null 2>&1; } \
+            && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
+            && git diff --name-only "$BASE_SHA" HEAD >/tmp/changed-files.txt; then
+            basis="$(wc -l </tmp/changed-files.txt | tr -d ' ') changed file(s) vs ${BASE_SHA:0:12}"
+            if grep -Eq "$code_re" /tmp/changed-files.txt; then code=true; else code=false; fi
+          fi
+
+          # Conformance suites run for data-plane changes, for anything landing on
+          # main, or when a reviewer explicitly asks for them.
+          conformance="$code"
+          if [ "$EVENT_NAME" != "pull_request" ]; then conformance=true; fi
+          case ",$labels," in
+            *,run-conformance,*) conformance=true; basis="$basis + run-conformance label" ;;
+          esac
+
+          {
+            echo "code=$code"
+            echo "conformance=$conformance"
+          } >>"$GITHUB_OUTPUT"
+
+          {
+            echo "### Change classification"
+            echo ""
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| event | \`$EVENT_NAME\` |"
+            echo "| basis | $basis |"
+            echo "| code paths | \`$code\` |"
+            echo "| conformance suites | \`$conformance\` |"
+            echo ""
+            if [ "$conformance" != "true" ]; then
+              echo "Conformance suites were skipped: this change cannot affect the gateway data plane. Add the \`run-conformance\` label to run them anyway."
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+
   lint:
     runs-on: ubuntu-22.04
     steps:
@@ -23,6 +103,8 @@ jobs:
 
   coverage-test:
     runs-on: ubuntu-22.04
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -59,7 +141,8 @@ jobs:
   build:
     # The type of runner that the job will run on
     runs-on: ubuntu-22.04
-    needs: [lint, coverage-test]
+    needs: [changes, lint, coverage-test]
+    if: needs.changes.outputs.conformance == 'true'
     steps:
       - name: "Checkout ${{ github.ref }}"
         uses: actions/checkout@v4
@@ -94,7 +177,8 @@ jobs:
   gateway-conformance-test:
     name: ${{ matrix.check-name }}
     runs-on: ubuntu-22.04
-    needs: [lint]
+    needs: [changes, lint]
+    if: needs.changes.outputs.conformance == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -203,7 +287,8 @@ jobs:
   inference-extension-conformance-test:
     name: ${{ matrix.check-name }}
     runs-on: ubuntu-22.04
-    needs: [lint]
+    needs: [changes, lint]
+    if: needs.changes.outputs.conformance == 'true'
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -303,7 +388,8 @@ jobs:
 
   higress-conformance-test:
     runs-on: ubuntu-22.04
-    needs: [build]
+    needs: [changes, build]
+    if: needs.changes.outputs.conformance == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -357,6 +443,7 @@ jobs:
 
   publish:
     runs-on: ubuntu-22.04
-    needs: [higress-conformance-test, gateway-conformance-test, inference-extension-conformance-test]
+    needs: [changes, higress-conformance-test, gateway-conformance-test, inference-extension-conformance-test]
+    if: needs.changes.outputs.conformance == 'true'
     steps:
       - uses: actions/checkout@v4
