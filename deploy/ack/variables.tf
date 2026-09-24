@@ -620,3 +620,54 @@ variable "tokenvolt_data_certificate_id" {
   type        = string
   default     = ""
 }
+
+variable "ack_alb_ingress_controller_enabled" {
+  description = "Install and retain the ACK-managed ALB Ingress Controller addon."
+  type        = bool
+  default     = false
+}
+
+variable "higress_alb_ingress_enabled" {
+  description = "Create the opt-in ALB public edge for the Higress Gateway. DNS remains separately managed."
+  type        = bool
+  default     = false
+}
+
+variable "higress_alb_vswitch_ids" {
+  description = "Two existing vSwitch IDs in distinct ALB-supported zones of the ACK VPC."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(var.higress_alb_vswitch_ids) == 0 || (length(var.higress_alb_vswitch_ids) == 2 && length(distinct(var.higress_alb_vswitch_ids)) == 2 && alltrue([for id in var.higress_alb_vswitch_ids : trimspace(id) != ""]))
+    error_message = "higress_alb_vswitch_ids must be empty or contain two distinct non-empty vSwitch IDs."
+  }
+}
+
+variable "higress_alb_certificate_id" {
+  description = "Certificate Management Service CertIdentifier for the Higress ALB HTTPS listener."
+  type        = string
+  default     = ""
+}
+
+variable "higress_alb_request_timeout" {
+  description = "ALB listener request timeout in seconds."
+  type        = number
+  default     = 900
+
+  validation {
+    condition     = var.higress_alb_request_timeout >= 1 && var.higress_alb_request_timeout <= 3600
+    error_message = "higress_alb_request_timeout must be between 1 and 3600 seconds."
+  }
+}
+
+variable "higress_alb_idle_timeout" {
+  description = "ALB listener idle timeout in seconds."
+  type        = number
+  default     = 900
+
+  validation {
+    condition     = var.higress_alb_idle_timeout >= 1 && var.higress_alb_idle_timeout <= 3600
+    error_message = "higress_alb_idle_timeout must be between 1 and 3600 seconds."
+  }
+}

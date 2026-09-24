@@ -96,6 +96,60 @@ resource "alicloud_cs_kubernetes_addon" "event_center" {
   })
 }
 
+# Keep the ALB control loop ACK-managed. The addon installs the controller and
+# AlbConfig CRD; Helm owns only the workload-specific AlbConfig/Ingress objects.
+resource "alicloud_cs_kubernetes_addon" "alb_ingress" {
+  count      = var.ack_alb_ingress_controller_enabled ? 1 : 0
+  cluster_id = alicloud_cs_managed_kubernetes.this.id
+  name       = "alb-ingress-controller"
+  version    = "v3.1.1"
+  config     = ""
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+# The addon API can complete before its Kubernetes objects are observable.
+# Do not let Helm submit AlbConfig until the CRD and controller are ready.
+resource "terraform_data" "alb_ingress_ready" {
+  count = var.ack_alb_ingress_controller_enabled ? 1 : 0
+
+  triggers_replace = [
+    alicloud_cs_kubernetes_addon.alb_ingress[0].id,
+    alicloud_cs_kubernetes_addon.alb_ingress[0].version,
+  ]
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/sh", "-c"]
+    command     = <<-EOT
+      set -eu
+      kubeconfig_file=$(mktemp)
+      trap 'rm -f "$kubeconfig_file"' EXIT HUP INT TERM
+      printf '%s' "$KUBECONFIG_CONTENT" > "$kubeconfig_file"
+      deadline=$(( $(date +%s) + 600 ))
+      until kubectl --kubeconfig "$kubeconfig_file" get crd albconfigs.alibabacloud.com >/dev/null 2>&1; do
+        test "$(date +%s)" -lt "$deadline"
+        sleep 5
+      done
+      kubectl --kubeconfig "$kubeconfig_file" wait --for=condition=Established crd/albconfigs.alibabacloud.com --timeout=10m
+      controller=""
+      until test -n "$controller"; do
+        test "$(date +%s)" -lt "$deadline"
+        controller=$(kubectl --kubeconfig "$kubeconfig_file" -n kube-system get deployment -o name | awk '/alb-ingress-controller/ {print; exit}')
+        test -n "$controller" || sleep 5
+      done
+      test -n "$controller"
+      kubectl --kubeconfig "$kubeconfig_file" -n kube-system rollout status "$controller" --timeout=10m
+    EOT
+    environment = {
+      KUBECONFIG_CONTENT = data.alicloud_cs_cluster_credential.this.kube_config
+    }
+  }
+
+  depends_on = [alicloud_cs_kubernetes_addon.alb_ingress]
+}
+
 resource "alicloud_key_pair" "workers" {
   key_pair_name = "${var.cluster_name}-workers"
   tags          = var.tags

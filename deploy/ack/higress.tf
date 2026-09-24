@@ -30,6 +30,14 @@ resource "helm_release" "higress" {
   values = [
     file("${path.module}/values/higress-test.yaml"),
     yamlencode({
+      albIngress = {
+        enabled        = var.higress_alb_ingress_enabled
+        host           = var.tokenvolt_data_public_host
+        vSwitchIds     = var.higress_alb_vswitch_ids
+        certificateId  = var.higress_alb_certificate_id
+        requestTimeout = var.higress_alb_request_timeout
+        idleTimeout    = var.higress_alb_idle_timeout
+      }
       gateway = {
         service = {
           # Shared mode terminates TLS at CLB and forwards HTTP to Higress.
@@ -56,10 +64,23 @@ resource "helm_release" "higress" {
   wait            = true
   timeout         = 900
 
+  lifecycle {
+    precondition {
+      condition = !var.higress_alb_ingress_enabled || (
+        var.ack_alb_ingress_controller_enabled &&
+        length(var.higress_alb_vswitch_ids) == 2 &&
+        length(distinct(var.higress_alb_vswitch_ids)) == 2 &&
+        trimspace(var.higress_alb_certificate_id) != ""
+      )
+      error_message = "Higress ALB ingress requires the managed controller, two distinct vSwitch IDs, and a Certificate Management Service CertIdentifier."
+    }
+  }
+
   depends_on = [
     alicloud_cs_kubernetes_node_pool.baseline,
     alicloud_cs_kubernetes_node_pool.gateway,
     alicloud_slb_load_balancer.higress_public,
     kubernetes_secret_v1.tokenvolt_registry_higress,
+    terraform_data.alb_ingress_ready,
   ]
 }
