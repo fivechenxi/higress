@@ -1033,6 +1033,10 @@ var outputTokenDetailsProbePaths = []string{
 // this policy a usage-bearing event that omits details would wipe previously
 // recorded details with an empty map.
 func processTokenUsageEvent(ctx wrapper.HttpContext, event []byte) {
+	// TokenVolt: retain the two upstream Chat cache fields independently before
+	// tokenusage chooses a canonical value. Only usage fields are logged; the
+	// response body can contain customer content and must never be persisted.
+	captureRawChatCache(ctx, event)
 	// Snapshot the previously recorded details maps BEFORE the call. The
 	// context layer is the source of truth: ai-statistics only ever writes it
 	// with effective (non-nil) maps.
@@ -1095,6 +1099,58 @@ func processTokenUsageEvent(ctx wrapper.HttpContext, event []byte) {
 	}
 	_ = ctx.WriteUserAttributeToLogWithKey(wrapper.AILogKey)
 
+}
+
+func captureRawChatCache(ctx wrapper.HttpContext, event []byte) {
+	if !strings.HasSuffix(ctx.GetStringContext(RequestPath, ""), PathOpenAIChatCompletions) {
+		return
+	}
+	payload := bytes.TrimSpace(event)
+	if bytes.HasPrefix(payload, []byte("data:")) {
+		payload = bytes.TrimSpace(bytes.TrimPrefix(payload, []byte("data:")))
+	}
+	if !gjson.ValidBytes(payload) {
+		return
+	}
+	if !gjson.GetBytes(payload, "usage").IsObject() {
+		return
+	}
+	for _, name := range []string{"cached_tokens_flat", "cached_tokens_nested"} {
+		delete(ctx.GetUserAttributeMap(), name)
+		delete(ctx.GetUserAttributeMap(), name+"_raw")
+	}
+	for _, field := range []struct{ path, name string }{
+		{"usage.cached_tokens", "cached_tokens_flat"},
+		{"usage.prompt_tokens_details.cached_tokens", "cached_tokens_nested"},
+	} {
+		value := gjson.GetBytes(payload, field.path)
+		if !value.Exists() {
+			continue
+		}
+		// Preserve the exact JSON value, including null, strings and negative
+		// numbers. Bound malformed scalar evidence so a provider cannot place
+		// arbitrary response content in the access log. The marker fails closed
+		// when the control plane decodes it.
+		if len(value.Raw) > 64 || value.IsObject() || value.IsArray() {
+			ctx.SetUserAttribute(field.name+"_raw", "invalid_oversized_or_structured")
+			continue
+		}
+		ctx.SetUserAttribute(field.name+"_raw", value.Raw)
+		if value.Type == gjson.Number {
+			if n, err := strconv.ParseInt(value.Raw, 10, 64); err == nil && n >= 0 {
+				ctx.SetUserAttribute(field.name, n)
+			} else {
+				delete(ctx.GetUserAttributeMap(), field.name)
+			}
+		} else {
+			delete(ctx.GetUserAttributeMap(), field.name)
+		}
+	}
+	flat, flatOK := ctx.GetUserAttribute("cached_tokens_flat").(int64)
+	nested, nestedOK := ctx.GetUserAttribute("cached_tokens_nested").(int64)
+	if flatOK && nestedOK && flat != nested {
+		log.Warn("upstream usage.cached_tokens conflicts with usage.prompt_tokens_details.cached_tokens")
+	}
 }
 
 func onHttpResponseBody(ctx wrapper.HttpContext, config AIStatisticsConfig, body []byte) types.Action {

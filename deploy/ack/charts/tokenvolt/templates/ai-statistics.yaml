@@ -30,6 +30,8 @@ spec:
   imagePullSecret: {{ . | quote }}
   {{- end }}
   phase: UNSPECIFIED_PHASE
+  # Capture upstream usage before tokenvolt-policy (priority 900) normalizes
+  # the client response. Keep this ordering when changing plugin priorities.
   priority: 200
   # The AUTHN policy adds the trusted model header and causes an Envoy route
   # re-selection. A route-scoped statistics config is not re-instantiated after
