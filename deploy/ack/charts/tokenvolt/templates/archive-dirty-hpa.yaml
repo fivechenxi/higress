@@ -1,0 +1,33 @@
+{{- if .Values.controlPlane.archive.dirtyWorker.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: tokenvolt-archive-dirty-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  minReplicas: {{ .Values.controlPlane.archive.dirtyWorker.minReplicas }}
+  maxReplicas: {{ .Values.controlPlane.archive.dirtyWorker.maxReplicas }}
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: tokenvolt-archive-dirty-worker
+  metrics:
+    - type: External
+      external:
+        metric:
+          name: tokenvolt_dirty_partition_ready
+        target:
+          type: AverageValue
+          averageValue: {{ .Values.controlPlane.archive.dirtyWorker.targetReadyPerPod | quote }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - {type: Pods, value: 1, periodSeconds: 60}
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - {type: Pods, value: 1, periodSeconds: 120}
+{{- end }}

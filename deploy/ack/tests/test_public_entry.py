@@ -24,7 +24,7 @@ import yaml
 CHART = Path(__file__).resolve().parents[1] / 'charts/tokenvolt'
 
 
-def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, in_cluster=False, archive=None, billing=None, neutoken_clusters=None, ai_proxy=None):
+def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, in_cluster=False, archive=None, billing=None, neutoken_clusters=None, ai_proxy=None, metrics=None):
     values = {
         'controlPlane': {
             'quotaEnabled': quota,
@@ -74,6 +74,8 @@ def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, 
         values['controlPlane']['usageDashboard'] = dashboard
     if archive is not None:
         values['controlPlane']['archive'] = archive
+    if metrics is not None:
+        values['controlPlane']['metrics'] = metrics
     if billing is not None:
         values['controlPlane']['billing'] = billing
     if neutoken_clusters is not None:
@@ -92,6 +94,27 @@ def render(split, managed_redis=False, dashboard=None, quota=False, redis=None, 
 
 
 class PublicEntryTest(unittest.TestCase):
+    def test_dirty_archive_worker_scales_separately_from_control_plane(self):
+        archive = {
+            'derivedEnabled': True,
+            'sourceEnvironments': {'source': 'prod'},
+            'prefix': 'usage-archive/prod/',
+            'dirtyWorker': {'enabled': True, 'workersPerPod': 2,
+                            'minReplicas': 1, 'maxReplicas': 3,
+                            'targetReadyPerPod': '40'},
+        }
+        objects = render(True, archive=archive, metrics={'metricsSecretName': 'fixture-metrics', 'tokenRevision': 'rev'})
+        deployments = {o['metadata']['name']: o for o in objects if o['kind'] == 'Deployment'}
+        worker = deployments['tokenvolt-archive-dirty-worker']['spec']['template']['spec']['containers'][0]
+        self.assertEqual(worker['args'], ['archive-dirty-worker'])
+        self.assertEqual({v['name']: v['value'] for v in worker['env'] if 'value' in v}['USAGE_ARCHIVE_MERGE_WORKERS'], '2')
+        web_env = deployments['tokenvolt-control-plane']['spec']['template']['spec']['containers'][0]['env']
+        self.assertEqual({v['name']: v['value'] for v in web_env if 'value' in v}['USAGE_ARCHIVE_DIRTY_WORKERS_ENABLED'], 'false')
+        hpa = next(o for o in objects if o['kind'] == 'HorizontalPodAutoscaler'
+                   and o['metadata']['name'] == 'tokenvolt-archive-dirty-worker')
+        self.assertEqual(hpa['spec']['metrics'][0]['external']['metric']['name'], 'tokenvolt_dirty_partition_ready')
+        self.assertEqual(hpa['spec']['maxReplicas'], 3)
+
     def test_control_plane_has_bounded_writable_work_volume(self):
         objects = render(True)
         deployment = next(o for o in objects if o['kind'] == 'Deployment'
