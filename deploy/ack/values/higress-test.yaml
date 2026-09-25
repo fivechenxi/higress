@@ -74,7 +74,8 @@ gateway:
   env:
     EXIT_ON_ZERO_ACTIVE_CONNECTIONS: "true"
     MINIMUM_DRAIN_DURATION: "5s"
-    PROXY_CONFIG: '{"terminationDrainDuration":"600s"}'
+    # Preserve in-flight model requests when an LDS update replaces a listener.
+    PROXY_CONFIG: '{"drainDuration":"3600s","terminationDrainDuration":"600s"}'
   minReadySeconds: 10
   rollingMaxSurge: 1
   rollingMaxUnavailable: 0
@@ -140,6 +141,8 @@ controller:
           topologyKey: kubernetes.io/hostname
 
 pilot:
+  # Long-lived model requests must not be drained by periodic ADS rotation.
+  keepaliveMaxServerConnectionAge: 0s
   resources:
     requests:
       cpu: 250m
