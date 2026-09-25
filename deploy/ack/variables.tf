@@ -380,6 +380,46 @@ variable "tokenvolt_billing" {
   }
 }
 
+variable "tokenvolt_archive_cutover_paused" {
+  description = "Pause archive cutover while switching dirty workers. Persisted through OSS-backed Terraform; defaults off."
+  type        = bool
+  default     = false
+}
+
+variable "tokenvolt_archive_dirty_worker" {
+  description = "Opt-in dedicated dirty-partition worker and HPA settings; enable only after control-plane PR #148 is released and external metrics are verified."
+  type = object({
+    enabled              = bool
+    workers_per_pod      = number
+    min_replicas         = number
+    max_replicas         = number
+    target_ready_per_pod = number
+  })
+  default = {
+    enabled              = false
+    workers_per_pod      = 1
+    min_replicas         = 1
+    max_replicas         = 4
+    target_ready_per_pod = 50
+  }
+  validation {
+    condition = (
+      var.tokenvolt_archive_dirty_worker.workers_per_pod >= 1 && var.tokenvolt_archive_dirty_worker.workers_per_pod <= 16 &&
+      var.tokenvolt_archive_dirty_worker.min_replicas >= 1 &&
+      var.tokenvolt_archive_dirty_worker.max_replicas >= var.tokenvolt_archive_dirty_worker.min_replicas &&
+      var.tokenvolt_archive_dirty_worker.target_ready_per_pod >= 1 &&
+      alltrue([for n in [var.tokenvolt_archive_dirty_worker.workers_per_pod, var.tokenvolt_archive_dirty_worker.min_replicas, var.tokenvolt_archive_dirty_worker.max_replicas, var.tokenvolt_archive_dirty_worker.target_ready_per_pod] : n == floor(n)])
+    )
+    error_message = "Dirty worker settings require integer workers 1..16, positive replica bounds and positive ready target."
+  }
+}
+
+variable "tokenvolt_external_metrics_enabled" {
+  description = "Opt in to the cluster-wide external.metrics APIService only after checking its current owner."
+  type        = bool
+  default     = false
+}
+
 variable "tokenvolt_policy_plugin_url" {
   description = "Immutable OCI digest or checksum-addressed HTTPS URL for the TokenVolt policy Wasm plugin."
   type        = string

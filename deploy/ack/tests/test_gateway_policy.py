@@ -40,6 +40,31 @@ def gateway(objects):
 
 
 class GatewayPolicyTest(unittest.TestCase):
+    def test_dirty_archive_external_metric_requires_control_plane_scrape(self):
+        base = ('--set', 'monitoring.remoteWriteUrl=http://example.invalid/api/v1/write',
+                '--set', 'monitoring.clusterId=test-cluster',
+                '--set', 'monitoring.controlPlane.metricsSecretName=fixture-metrics')
+        disabled = render('deploy/ack/charts/higress-ack-ops', *base)
+        disabled_by_name = {(o['kind'], o['metadata']['name']): o for o in disabled}
+        self.assertNotIn(('APIService', 'v1beta1.external.metrics.k8s.io'), disabled_by_name)
+        self.assertNotIn('externalRules:', disabled_by_name[('ConfigMap', 'higress-prometheus-adapter')]['data']['config.yaml'])
+        objects = render('deploy/ack/charts/higress-ack-ops', *base,
+                         '--set', 'prometheusAdapter.externalMetrics.enabled=true')
+        by_name = {(o['kind'], o['metadata']['name']): o for o in objects}
+        adapter = by_name[('ConfigMap', 'higress-prometheus-adapter')]['data']['config.yaml']
+        self.assertIn('externalRules:', adapter)
+        self.assertIn('tokenvolt_dirty_partition_ready', adapter)
+        self.assertIn('tokenvolt_dirty_partition_running', adapter)
+        self.assertIn('namespaced: false', adapter)
+        self.assertIn(('APIService', 'v1beta1.external.metrics.k8s.io'), by_name)
+        self.assertEqual(by_name[('APIService', 'v1beta1.external.metrics.k8s.io')]['spec']['versionPriority'], 100)
+        self.assertEqual(by_name[('APIService', 'v1beta1.custom.metrics.k8s.io')]['spec']['versionPriority'], 100)
+        with self.assertRaisesRegex(RuntimeError, 'authenticated control-plane scrape'):
+            render('deploy/ack/charts/higress-ack-ops',
+                   '--set', 'monitoring.remoteWriteUrl=http://example.invalid/api/v1/write',
+                   '--set', 'monitoring.clusterId=test-cluster',
+                   '--set', 'prometheusAdapter.externalMetrics.enabled=true')
+
     def test_quota_alerts_follow_live_redis_counters_and_cr_limits(self):
         objects = render(
             'deploy/ack/charts/higress-ack-ops',

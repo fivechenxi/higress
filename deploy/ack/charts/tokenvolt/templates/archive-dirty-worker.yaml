@@ -1,0 +1,70 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.controlPlane.archive.dirtyWorker.enabled }}
+{{- if not .Values.controlPlane.archive.derivedEnabled }}{{ fail "dirty worker requires derived archive workers" }}{{ end }}
+{{- if not .Values.controlPlane.metrics.metricsSecretName }}{{ fail "dirty worker HPA requires control-plane metrics" }}{{ end }}
+{{- if or (lt (int .Values.controlPlane.archive.dirtyWorker.workersPerPod) 1) (gt (int .Values.controlPlane.archive.dirtyWorker.workersPerPod) 16) }}{{ fail "dirty worker workersPerPod must be 1..16" }}{{ end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tokenvolt-archive-dirty-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controlPlane.archive.dirtyWorker.minReplicas }}
+  selector:
+    matchLabels: {app: tokenvolt-archive-dirty-worker}
+  template:
+    metadata:
+      labels: {app: tokenvolt-archive-dirty-worker}
+    spec:
+      serviceAccountName: {{ .Values.controlPlane.serviceAccountName }}
+      automountServiceAccountToken: true
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: archive-dirty-worker
+          image: {{ required "controlPlane.image is required" .Values.controlPlane.image | quote }}
+          imagePullPolicy: {{ .Values.controlPlane.imagePullPolicy }}
+          args: ["archive-dirty-worker"]
+          env:
+            - name: DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ .Values.controlPlane.databaseSecretName }}, key: url}}
+            - {name: USAGE_ARCHIVE_DERIVED_ENABLED, value: "true"}
+            - {name: USAGE_ARCHIVE_SOURCE_ENVIRONMENTS, value: {{ required "archive sourceEnvironments is required" .Values.controlPlane.archive.sourceEnvironments | toJson | quote }}}
+            - {name: USAGE_ARCHIVE_PREFIX, value: {{ required "archive prefix is required" .Values.controlPlane.archive.prefix | quote }}}
+            - {name: USAGE_ARCHIVE_MERGE_WORKERS, value: {{ .Values.controlPlane.archive.dirtyWorker.workersPerPod | quote }}}
+            - {name: OSS_REGION_ID, value: {{ required "OSS region is required" .Values.controlPlane.cloud.ossRegionId | quote }}}
+            - {name: OSS_ENDPOINT, value: {{ .Values.controlPlane.cloud.ossEndpoint | quote }}}
+            - {name: OSS_BUCKET, value: {{ required "OSS bucket is required" .Values.controlPlane.cloud.ossBucket | quote }}}
+          resources:
+            {{- toYaml .Values.controlPlane.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: archive-work, mountPath: /tmp}
+      volumes:
+        - name: archive-work
+          emptyDir:
+            sizeLimit: {{ required "controlPlane.workSizeLimit is required" .Values.controlPlane.workSizeLimit | quote }}
+{{- end }}

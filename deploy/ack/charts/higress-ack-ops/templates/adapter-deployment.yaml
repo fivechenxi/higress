@@ -104,4 +104,29 @@ spec:
     port: 443
   version: v1beta1
   versionPriority: 100
+{{- if .Values.prometheusAdapter.externalMetrics.enabled }}
+{{- if not .Values.monitoring.controlPlane.metricsSecretName }}{{ fail "external metrics require authenticated control-plane scrape" }}{{ end }}
+{{- $existing := lookup "apiregistration.k8s.io/v1" "APIService" "" "v1beta1.external.metrics.k8s.io" }}
+{{- if $existing }}
+{{- $annotations := default dict $existing.metadata.annotations }}
+{{- if or (ne (index $annotations "meta.helm.sh/release-name") .Release.Name) (ne (index $annotations "meta.helm.sh/release-namespace") .Release.Namespace) }}
+{{- fail "external.metrics APIService is owned by another release; inspect it before enabling TokenVolt external metrics" }}
+{{- end }}
+{{- end }}
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.external.metrics.k8s.io
+spec:
+  group: external.metrics.k8s.io
+  groupPriorityMinimum: 100
+  insecureSkipTLSVerify: true
+  service:
+    name: higress-prometheus-adapter
+    namespace: {{ .Release.Namespace }}
+    port: 443
+  version: v1beta1
+  versionPriority: 100
+{{- end }}
 {{- end }}

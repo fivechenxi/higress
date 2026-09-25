@@ -34,4 +34,22 @@ data:
           matches: '^envoy_http_downstream_rq_active$'
           as: higress_active_streams
         metricsQuery: 'sum(<<.Series>>{<<.LabelMatchers>>,http_conn_manager_prefix="outbound_0.0.0.0_80"}) by (<<.GroupBy>>)'
+    {{- if .Values.prometheusAdapter.externalMetrics.enabled }}
+    {{- if not .Values.monitoring.controlPlane.metricsSecretName }}{{ fail "external metrics require authenticated control-plane scrape" }}{{ end }}
+    externalRules:
+      - seriesQuery: 'tokenvolt_durable_jobs_queued{job="tokenvolt-control-plane",kind="dirty-partition"}'
+        resources:
+          namespaced: false
+        name:
+          matches: '^tokenvolt_durable_jobs_queued$'
+          as: tokenvolt_dirty_partition_ready
+        metricsQuery: 'max(tokenvolt_durable_jobs_queued{job="tokenvolt-control-plane",kind="dirty-partition"})'
+      - seriesQuery: 'tokenvolt_durable_jobs_running{job="tokenvolt-control-plane",kind="dirty-partition"}'
+        resources:
+          namespaced: false
+        name:
+          matches: '^tokenvolt_durable_jobs_running$'
+          as: tokenvolt_dirty_partition_running
+        metricsQuery: 'max(tokenvolt_durable_jobs_running{job="tokenvolt-control-plane",kind="dirty-partition"})'
+    {{- end }}
 {{- end }}

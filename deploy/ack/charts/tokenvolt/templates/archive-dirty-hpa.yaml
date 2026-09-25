@@ -1,0 +1,56 @@
+# Copyright 2026 alibaba
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.controlPlane.archive.dirtyWorker.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: tokenvolt-archive-dirty-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+spec:
+  minReplicas: {{ .Values.controlPlane.archive.dirtyWorker.minReplicas }}
+  maxReplicas: {{ .Values.controlPlane.archive.dirtyWorker.maxReplicas }}
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: tokenvolt-archive-dirty-worker
+  metrics:
+    - type: External
+      external:
+        metric:
+          name: tokenvolt_dirty_partition_ready
+        target:
+          type: AverageValue
+          averageValue: {{ .Values.controlPlane.archive.dirtyWorker.targetReadyPerPod | quote }}
+    # Keep enough pods for claimed long-running merges after the ready queue
+    # drains. HPA chooses the larger replica recommendation of the two metrics.
+    - type: External
+      external:
+        metric:
+          name: tokenvolt_dirty_partition_running
+        target:
+          type: AverageValue
+          averageValue: {{ .Values.controlPlane.archive.dirtyWorker.workersPerPod | quote }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - {type: Pods, value: 1, periodSeconds: 60}
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - {type: Pods, value: 1, periodSeconds: 120}
+{{- end }}

@@ -167,3 +167,23 @@ OSS 中的 `deployment_baseline_tag` 必须对应本次部署代码的精确 Git
 托管 Redis 的出站集群由 TokenVolt Helm chart 与插件共用的 serviceName/port
 派生。已有手工 EnvoyFilter 的环境须先按 [Redis 接管说明](REDIS_CLUSTER_ADOPTION.md)
 审阅所有权迁移与回退方案；不要直接应用控制面仓库的旧静态 YAML。
+
+## 归档 dirty Worker 切换检查
+
+`tokenvolt_archive_dirty_worker.enabled`、`tokenvolt_archive_cutover_paused` 和
+`tokenvolt_external_metrics_enabled` 是 OSS 中 `terraform.tfvars` 对应的持久配置，
+默认均为关闭。切换前先合入并发布控制面 PR #148，完成 migration 0059，确认
+目标 imageID、Ready 状态，以及 `tokenvolt_durable_jobs_queued` 和
+`tokenvolt_durable_jobs_running{kind="dirty-partition"}` 可采集。
+
+先检查集群的 `v1beta1.external.metrics.k8s.io` APIService 是否已存在及其 Helm
+归属；已有其他提供者时不能启用本 chart 的 external metrics。配置
+`tokenvolt_external_metrics_enabled=true` 后，先确认 APIService 为 Available，
+并从 Kubernetes external metrics API 读取 ready、running 两个指标。再设置
+`tokenvolt_archive_cutover_paused=true`，核对旧合并任务停下且无未完成租约，
+最后设置 `tokenvolt_archive_dirty_worker.enabled=true` 并观察队列、运行中任务、
+HPA 和 Worker 租约。确认新路径稳定后，再解除 cutover pause。每一步均通过
+`make config-status` 检查 OSS 配置分歧，必要时查看 `make config-history`，
+经单独部署授权后才执行 `make config-push`、`make plan`、`make start`。
+
+这三个开关只完成部署配置接线；本 PR 不执行上述切换或验证线上指标。

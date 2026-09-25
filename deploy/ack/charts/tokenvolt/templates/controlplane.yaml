@@ -96,6 +96,8 @@ spec:
             - {name: USAGE_ARCHIVE_DERIVED_ENABLED, value: "true"}
             - {name: USAGE_ARCHIVE_SOURCE_ENVIRONMENTS, value: {{ required "controlPlane.archive.sourceEnvironments is required" .Values.controlPlane.archive.sourceEnvironments | toJson | quote }}}
             - {name: USAGE_ARCHIVE_PREFIX, value: {{ required "controlPlane.archive.prefix is required" .Values.controlPlane.archive.prefix | quote }}}
+            - {name: USAGE_ARCHIVE_DIRTY_WORKERS_ENABLED, value: {{ not .Values.controlPlane.archive.dirtyWorker.enabled | quote }}}
+            - {name: USAGE_ARCHIVE_CUTOVER_PAUSED, value: {{ .Values.controlPlane.archive.cutoverPaused | quote }}}
             {{- end }}
             {{- if .Values.controlPlane.archive.reconcileEnabled }}
             - {name: USAGE_ARCHIVE_RECONCILE_ENABLED, value: "true"}

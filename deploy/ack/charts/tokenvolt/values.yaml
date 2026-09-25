@@ -31,6 +31,13 @@ controlPlane:
     startCursors: []
     allowedConsumers: []
     allTokenVoltConsumers: false
+    cutoverPaused: false
+    dirtyWorker:
+      enabled: false
+      workersPerPod: 1
+      minReplicas: 1
+      maxReplicas: 4
+      targetReadyPerPod: "50"
   billing:
     invoicesV2Enabled: false
     generationEnabled: false

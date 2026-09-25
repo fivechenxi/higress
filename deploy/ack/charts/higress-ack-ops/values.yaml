@@ -27,6 +27,9 @@ autoscaling:
 
 prometheusAdapter:
   enabled: true
+  externalMetrics:
+    # Claiming the cluster-wide external.metrics API is a separate cutover.
+    enabled: false
   # Beijing workers cannot reach registry.k8s.io directly. DaoCloud mirrors
   # that registry and this digest is byte-for-byte identical to the upstream
   # v0.12.0 manifest, so tag substitution cannot change what is executed.
