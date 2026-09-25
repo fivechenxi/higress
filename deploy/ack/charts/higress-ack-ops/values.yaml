@@ -14,8 +14,7 @@
 
 autoscaling:
   gateway:
-    # Keep four ready data-plane replicas during the full-suite provider run.
-    minReplicas: 4
+    minReplicas: 2
     maxReplicas: 4
     activeStreams:
       enabled: true

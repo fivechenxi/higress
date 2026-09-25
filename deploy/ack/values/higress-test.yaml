@@ -40,10 +40,7 @@ meshConfig:
 
 gateway:
   kind: Deployment
-  # Kept in sync with the externally managed HPA floor. The core chart omits
-  # spec.replicas while externallyManagedReplicas is true, but this value
-  # remains the documented fallback if that ownership mode is disabled.
-  replicas: 4
+  replicas: 2
   externallyManagedReplicas: true
   # Remove endpoints, drain HTTP requests and flush logs before SIGTERM.
   # pilot-agent then drains connections; Kubernetes enforces the 11 minute bound.
@@ -101,7 +98,7 @@ gateway:
     # Managed by the higress-ack-ops Helm chart so both workloads share one
     # explicit scaling policy and observability contract.
     enabled: false
-    minReplicas: 4
+    minReplicas: 2
     maxReplicas: 4
     targetCPUUtilizationPercentage: 65
   affinity:
