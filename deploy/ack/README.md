@@ -59,8 +59,10 @@ There are two lifecycle levels:
   when Pods cannot be scheduled on the baseline capacity; 10 is a ceiling, not
   a reserved or pre-created node count.
 - Worker disk: 40 GiB ESSD Entry.
-- Higress gateway: 2 replicas minimum, HPA up to 4 using 225 active HTTP
-  requests per Pod (normal and streaming requests). Gateway CPU is deliberately
+- Higress gateway: 4 steady replicas. The HPA remains the owner of the
+  Deployment replica field and is pinned at 4 for the full-suite provider run;
+  its 225 active HTTP requests per Pod signal remains available for a later
+  reviewed increase of the maximum. Gateway CPU is deliberately
   excluded: plugin initialization is not customer traffic. Controller CPU HPA
   is unchanged. The adapter is required; metric failures must alert rather than
   falling back to CPU. Helm does not write the external HPA's replica count.
