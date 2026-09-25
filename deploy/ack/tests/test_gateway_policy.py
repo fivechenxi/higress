@@ -142,6 +142,24 @@ class GatewayPolicyTest(unittest.TestCase):
         self.assertIn('/healthcheck/fail', command)
         self.assertIn('sleep 15', command)
 
+    def test_ack_preserves_long_requests_across_ads_reconnects(self):
+        objects = render('helm/core', '-f', str(ROOT / 'deploy/ack/values/higress-test.yaml'))
+        gateway_deployment = gateway(objects)
+        gateway_container = gateway_deployment['spec']['template']['spec']['containers'][0]
+        env = {item['name']: item.get('value') for item in gateway_container['env']}
+        self.assertEqual(json.loads(env['PROXY_CONFIG']), {
+            'drainDuration': '3600s',
+            'terminationDrainDuration': '600s',
+        })
+
+        controller = next(item for item in objects if item['kind'] == 'Deployment'
+                          and item['metadata']['name'] == 'higress-controller')
+        discovery = next(container for container in controller['spec']['template']['spec']['containers']
+                         if container['name'] == 'discovery')
+        args = discovery['args']
+        setting = args.index('--keepaliveMaxServerConnectionAge')
+        self.assertEqual(args[setting + 1], '0s')
+
     def test_node_reclamation_outlasts_gateway_grace(self):
         deployment = gateway(render('helm/core', '-f', str(ROOT / 'deploy/ack/values/higress-test.yaml')))
         grace = deployment['spec']['template']['spec']['terminationGracePeriodSeconds']
