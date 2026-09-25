@@ -113,6 +113,8 @@ class PublicEntryTest(unittest.TestCase):
         hpa = next(o for o in objects if o['kind'] == 'HorizontalPodAutoscaler'
                    and o['metadata']['name'] == 'tokenvolt-archive-dirty-worker')
         self.assertEqual(hpa['spec']['metrics'][0]['external']['metric']['name'], 'tokenvolt_dirty_partition_ready')
+        self.assertEqual(hpa['spec']['metrics'][1]['external']['metric']['name'], 'tokenvolt_dirty_partition_running')
+        self.assertEqual(hpa['spec']['metrics'][1]['external']['target']['averageValue'], '2')
         self.assertEqual(hpa['spec']['maxReplicas'], 3)
 
     def test_control_plane_has_bounded_writable_work_volume(self):

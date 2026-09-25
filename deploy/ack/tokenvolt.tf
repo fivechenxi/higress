@@ -550,6 +550,14 @@ resource "helm_release" "tokenvolt" {
           startCursors          = var.tokenvolt_billing.start_cursors
           allowedConsumers      = []
           allTokenVoltConsumers = var.tokenvolt_billing.enabled
+          cutoverPaused         = var.tokenvolt_archive_cutover_paused
+          dirtyWorker = {
+            enabled           = var.tokenvolt_archive_dirty_worker.enabled
+            workersPerPod     = var.tokenvolt_archive_dirty_worker.workers_per_pod
+            minReplicas       = var.tokenvolt_archive_dirty_worker.min_replicas
+            maxReplicas       = var.tokenvolt_archive_dirty_worker.max_replicas
+            targetReadyPerPod = tostring(var.tokenvolt_archive_dirty_worker.target_ready_per_pod)
+          }
         }
         billing = {
           invoicesV2Enabled    = var.tokenvolt_billing.enabled
@@ -660,6 +668,12 @@ resource "helm_release" "tokenvolt" {
   ]
 
   lifecycle {
+    precondition {
+      condition = !var.tokenvolt_archive_dirty_worker.enabled || (
+        var.tokenvolt_billing.enabled && var.tokenvolt_external_metrics_enabled
+      )
+      error_message = "Dedicated dirty workers require billing/archive and external metrics enabled."
+    }
     precondition {
       condition = (
         can(regex("@sha256:[0-9a-f]{64}$", var.tokenvolt_control_plane_image)) &&

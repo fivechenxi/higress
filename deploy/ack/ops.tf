@@ -126,6 +126,11 @@ resource "helm_release" "higress_ack_ops" {
     yamlencode({
       # Helm does not notice edits below an unchanged local chart path.
       chartContentHash = sha256(join("", [for file in sort(fileset("${path.module}/charts/higress-ack-ops", "**")) : filesha256("${path.module}/charts/higress-ack-ops/${file}")]))
+      prometheusAdapter = {
+        externalMetrics = {
+          enabled = var.tokenvolt_external_metrics_enabled
+        }
+      }
       monitoring = {
         remoteWriteUrl = local.prometheus_remote_write_url
         clusterId      = alicloud_cs_managed_kubernetes.this.id

@@ -35,6 +35,15 @@ spec:
         target:
           type: AverageValue
           averageValue: {{ .Values.controlPlane.archive.dirtyWorker.targetReadyPerPod | quote }}
+    # Keep enough pods for claimed long-running merges after the ready queue
+    # drains. HPA chooses the larger replica recommendation of the two metrics.
+    - type: External
+      external:
+        metric:
+          name: tokenvolt_dirty_partition_running
+        target:
+          type: AverageValue
+          averageValue: {{ .Values.controlPlane.archive.dirtyWorker.workersPerPod | quote }}
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 0
