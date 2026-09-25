@@ -547,11 +547,7 @@ func isPathEnabled(requestPath string, enabledSuffixes []string) bool {
 		return true // If no path suffixes configured, enable for all
 	}
 
-	// Remove query parameters from path
-	pathWithoutQuery := requestPath
-	if queryPos := strings.Index(requestPath, "?"); queryPos != -1 {
-		pathWithoutQuery = requestPath[:queryPos]
-	}
+	pathWithoutQuery := normalizedRequestPath(requestPath)
 
 	// Check if path ends with any enabled suffix
 	for _, suffix := range enabledSuffixes {
@@ -560,6 +556,13 @@ func isPathEnabled(requestPath string, enabledSuffixes []string) bool {
 		}
 	}
 	return false
+}
+
+func normalizedRequestPath(path string) string {
+	if queryPos := strings.IndexByte(path, '?'); queryPos != -1 {
+		return path[:queryPos]
+	}
+	return path
 }
 
 // isContentTypeEnabled checks if the content type matches any of the enabled content types
@@ -1102,7 +1105,7 @@ func processTokenUsageEvent(ctx wrapper.HttpContext, event []byte) {
 }
 
 func captureRawChatCache(ctx wrapper.HttpContext, event []byte) {
-	if !strings.HasSuffix(ctx.GetStringContext(RequestPath, ""), PathOpenAIChatCompletions) {
+	if !strings.HasSuffix(normalizedRequestPath(ctx.GetStringContext(RequestPath, "")), PathOpenAIChatCompletions) {
 		return
 	}
 	payload := bytes.TrimSpace(event)
@@ -1115,6 +1118,12 @@ func captureRawChatCache(ctx wrapper.HttpContext, event []byte) {
 	if !gjson.GetBytes(payload, "usage").IsObject() {
 		return
 	}
+	flatPresent := gjson.GetBytes(payload, "usage.cached_tokens").Exists()
+	nestedPresent := gjson.GetBytes(payload, "usage.prompt_tokens_details.cached_tokens").Exists()
+	if !flatPresent && !nestedPresent {
+		return
+	}
+	clearRawChatCacheLogState()
 	for _, name := range []string{"cached_tokens_flat", "cached_tokens_nested"} {
 		delete(ctx.GetUserAttributeMap(), name)
 		delete(ctx.GetUserAttributeMap(), name+"_raw")
@@ -1127,12 +1136,11 @@ func captureRawChatCache(ctx wrapper.HttpContext, event []byte) {
 		if !value.Exists() {
 			continue
 		}
-		// Preserve the exact JSON value, including null, strings and negative
-		// numbers. Bound malformed scalar evidence so a provider cannot place
-		// arbitrary response content in the access log. The marker fails closed
-		// when the control plane decodes it.
-		if len(value.Raw) > 64 || value.IsObject() || value.IsArray() {
-			ctx.SetUserAttribute(field.name+"_raw", "invalid_oversized_or_structured")
+		// Only numeric/null/bool JSON scalars are safe to retain verbatim.
+		// Strings and structures may contain credentials or customer content;
+		// fixed markers still make reconciliation fail closed.
+		if len(value.Raw) > 64 || value.Type == gjson.String || value.IsObject() || value.IsArray() {
+			ctx.SetUserAttribute(field.name+"_raw", "invalid_type_or_oversized")
 			continue
 		}
 		ctx.SetUserAttribute(field.name+"_raw", value.Raw)
@@ -1150,6 +1158,29 @@ func captureRawChatCache(ctx wrapper.HttpContext, event []byte) {
 	nested, nestedOK := ctx.GetUserAttribute("cached_tokens_nested").(int64)
 	if flatOK && nestedOK && flat != nested {
 		log.Warn("upstream usage.cached_tokens conflicts with usage.prompt_tokens_details.cached_tokens")
+	}
+}
+
+// WriteUserAttributeToLogWithKey merges with the previous filter-state JSON.
+// Removing a key from userAttribute alone would leave the previous SSE event's
+// cache field in ai_log, potentially fabricating a cross-event conflict.
+func clearRawChatCacheLogState() {
+	raw, err := proxywasm.GetProperty([]string{wrapper.AILogKey})
+	if err != nil || len(raw) == 0 {
+		return
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal([]byte(wrapper.UnmarshalStr(`"`+string(raw)+`"`)), &fields) != nil {
+		log.Warn("unable to parse ai_log before replacing cache evidence")
+		return
+	}
+	for _, name := range []string{"cached_tokens_flat", "cached_tokens_nested"} {
+		delete(fields, name)
+		delete(fields, name+"_raw")
+	}
+	updated, err := json.Marshal(fields)
+	if err != nil || proxywasm.SetProperty([]string{wrapper.AILogKey}, []byte(wrapper.MarshalStr(string(updated)))) != nil {
+		log.Warn("unable to replace prior cache evidence in ai_log")
 	}
 }
 
