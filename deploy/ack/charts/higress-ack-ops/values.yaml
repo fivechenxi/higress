@@ -14,7 +14,8 @@
 
 autoscaling:
   gateway:
-    minReplicas: 2
+    # Temporarily prevent scale-down during the customer acceptance window.
+    minReplicas: 4
     maxReplicas: 4
     activeStreams:
       enabled: true
