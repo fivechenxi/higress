@@ -40,12 +40,12 @@
     },
     {
       "datasource": {"type": "aliyun-log-service-datasource", "uid": "tokenvolt-sls"},
-      "description": "每一次返回 5xx 的上游尝试，按时间倒序。请求后续可能已切换其他厂商并成功；用 request_id 在“请求尝试明细”查看最终结果。不受“模型”变量过滤：失败的尝试往往没有 ai_log.model。",
+      "description": "每一次返回 4xx/5xx 或流式错误的上游尝试，按时间倒序。错误分类是固定低基数枚举；厂商 type/code/message 和脱敏限长正文用于定位具体兼容性问题。请求后续可能已切换其他厂商并成功。",
       "fieldConfig": {"defaults": {}, "overrides": []},
       "gridPos": {"h": 9, "w": 12, "x": 0, "y": 21}, "id": 4,
       "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
-      "targets": [{"refId": "A", "type": "logstore", "logStore": "model-access", "queryType": "range", "xcol": "table", "ycol": "time,request_id,upstream_request_id,tenant,model,provider,response_code,response_flags,response_error", "powerSql": true, "query": "provider: ${provider} AND consumer: ${tenant} AND request_id: ${request_id} | SELECT date_format(from_unixtime(__time__), '%Y-%m-%d %H:%i:%s') AS time, request_id, \"ai_log.upstream_request_id\" AS upstream_request_id, consumer AS tenant, \"ai_log.model\" AS model, \"provider\" AS provider, response_code, response_flags, \"ai_log.response_error\" AS response_error WHERE coalesce(\"ai_log.model\", '') <> 'dashboard-mock' AND regexp_like(upstream_cluster, 'tokenvolt-[^.]+[.]dns') AND response_code >= 500 ORDER BY __time__ DESC LIMIT 100"}],
-      "title": "上游 5xx 尝试明细", "type": "table"
+      "targets": [{"refId": "A", "type": "logstore", "logStore": "model-access", "queryType": "range", "xcol": "table", "ycol": "time,request_id,upstream_request_id,tenant,model,provider,response_code,response_flags,error_class,error_type,error_code,error_message,error_body,body_truncated", "powerSql": true, "query": "provider: ${provider} AND consumer: ${tenant} AND request_id: ${request_id} | SELECT date_format(from_unixtime(__time__), '%Y-%m-%d %H:%i:%s') AS time, request_id, \"ai_log.upstream_request_id\" AS upstream_request_id, consumer AS tenant, \"ai_log.model\" AS model, \"provider\" AS provider, response_code, response_flags, \"ai_log.upstream_error_class\" AS error_class, \"ai_log.upstream_error_type\" AS error_type, \"ai_log.upstream_error_code\" AS error_code, \"ai_log.upstream_error_message\" AS error_message, \"ai_log.upstream_error_body\" AS error_body, \"ai_log.upstream_error_body_truncated\" AS body_truncated WHERE coalesce(\"ai_log.model\", '') <> 'dashboard-mock' AND regexp_like(upstream_cluster, 'tokenvolt-[^.]+[.]dns') AND (response_code >= 400 OR \"ai_log.upstream_error_class\" IS NOT NULL) ORDER BY __time__ DESC LIMIT 100"}],
+      "title": "上游 4xx/5xx 错误明细", "type": "table"
     },
     {
       "datasource": {"type": "aliyun-log-service-datasource", "uid": "tokenvolt-sls"},
@@ -93,5 +93,5 @@
     {"current": {"text": "*", "value": "*"}, "label": "厂商请求 ID", "name": "upstream_request_id", "options": [{"selected": true, "text": "*", "value": "*"}], "query": "*", "type": "textbox"}
   ]},
   "time": {"from": "now-6h", "to": "now"}, "timepicker": {}, "timezone": "browser",
-  "title": "TokenVolt / 请求明细", "uid": "tokenvolt-request-details", "version": 3
+  "title": "TokenVolt / 请求明细", "uid": "tokenvolt-request-details", "version": 4
 }

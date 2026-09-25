@@ -158,6 +158,11 @@ Wasm 产物，应作为独立的数据面改动，通过 Mock 和真实流式请
 模型 × 厂商 429 使用本 fork 新增的 `llm_rate_limited_count`；所有 429 统一作为
 厂商响应事实展示和告警，不再依赖未配置的厂商合同 RPM/TPM 做预期性分类。
 
+HTTP 4xx/5xx 与流式错误事件由 `ai-statistics` 写入 SLS：固定低基数分类放在
+`ai_log.upstream_error_class`，厂商 type/code/message 与脱敏、4 KiB 限长的原始
+正文仅用于请求明细。Prometheus 只采固定分类 Counter，并聚合为
+`tokenvolt:ai_errors_total{error_type=...}`，禁止把厂商错误码或消息作为 label。
+
 每条 HTTP 429 请求同时在 SLS `ai_log` 中写入
 `provider_rate_limit_event=true` 和
 `rate_limit_evaluation=provider_model_capacity_window`。429 告警发生后，可按告警的
