@@ -177,7 +177,7 @@ class GatewayPolicyTest(unittest.TestCase):
         objects = render('deploy/ack/charts/higress-ack-ops', '--set', 'monitoring.enabled=false')
         hpas = {o['metadata']['name']: o['spec'] for o in objects if o['kind'] == 'HorizontalPodAutoscaler'}
         gw = hpas['higress-gateway']
-        self.assertEqual((gw['minReplicas'], gw['maxReplicas']), (2, 4))
+        self.assertEqual((gw['minReplicas'], gw['maxReplicas']), (4, 4))
         self.assertEqual(gw['metrics'], [{'type': 'Pods', 'pods': {
             'metric': {'name': 'higress_active_streams'},
             'target': {'type': 'AverageValue', 'averageValue': '225'}}}])
