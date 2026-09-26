@@ -88,6 +88,23 @@ controlPlane:
     requests: {cpu: 100m, memory: 128Mi}
     limits: {cpu: "1", memory: 512Mi}
 
+# Lightweight public company site. It intentionally remains a single replica:
+# SQLite is stored on one RWO cloud disk and Deployment/CSI provide process and
+# same-zone node recovery without pretending to provide multi-AZ HA.
+site:
+  enabled: false
+  image: ""
+  imagePullPolicy: IfNotPresent
+  publicService:
+    enabled: false
+    annotations: {}
+  storage:
+    className: tokenvolt-retain-disk
+    size: 20Gi
+  resources:
+    requests: {cpu: 20m, memory: 32Mi}
+    limits: {cpu: 300m, memory: 128Mi}
+
 higress:
   # Higress only watches WasmPlugin resources in its controller namespace.
   # Route scoping is expressed as namespace/name in matchRules.

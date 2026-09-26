@@ -18,7 +18,9 @@ limitations under the License.
 
 2026-09-13：启用分离入口；`ack.tokenvolt.net` 直达控制面，`api.tokenvolt.net` 进入自部署 Higress。两个域名仍共享公网 CLB，使用各自的后端组。
 
-2026-09-21：`www.tokenvolt.net` 从原包年 ECS 的门户切到 ACK 控制面的 `tokenvolt-ack-control-plane` 组，与 `ack.tokenvolt.net` 同一个后端；原 ECS 组、SNI 证书与 DNS A 记录保留，回滚只需把 `ecs_public_sites_on_ack` 改回空列表并 apply 一次。
+2026-09-21：`www.tokenvolt.net` 从原包年 ECS 的门户切到 ACK 控制面的 `tokenvolt-ack-control-plane` 组，与 `ack.tokenvolt.net` 同一个后端。
+
+2026-09-26：公司站点使用单副本 ACK Deployment 和保留型云盘 PVC；启用 `tokenvolt_site_public_enabled` 后，`www.tokenvolt.net` 根规则改指向独立的 `tokenvolt-ack-site` 组，`ack.tokenvolt.net` 继续提供登录和控制面。DNS、CLB 和证书不变。
 
 ## 配置归属
 
@@ -26,7 +28,7 @@ limitations under the License.
 
 | 域名 | 后端 | 成员管理者 |
 | --- | --- | --- |
-| www.tokenvolt.net | TokenVolt 控制面 HTTP Service:8000（`ecs_public_sites_on_ack`，原 ECS 组保留） | ACK CCM |
+| www.tokenvolt.net | 公司站点 Service:4192（启用站点切换前仍为控制面） | ACK CCM |
 | newapi.tokenvolt.net | 原包年 ECS:3000 | Terraform |
 | ack.tokenvolt.net | TokenVolt 控制面 HTTP Service:8000 | ACK CCM |
 | api.tokenvolt.net | Higress HTTP Service:80 | ACK CCM |
@@ -35,13 +37,13 @@ limitations under the License.
 
 ### 同一控制面服务多个门户域名
 
-`www.tokenvolt.net` 与 `ack.tokenvolt.net` 指向同一个控制面组，浏览器地址栏是哪个域名，请求带的 `Origin` 就是哪个。控制面的同源校验（`requireOrigin`）覆盖凭据、账单、客户生命周期、定价等写接口，按 `ALLOWED_ORIGIN` 精确匹配：
+公司站点切换前，`www.tokenvolt.net` 与 `ack.tokenvolt.net` 指向同一个控制面组，浏览器地址栏是哪个域名，请求带的 `Origin` 就是哪个。控制面的同源校验（`requireOrigin`）覆盖凭据、账单、客户生命周期、定价等写接口，按 `ALLOWED_ORIGIN` 精确匹配：
 
 - 只列 `ack` 时，www 上「能登录、能读，所有写接口 403」。
 - 只列 `www` 时，反过来让 ack 全站写操作 403。
 - 因此 `ALLOWED_ORIGIN` 支持逗号分隔多值，由 `tokenvolt_extra_allowed_origins` 追加，例如 `https://ack.tokenvolt.net,https://www.tokenvolt.net`。
 
-上线顺序固定：先发布能解析列表的控制面镜像 → 再设置 `tokenvolt_extra_allowed_origins` 并 apply（控制面滚动重启，`ack` 不受影响）→ 最后把 `ecs_public_sites_on_ack` 设为 `["www"]` 并 apply。顺序颠倒会让先访问的域名出现写接口 403，或让两个域名同时 403。回滚：清空 `ecs_public_sites_on_ack`（www 立即回到原 ECS 门户），需要时再清空 `tokenvolt_extra_allowed_origins`。
+公司站点上线顺序：先启用 `tokenvolt_site_enabled`，确认 Pod、PVC、`/api/health` 和 CLB 后端健康；再启用 `tokenvolt_site_public_enabled`。回滚只关闭后一个开关，`www` 即恢复到 `ecs_public_sites_on_ack` 选择的控制面或原 ECS 后端。旧 `/demo` 是一次性人工规则，切换确认后通过 SLB API 删除，不纳入新的回滚路径。
 
 官方复用机制：[跨集群复用负载均衡与服务器组](https://help.aliyun.com/zh/ack/ack-managed-and-ack-dedicated/user-guide/use-the-ccm-to-deploy-services-across-clusters)。这里没有将原 ECS 和 ACK 混入同一后端组。
 

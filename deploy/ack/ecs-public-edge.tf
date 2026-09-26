@@ -89,23 +89,23 @@ resource "alicloud_slb_rule" "ecs" {
   # Sites listed in ecs_public_sites_on_ack keep their ECS server group (rollback
   # path) but serve the ACK control-plane group, so one portal host can be moved
   # between the legacy ECS and the cluster without recreating the rule.
-  server_group_id = contains(var.ecs_public_sites_on_ack, each.key) ? alicloud_slb_server_group.portal_http[0].id : alicloud_slb_server_group.ecs[each.key].id
+  server_group_id = var.tokenvolt_site_public_enabled && each.key == "www" ? alicloud_slb_server_group.site_http[0].id : contains(var.ecs_public_sites_on_ack, each.key) ? alicloud_slb_server_group.portal_http[0].id : alicloud_slb_server_group.ecs[each.key].id
   # The default site uses the listener directly; these are non-default sites.
   listener_sync       = "off"
   sticky_session      = "off"
   scheduler           = "wrr"
   health_check        = "on"
-  health_check_uri    = contains(var.ecs_public_sites_on_ack, each.key) ? "/readyz" : each.value.health_path
+  health_check_uri    = var.tokenvolt_site_public_enabled && each.key == "www" ? "/api/health" : contains(var.ecs_public_sites_on_ack, each.key) ? "/readyz" : each.value.health_path
   health_check_domain = each.value.domain
   # The provider rejects an explicit 0 ("backend port") here, and an ACK-backed
   # site must probe the control plane's own port, guarded below.
-  health_check_connect_port = each.value.port
+  health_check_connect_port = var.tokenvolt_site_public_enabled && each.key == "www" ? 4192 : each.value.port
   health_check_http_code    = "http_2xx"
   health_check_interval     = 3
   health_check_timeout      = 5
   healthy_threshold         = 2
   unhealthy_threshold       = 3
-  depends_on                = [alicloud_slb_listener.public_https]
+  depends_on                = [alicloud_slb_listener.public_https, helm_release.tokenvolt]
   lifecycle {
     prevent_destroy = true
     precondition {
@@ -115,6 +115,14 @@ resource "alicloud_slb_rule" "ecs" {
     precondition {
       condition     = alltrue([for name in var.ecs_public_sites_on_ack : var.ecs_public_sites[name].port == 8000])
       error_message = "An ACK-backed portal site must use port 8000, the control plane's listening port behind the dedicated server group; any other port would fail the health check."
+    }
+    precondition {
+      condition     = !var.tokenvolt_site_public_enabled || (var.tokenvolt_site_enabled && contains(keys(var.ecs_public_sites), "www"))
+      error_message = "Routing www to the ACK company site requires tokenvolt_site_enabled and an existing www edge declaration."
+    }
+    precondition {
+      condition     = !var.tokenvolt_site_public_enabled || var.lifecycle_mode == "running"
+      error_message = "The public company site can be selected only while ACK workloads are running."
     }
   }
 }
@@ -194,6 +202,16 @@ resource "alicloud_slb_server_group" "portal_http" {
   count            = local.shared_public_edge && var.tokenvolt_split_public_entry ? 1 : 0
   load_balancer_id = alicloud_slb_load_balancer.higress_public.id
   name             = "tokenvolt-ack-control-plane"
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [servers]
+  }
+}
+
+resource "alicloud_slb_server_group" "site_http" {
+  count            = local.shared_public_edge && var.tokenvolt_site_enabled ? 1 : 0
+  load_balancer_id = alicloud_slb_load_balancer.higress_public.id
+  name             = "tokenvolt-ack-site"
   lifecycle {
     prevent_destroy = true
     ignore_changes  = [servers]
