@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -831,10 +830,13 @@ func onHttpResponseHeaders(ctx wrapper.HttpContext, config AIStatisticsConfig) t
 	contentType, _ := proxywasm.GetHttpResponseHeader("content-type")
 	statusCode, statusErr := proxywasm.GetHttpResponseHeader(":status")
 	isProviderRateLimited := statusErr == nil && statusCode == "429"
+	isUpstreamError := statusErr == nil && isHTTPErrorStatus(statusCode)
 
-	// Preserve 429 observability even when a provider returns an empty or unusual
-	// content type for its error response.
-	if !isProviderRateLimited && !isContentTypeEnabled(contentType, config.enableContentTypes) {
+	// Preserve every upstream error response even when the provider returns an
+	// empty or unusual content type. Skipping these bodies made 400 responses
+	// impossible to diagnose and undercounted providers that do not use the
+	// OpenAI error envelope.
+	if !isUpstreamError && !isContentTypeEnabled(contentType, config.enableContentTypes) {
 		log.Debugf("ai-statistics: skipping response for content type %s (not in enabled content types)", contentType)
 		// Set skip processing flag and avoid reading response body
 		ctx.SetContext(SkipProcessing, true)
@@ -844,6 +846,10 @@ func onHttpResponseHeaders(ctx wrapper.HttpContext, config AIStatisticsConfig) t
 
 	if !strings.Contains(contentType, "text/event-stream") {
 		ctx.BufferResponseBody()
+	}
+	if isUpstreamError {
+		captureUpstreamError(ctx, statusCode, nil)
+		ctx.SetUserAttribute("response_error", true)
 	}
 
 	// A request-local filter cannot truthfully decide whether a provider 429 is
@@ -857,12 +863,20 @@ func onHttpResponseHeaders(ctx wrapper.HttpContext, config AIStatisticsConfig) t
 	}
 
 	// Retain a provider request ID even when its response body never arrives.
-	if !config.disableOpenaiUsage {
-		for _, header := range []string{"x-bce-request-id", "x-request-id", "request-id"} {
-			if id, _ := proxywasm.GetHttpResponseHeader(header); id != "" {
-				ctx.SetUserAttribute("upstream_request_id", id)
-				break
-			}
+	// Diagnostics must remain available when usage parsing is disabled.
+	for _, header := range []string{
+		"x-bce-request-id",
+		"x-request-id",
+		"request-id",
+		"x-requestid",
+		"x-tt-logid",
+		"x-amzn-requestid",
+		"x-dashscope-request-id",
+		"x-ms-request-id",
+	} {
+		if id, _ := proxywasm.GetHttpResponseHeader(header); id != "" {
+			ctx.SetUserAttribute("upstream_request_id", id)
+			break
 		}
 	}
 	// Set user defined log & span attributes.
@@ -944,6 +958,8 @@ func onHttpStreamingBody(ctx wrapper.HttpContext, config AIStatisticsConfig, dat
 		if !ctx.GetBoolContext("hasStreamError", false) && isErrorResponse(event) {
 			ctx.SetContext("hasStreamError", true)
 			ctx.SetUserAttribute("response_error", true)
+			statusCode, _ := proxywasm.GetHttpResponseHeader(":status")
+			captureUpstreamError(ctx, statusCode, event)
 		}
 	}
 
@@ -1119,11 +1135,17 @@ func onHttpResponseBody(ctx wrapper.HttpContext, config AIStatisticsConfig, body
 		ctx.SetUserAttribute(ChatID, chatID.String())
 	}
 
+	statusCode, _ := proxywasm.GetHttpResponseHeader(":status")
+	isError := isHTTPErrorStatus(statusCode) || isErrorResponse(body)
+	if isError {
+		captureUpstreamError(ctx, statusCode, body)
+	}
+
 	if !config.disableOpenaiUsage {
 		processTokenUsageEvent(ctx, body)
 		captureResponseMetadata(ctx, body)
-		ctx.SetUserAttribute(responseCompleted, !isErrorResponse(body))
-		ctx.SetUserAttribute("response_error", isErrorResponse(body))
+		ctx.SetUserAttribute(responseCompleted, !isError)
+		ctx.SetUserAttribute("response_error", isError)
 	}
 
 	// Set user defined log & span attributes.
@@ -1576,13 +1598,11 @@ func isErrorResponse(body []byte) bool {
 		}
 		return hasErrorField(body)
 	}
-	// Fallback: check HTTP status code for errors with empty body (connection reset, timeout, etc.)
-	if len(body) == 0 {
-		if statusCode, err := proxywasm.GetHttpResponseHeader(":status"); err == nil {
-			if code, err := strconv.Atoi(statusCode); err == nil && code >= 400 {
-				return true
-			}
-		}
+	// Preserve the historical empty-body fallback used for resets/timeouts.
+	// Non-empty non-OpenAI envelopes are classified from the status captured in
+	// onHttpResponseHeaders instead of forcing pure body tests through host ABI.
+	if statusCode, err := proxywasm.GetHttpResponseHeader(":status"); err == nil {
+		return isHTTPErrorStatus(statusCode)
 	}
 	return false
 }
@@ -1715,7 +1735,8 @@ func writeMetric(ctx wrapper.HttpContext, config AIStatisticsConfig, body []byte
 	// llm_failure_count is intentionally incremented regardless of disableOpenaiUsage,
 	// because error responses carry no usage info and operators still need the failure
 	// signal even when usage tracking is off.
-	if isErrorResponse(body) || ctx.GetBoolContext("hasStreamError", false) || ctx.GetBoolContext(interruptedContext, false) {
+	_, hasErrorClass := ctx.GetUserAttribute(UpstreamErrorClass).(string)
+	if isErrorResponse(body) || hasErrorClass || ctx.GetBoolContext("hasStreamError", false) || ctx.GetBoolContext(interruptedContext, false) {
 		config.incrementCounter(failureMetric, 1)
 	}
 	// Keep HTTP 429 separate from the generic customer-visible failure counter.
@@ -1723,6 +1744,11 @@ func writeMetric(ctx wrapper.HttpContext, config AIStatisticsConfig, body []byte
 	// model/provider traffic remains below the contracted RPM/TPM capacity.
 	if statusCode, err := proxywasm.GetHttpResponseHeader(":status"); err == nil && statusCode == "429" {
 		config.incrementCounter(rateLimitedMetric, 1)
+	}
+	if errorClass, ok := ctx.GetUserAttribute(UpstreamErrorClass).(string); ok {
+		if errorMetric, bounded := upstreamErrorMetricName(errorClass); bounded {
+			config.incrementCounter(generateMetricName(route, cluster, model, consumer, errorMetric), 1)
+		}
 	}
 
 	if ctx.GetBoolContext(interruptedContext, false) {
