@@ -1,0 +1,126 @@
+{{/*
+Copyright 2026 alibaba
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/}}
+
+{{- if .Values.site.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tokenvolt-site-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+    app.kubernetes.io/name: tokenvolt-site
+  annotations:
+    # A Helm rollback/uninstall must not remove submitted customer leads.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ required "site.storage.className is required" .Values.site.storage.className | quote }}
+  resources:
+    requests:
+      storage: {{ required "site.storage.size is required" .Values.site.storage.size | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tokenvolt-site
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+    app.kubernetes.io/name: tokenvolt-site
+spec:
+  replicas: 1
+  strategy:
+    # SQLite has one RWO writer. A brief deploy gap is safer than overlapping
+    # old and new processes against the same file.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tokenvolt-site
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "tokenvolt.labels" . | nindent 8 }}
+        app.kubernetes.io/name: tokenvolt-site
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: site
+          image: {{ required "site.image must be an immutable image" .Values.site.image | quote }}
+          imagePullPolicy: {{ .Values.site.imagePullPolicy }}
+          ports:
+            - {name: http, containerPort: 4192}
+          env:
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+          readinessProbe:
+            httpGet: {path: /api/health, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: {path: /api/health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.site.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/tokenvolt}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: tokenvolt-site-data}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tokenvolt-site
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tokenvolt.labels" . | nindent 4 }}
+    app.kubernetes.io/name: tokenvolt-site
+  {{- if .Values.site.publicService.enabled }}
+  annotations:
+    {{- toYaml .Values.site.publicService.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.site.publicService.enabled }}
+  type: LoadBalancer
+  {{- end }}
+  selector:
+    app.kubernetes.io/name: tokenvolt-site
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - {name: http, port: 4192, targetPort: http}
+{{- end }}

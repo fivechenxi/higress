@@ -227,6 +227,40 @@ variable "tokenvolt_control_plane_image" {
   default     = "ghcr.io/tokenvolt-ai/tokenvolt-control-plane@sha256:2a855b96e4a3e00ed1a0d05ff6bfbf8bbc4d8c757f701aae301829ddcf8763bf"
 }
 
+variable "tokenvolt_site_enabled" {
+  description = "Deploy the single-replica TokenVolt public company site with persistent SQLite storage."
+  type        = bool
+  default     = false
+}
+
+variable "tokenvolt_site_public_enabled" {
+  description = "Route www.tokenvolt.net from the shared CLB to the ACK company-site Service. Enable only after the site Pod and CLB backend are healthy."
+  type        = bool
+  default     = false
+}
+
+variable "tokenvolt_site_image" {
+  description = "Immutable TokenVolt company-site image."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.tokenvolt_site_image == "" || can(regex("@sha256:[0-9a-f]{64}$", var.tokenvolt_site_image))
+    error_message = "tokenvolt_site_image must be empty or pinned by sha256 digest."
+  }
+}
+
+variable "tokenvolt_site_storage_size" {
+  description = "Persistent cloud-disk capacity for the site SQLite database."
+  type        = string
+  default     = "20Gi"
+
+  validation {
+    condition     = can(regex("^[1-9][0-9]*Gi$", var.tokenvolt_site_storage_size))
+    error_message = "tokenvolt_site_storage_size must be a positive Gi quantity."
+  }
+}
+
 variable "tokenvolt_mock_image" {
   description = "Immutable TokenVolt OpenAI/Anthropic fixture image used only for staged end-to-end validation."
   type        = string

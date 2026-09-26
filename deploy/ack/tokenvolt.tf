@@ -519,6 +519,24 @@ resource "kubernetes_secret_v1" "tokenvolt_registry_higress" {
 
 }
 
+# The default ACK disk classes delete the cloud disk with the PVC. Customer
+# lead data instead uses the same topology-aware CSI provisioner with Retain,
+# while Helm also keeps the PVC during release rollback/uninstall.
+resource "kubernetes_storage_class_v1" "tokenvolt_site" {
+  count = var.tokenvolt_enabled && var.tokenvolt_site_enabled ? 1 : 0
+
+  metadata {
+    name = "tokenvolt-retain-disk"
+  }
+  storage_provisioner    = "diskplugin.csi.alibabacloud.com"
+  reclaim_policy         = "Retain"
+  volume_binding_mode    = "WaitForFirstConsumer"
+  allow_volume_expansion = true
+  parameters = {
+    type = "cloud_essd,cloud_ssd,cloud_efficiency"
+  }
+}
+
 resource "helm_release" "tokenvolt" {
   count = var.tokenvolt_enabled && var.lifecycle_mode == "running" ? 1 : 0
 
@@ -591,6 +609,23 @@ resource "helm_release" "tokenvolt" {
           ossBucket   = alicloud_oss_bucket.tokenvolt_billing[0].bucket
         }
       }
+      site = {
+        enabled = var.tokenvolt_site_enabled
+        image   = var.tokenvolt_site_image
+        publicService = {
+          enabled = var.tokenvolt_site_enabled && var.tokenvolt_split_public_entry
+          annotations = var.tokenvolt_site_enabled && var.tokenvolt_split_public_entry ? {
+            "service.beta.kubernetes.io/alibaba-cloud-loadbalancer-id"                       = alicloud_slb_load_balancer.higress_public.id
+            "service.beta.kubernetes.io/alibaba-cloud-loadbalancer-force-override-listeners" = "false"
+            "service.beta.kubernetes.io/alibaba-cloud-loadbalancer-vgroup-port"              = "${try(alicloud_slb_server_group.site_http[0].id, "")}:4192"
+            "service.beta.kubernetes.io/backend-type"                                        = "eni"
+          } : {}
+        }
+        storage = {
+          className = try(kubernetes_storage_class_v1.tokenvolt_site[0].metadata[0].name, "")
+          size      = var.tokenvolt_site_storage_size
+        }
+      }
       higress = {
         namespace                 = "higress-system"
         neutokenSingleUseClusters = var.tokenvolt_neutoken_single_use_clusters
@@ -660,6 +695,14 @@ resource "helm_release" "tokenvolt" {
   ]
 
   lifecycle {
+    precondition {
+      condition     = !var.tokenvolt_site_enabled || can(regex("@sha256:[0-9a-f]{64}$", var.tokenvolt_site_image))
+      error_message = "Enabled TokenVolt site requires an immutable image digest."
+    }
+    precondition {
+      condition     = !var.tokenvolt_site_public_enabled || (var.tokenvolt_site_enabled && var.tokenvolt_split_public_entry && contains(keys(var.ecs_public_sites), "www"))
+      error_message = "Public TokenVolt site requires the site workload, split public entry and the existing www edge declaration."
+    }
     precondition {
       condition = (
         can(regex("@sha256:[0-9a-f]{64}$", var.tokenvolt_control_plane_image)) &&
