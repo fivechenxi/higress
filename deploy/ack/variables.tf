@@ -472,7 +472,7 @@ variable "tokenvolt_rate_limit_redis_enabled" {
 }
 
 variable "tokenvolt_managed_redis_enabled" {
-  description = "Create a private pay-as-you-go Alibaba Cloud Redis instance for Higress rate-limit and quota counters."
+  description = "Create a private Alibaba Cloud Redis instance for Higress rate-limit and quota counters."
   type        = bool
   default     = true
 }
@@ -740,5 +740,49 @@ variable "higress_alb_idle_timeout" {
   validation {
     condition     = var.higress_alb_idle_timeout >= 1 && var.higress_alb_idle_timeout <= 3600
     error_message = "higress_alb_idle_timeout must be between 1 and 3600 seconds."
+  }
+}
+
+variable "tokenvolt_rds_billing" {
+  description = "Declared RDS billing and renewal policy. Match existing instances before planning; changing charge type can convert billing. Subscription purchase period is not managed here."
+  type = object({
+    instance_charge_type = optional(string, "Postpaid")
+    auto_renew           = optional(bool)
+    auto_renew_period    = optional(number)
+  })
+  default = {}
+
+  validation {
+    condition     = contains(["Postpaid", "Prepaid"], var.tokenvolt_rds_billing.instance_charge_type)
+    error_message = "RDS instance_charge_type must be Postpaid or Prepaid."
+  }
+  validation {
+    condition = var.tokenvolt_rds_billing.auto_renew != true || (
+      var.tokenvolt_rds_billing.instance_charge_type == "Prepaid" &&
+      contains(range(1, 13), coalesce(var.tokenvolt_rds_billing.auto_renew_period, 0))
+    )
+    error_message = "RDS automatic renewal requires Prepaid and an integer renewal period of 1 to 12 months."
+  }
+}
+
+variable "tokenvolt_redis_billing" {
+  description = "Declared Redis billing and renewal policy. Match existing instances before planning; changing payment_type can convert billing. Subscription purchase period is not managed here."
+  type = object({
+    payment_type      = optional(string, "PostPaid")
+    auto_renew        = optional(bool)
+    auto_renew_period = optional(number)
+  })
+  default = {}
+
+  validation {
+    condition     = contains(["PostPaid", "PrePaid"], var.tokenvolt_redis_billing.payment_type)
+    error_message = "Redis payment_type must be PostPaid or PrePaid."
+  }
+  validation {
+    condition = var.tokenvolt_redis_billing.auto_renew != true || (
+      var.tokenvolt_redis_billing.payment_type == "PrePaid" &&
+      contains(range(1, 13), coalesce(var.tokenvolt_redis_billing.auto_renew_period, 0))
+    )
+    error_message = "Redis automatic renewal requires PrePaid and an integer renewal period of 1 to 12 months."
   }
 }

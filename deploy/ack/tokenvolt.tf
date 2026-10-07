@@ -72,14 +72,16 @@ resource "alicloud_kvstore_instance" "tokenvolt_rate_limit" {
   instance_class   = var.tokenvolt_managed_redis_class
   # redis.master.small.default is the smallest postpaid master-replica class
   # available in the selected zone. It is a local-disk class and supports 5.0.
-  engine_version = "5.0"
-  payment_type   = "PostPaid"
-  zone_id        = var.availability_zone
-  vswitch_id     = var.vswitch_id
-  password       = random_password.tokenvolt_rate_limit_redis[0].result
-  security_ips   = [data.alicloud_vpcs.selected.vpcs[0].cidr_block]
-  ssl_enable     = "Disable"
-  tags           = merge(var.tags, { Component = "tokenvolt-rate-limit" })
+  engine_version    = "5.0"
+  payment_type      = var.tokenvolt_redis_billing.payment_type
+  auto_renew        = var.tokenvolt_redis_billing.auto_renew
+  auto_renew_period = var.tokenvolt_redis_billing.auto_renew_period
+  zone_id           = var.availability_zone
+  vswitch_id        = var.vswitch_id
+  password          = random_password.tokenvolt_rate_limit_redis[0].result
+  security_ips      = [data.alicloud_vpcs.selected.vpcs[0].cidr_block]
+  ssl_enable        = "Disable"
+  tags              = merge(var.tags, { Component = "tokenvolt-rate-limit" })
 }
 
 check "tokenvolt_redis_mode" {
@@ -324,7 +326,9 @@ resource "alicloud_db_instance" "tokenvolt" {
   engine_version           = "16.0"
   category                 = "HighAvailability"
   instance_type            = "pg.n2m.2c.2m"
-  instance_charge_type     = "Postpaid"
+  instance_charge_type     = var.tokenvolt_rds_billing.instance_charge_type
+  auto_renew               = var.tokenvolt_rds_billing.auto_renew
+  auto_renew_period        = var.tokenvolt_rds_billing.auto_renew_period
   instance_storage         = 20
   db_instance_storage_type = "cloud_essd"
   instance_name            = "tokenvolt-ack"

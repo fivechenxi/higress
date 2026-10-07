@@ -167,3 +167,30 @@ OSS 中的 `deployment_baseline_tag` 必须对应本次部署代码的精确 Git
 托管 Redis 的出站集群由 TokenVolt Helm chart 与插件共用的 serviceName/port
 派生。已有手工 EnvoyFilter 的环境须先按 [Redis 接管说明](REDIS_CLUSTER_ADOPTION.md)
 审阅所有权迁移与回退方案；不要直接应用控制面仓库的旧静态 YAML。
+
+## 已有 RDS / Redis 的计费配置
+
+计费方式以云端核对结果为准，不依靠资源创建时的旧默认值推断。当前生产实例
+已转为预付费、按月自动续费；在 `make config-pull` 后加入以下声明，再先做
+完整只读 plan。获得单独部署授权后才同步远端配置或 apply：
+
+```hcl
+tokenvolt_rds_billing = {
+  instance_charge_type = "Prepaid"
+  auto_renew           = true
+  auto_renew_period    = 1
+}
+tokenvolt_redis_billing = {
+  payment_type      = "PrePaid"
+  auto_renew        = true
+  auto_renew_period = 1
+}
+```
+
+RDS 与 Redis 的大小写遵循各自 provider。未设置时保留旧的按量默认值和
+未指定续费策略；这不是生产实例的建议值。不要使用 `ignore_changes` 隐藏计费
+差异。修改计费声明可能产生付费方式转换，因此必须检查完整 plan 中两个资源
+为 no-op，且没有 create/delete/replace 或续费更新，才能将其作为源码漂移治理。
+本变更不设置创建订阅时的购买 `period`，不购买/续购资源；首次新建预付费实例
+的购买周期须另行审定。ACK ops #62 的副本/hash 漂移按用户要求暂缓，不随本次
+计费治理 apply。
