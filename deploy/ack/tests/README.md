@@ -103,4 +103,4 @@ original defect. Force deletion, OOM/node failure, and requests longer than the
 
 ## ACR credentials
 
-`python3 deploy/ack/tests/test_acr_credentials.py` verifies private-file loading, process-variable precedence, registry matching, malformed inputs, symlink/permission rejection and execution without logging credentials. Uses synthetic credentials only; no cloud API or deployment.
+`python3 deploy/ack/tests/test_acr_credentials.py` verifies private-file loading, OpenTofu's tfvars-over-environment registry precedence, malformed inputs, symlink/permission rejection and execution without logging credentials. A mocked Kubernetes provider evaluates the actual Secret configuration for existing-credential reuse, missing ACR auth and explicit rotation. Uses synthetic credentials only; no cloud API or deployment.

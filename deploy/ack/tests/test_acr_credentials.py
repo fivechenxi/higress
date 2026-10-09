@@ -61,8 +61,41 @@ class CredentialTests(unittest.TestCase):
                     module.credential_environment(self.env, self.folder)
 
     def test_process_registry_override_must_match(self):
+        # terraform.tfvars has higher precedence than TF_VAR_* in OpenTofu.
+        loaded = module.credential_environment(
+            dict(self.env, TF_VAR_tokenvolt_acr_registry='other.cr.aliyuncs.com'), self.folder
+        )
+        self.assertEqual(loaded['TF_VAR_tokenvolt_acr_username'], 'test-user')
+        (self.folder / 'terraform.tfvars').write_text('tokenvolt_acr_registry = "other.cr.aliyuncs.com"\n')
         with self.assertRaises(ValueError):
-            module.credential_environment(dict(self.env, TF_VAR_tokenvolt_acr_registry='other.cr.aliyuncs.com'), self.folder)
+            module.credential_environment(dict(self.env, TF_VAR_tokenvolt_acr_registry=REGISTRY), self.folder)
+
+    def test_registry_environment_used_only_without_tfvars(self):
+        (self.folder / 'terraform.tfvars').unlink()
+        loaded = module.credential_environment(
+            dict(self.env, TF_VAR_tokenvolt_acr_registry=REGISTRY), self.folder
+        )
+        self.assertEqual(loaded['TF_VAR_tokenvolt_acr_username'], 'test-user')
+
+    def test_registry_precedence_matches_opentofu_sources(self):
+        env = dict(self.env, TF_VAR_tokenvolt_acr_registry='environment.cr.aliyuncs.com')
+        self.assertEqual(module.effective_registry(env, self.folder), REGISTRY)
+        (self.folder / 'terraform.tfvars.json').write_text(json.dumps({'tokenvolt_acr_registry': 'json.cr.aliyuncs.com'}))
+        self.assertEqual(module.effective_registry(env, self.folder), 'json.cr.aliyuncs.com')
+        (self.folder / 'a.auto.tfvars').write_text('tokenvolt_acr_registry = "auto-a.cr.aliyuncs.com"\n')
+        (self.folder / 'z.auto.tfvars.json').write_text(json.dumps({'tokenvolt_acr_registry': REGISTRY}))
+        self.assertEqual(module.effective_registry(env, self.folder), REGISTRY)
+        args = ['plan', '-var=tokenvolt_acr_registry=flag.cr.aliyuncs.com',
+                '-var-file=terraform.tfvars']
+        self.assertEqual(module.effective_registry(env, self.folder, args), REGISTRY)
+        env['TF_CLI_ARGS_plan'] = '-var=tokenvolt_acr_registry=implicit.cr.aliyuncs.com'
+        self.assertEqual(module.effective_registry(env, self.folder, ['plan']), 'implicit.cr.aliyuncs.com')
+        self.assertEqual(module.effective_registry(env, self.folder, args), REGISTRY)
+
+    def test_higher_precedence_registry_mismatch_is_rejected(self):
+        (self.folder / 'z.auto.tfvars').write_text('tokenvolt_acr_registry = "other.cr.aliyuncs.com"\n')
+        with self.assertRaises(ValueError):
+            module.credential_environment(self.env, self.folder, ['plan'])
 
     def test_executor_preserves_arguments_and_does_not_log_secrets(self):
         output = self.folder / 'result.json'
@@ -92,6 +125,11 @@ class CredentialTests(unittest.TestCase):
         result = subprocess.run(['sh', str(wrapper), 'plan'], env=env, cwd=self.folder, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout + result.stderr, '')
+        fake.write_text('#!/bin/sh\n[ -f "' + str(marker) + '" ] || exit 12\n[ -z "${TF_VAR_tokenvolt_acr_username:-}" ] || exit 13\n[ -z "${TF_VAR_tokenvolt_acr_password:-}" ] || exit 14\n')
+        no_file = dict(env)
+        no_file.pop('TOKENVOLT_ACR_CREDENTIAL_FILE')
+        result = subprocess.run(['sh', str(wrapper), 'plan'], env=no_file, cwd=self.folder, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
         marker.unlink()
         fake.write_text('#!/bin/sh\n[ ! -f "' + str(marker) + '" ] || exit 10\n[ -z "${TF_VAR_tokenvolt_acr_password:-}" ] || exit 11\n')
         self.file.unlink()
@@ -113,6 +151,83 @@ class CredentialTests(unittest.TestCase):
             with self.subTest(registry=registry, image=image):
                 result = subprocess.run(['tofu', 'plan', '-input=false', '-no-color', '-var=tokenvolt_acr_registry=' + registry, '-var=tokenvolt_control_plane_image=' + image], cwd=config, capture_output=True, text=True)
                 self.assertEqual(result.returncode == 0, success, result.stderr)
+
+    @unittest.skipUnless(shutil.which('tofu'), 'OpenTofu required for mocked Secret evaluation')
+    def test_actual_terraform_reuses_existing_acr_secret(self):
+        source = (ROOT / 'tokenvolt.tf').read_text()
+        auth = source[source.index('data "kubernetes_secret_v1" "tokenvolt_registry_existing"'):
+                      source.index('# Higress converts WasmPlugin')]
+        config = self.folder / 'acr-contract'
+        config.mkdir()
+        (config / 'main.tf').write_text('''terraform {
+  required_providers {
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "= 2.38.0"
+    }
+  }
+}
+variable "tokenvolt_enabled" { default = true }
+variable "tokenvolt_namespace" { default = "tokenvolt-system" }
+variable "tokenvolt_acr_registry" { default = "''' + REGISTRY + '''" }
+variable "tokenvolt_acr_username" {
+  default   = ""
+  sensitive = true
+}
+variable "tokenvolt_acr_password" {
+  default   = ""
+  sensitive = true
+}
+variable "tokenvolt_ghcr_username" { default = "ghcr-user" }
+variable "tokenvolt_ghcr_token" { default = "ghcr-token" }
+variable "tokenvolt_control_plane_image" { default = "''' + REGISTRY + '''/tokenvolt/tokenvolt-control-plane@sha256:''' + 'a' * 64 + '''" }
+variable "tokenvolt_mock_enabled" { default = false }
+variable "tokenvolt_mock_image" { default = "" }
+resource "kubernetes_namespace_v1" "tokenvolt" {
+  count = var.tokenvolt_enabled ? 1 : 0
+  metadata { name = var.tokenvolt_namespace }
+}
+''' + auth)
+        existing = json.dumps({'auths': {REGISTRY: {'username': 'existing-user', 'password': 'existing-pass',
+                                                   'auth': 'ZXhpc3RpbmctdXNlcjpleGlzdGluZy1wYXNz'}}})
+        (config / 'main.tftest.hcl').write_text('''mock_provider "kubernetes" {
+  mock_data "kubernetes_secret_v1" {
+    defaults = {
+      data = { ".dockerconfigjson" = ''' + json.dumps(existing) + ''' }
+    }
+  }
+}
+run "reuse_existing" {
+  command = plan
+  assert {
+    condition = jsondecode(kubernetes_secret_v1.tokenvolt_registry[0].data[".dockerconfigjson"]).auths["''' + REGISTRY + '''"].username == "existing-user"
+    error_message = "Existing ACR auth was not preserved"
+  }
+}
+run "missing_acr_entry" {
+  command = plan
+  override_data {
+    target = data.kubernetes_secret_v1.tokenvolt_registry_existing
+    values = { data = { ".dockerconfigjson" = "{\\"auths\\":{}}" } }
+  }
+  expect_failures = [kubernetes_secret_v1.tokenvolt_registry]
+}
+run "explicit_rotation" {
+  command = plan
+  variables {
+    tokenvolt_acr_username = "new-user"
+    tokenvolt_acr_password = "new-pass"
+  }
+  assert {
+    condition = jsondecode(kubernetes_secret_v1.tokenvolt_registry[0].data[".dockerconfigjson"]).auths["''' + REGISTRY + '''"].username == "new-user"
+    error_message = "Explicit ACR auth was ignored"
+  }
+}
+''')
+        env = {key: value for key, value in os.environ.items() if not key.startswith(('TF_VAR_', 'TF_CLI_ARGS'))}
+        for args in [['tofu', 'init', '-backend=false', '-input=false', '-no-color'], ['tofu', 'test', '-no-color']]:
+            result = subprocess.run(args, cwd=config, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_failure_does_not_disclose_malformed_secret(self):
         self.file.write_text('secret-that-must-not-be-logged')

@@ -89,9 +89,13 @@ registry **主机名**（不含 `https://` 或仓库路径），并把
 不能将 GHCR digest 假定为 ACR digest。确认所选公网或 VPC registry 地址可从
 ACK 节点访问。
 
-ACR 用户名和密码仅通过 `TF_VAR_tokenvolt_acr_username`、
-`TF_VAR_tokenvolt_acr_password` 注入 OpenTofu 进程，**不要写入 tfvars、Git、
-命令历史或 PR**。现有 `TF_VAR_tokenvolt_ghcr_token` 仍需提供，以保留 GHCR
+首次创建 ACR 拉取 Secret 或主动轮换凭据时，将 ACR 用户名和密码通过
+`TF_VAR_tokenvolt_acr_username`、`TF_VAR_tokenvolt_acr_password` 或下述私密
+文件注入 OpenTofu 进程，**不要写入 tfvars、Git、命令历史或 PR**。线上已有
+`tokenvolt-ghcr` Secret 且其中包含当前 registry 的有效认证时，后续部署
+可不再提供 ACR 文件或这两项变量：OpenTofu 会读取现有 Secret 并保留该认证。
+Secret 缺失、registry 变更或认证项无效时会失败，需重新从安全来源注入两项
+凭据。现有 `TF_VAR_tokenvolt_ghcr_token` 仍需提供，以保留 GHCR
 镜像与 OCI 插件的拉取能力。OpenTofu 会将两个 registry 的认证合并到现有的
 `tokenvolt-ghcr` Kubernetes Secret，并同步到 `higress-system`；Secret 名称
 是历史名称，不表示只支持 GHCR。OpenTofu 的远端 State 也会保存 Secret 数据，
@@ -103,7 +107,8 @@ ACR 用户名和密码仅通过 `TF_VAR_tokenvolt_acr_username`、
 当前专用账号 `tokenvolt-ack-acr-pull` 只允许拉取控制面仓库，无长期 AccessKey。
 凭据来自该账号在 ACR 企业版设置的固定密码，不使用一小时临时Token。
 
-操作者可继续从安全存储注入两项 TF_VAR，也可设置私密 JSON 文件路径：
+需要首次创建或轮换时，操作者可从安全存储注入两项 TF_VAR，也可设置私密
+JSON 文件路径：
 
 ```sh
 export TOKENVOLT_ACR_CREDENTIAL_FILE="$HOME/Library/Application Support/TokenVolt/acr-pull/credential.json"
@@ -116,9 +121,15 @@ make plan
 TF_VAR，不在仓库生成凭据文件。
 
 `tofu.sh` 在OSS配置检查之后、plan/apply/destroy执行前安全读取文件并仅注入
-子进程；文件registry须与当前tfvars或显式TF_VAR registry一致。完整的两项
-进程凭据优先，只有一项则拒绝，避免混合身份。`init/output/show`与带-chdir的
-bootstrap不加载文件。GHCR token仍须单独安全注入，不能因控制面改用ACR而清空。
+子进程；文件 registry 须与 OpenTofu 实际采用的 registry 一致。校验顺序与
+OpenTofu 一致：`TF_VAR_`、`terraform.tfvars`、`terraform.tfvars.json`、按文件名
+排序的 `*.auto.tfvars[.json]`，最后是 CLI 的 `-var/-var-file`（含
+`TF_CLI_ARGS`）。后者覆盖前者；日常生产仍以 OSS 同步的 `terraform.tfvars`
+为配置来源，不应临时覆盖 registry。
+完整的两项进程凭据优先，只有一项则拒绝，避免混合身份。未指定文件和进程
+凭据时，由 Terraform 读取当前 namespace 的现有 Secret；新环境不能靠此路径
+凭空创建认证。`init/output/show`与带-chdir的bootstrap不加载文件。GHCR token
+仍须单独安全注入，不能因控制面改用ACR而清空。
 
 启用tokenvolt_acr_registry时，控制面必须使用相同主机名下
 `tokenvolt/tokenvolt-control-plane@sha256:...`。fixture仍可使用GHCR；切换fixture
