@@ -65,8 +65,12 @@ registry 凭据。
 ## TokenVolt 镜像切换到北京 ACR
 
 发布工作流完成 GHCR 和北京 ACR 双推送后，先从该次 GitHub Release 的
-`IMAGE_DIGESTS.txt` 核对 **ACR 仓库对应的 digest**。只在需要实际切换 ACK 时
-修改远端配置；本仓库的默认 GHCR 镜像和旧版本不随凭据配置自动切换。
+`ACK_CONTROL_PLANE_IMAGE.txt` 获取唯一的北京 ACR 控制面固定引用，并用
+`IMAGE_DIGESTS.txt` 核对该仓库的 digest。2026-10-08 生产已将同版本 `.60`
+切至北京 ACR；这是当日记录，不是自动刷新状态。后续版本继续使用 ACR 引用。
+通用测试栈的默认 GHCR 值保留；生产的持久镜像字段由加密 OSS tfvars 管理，
+不能提交真实 tfvars。旧 Release 没有新增附件时，从它的 IMAGE_DIGESTS.txt
+核对对应 ACR 行，不得用 GHCR 行代替。
 
 ```bash
 cd deploy/ack
@@ -93,11 +97,41 @@ ACR 用户名和密码仅通过 `TF_VAR_tokenvolt_acr_username`、
 是历史名称，不表示只支持 GHCR。OpenTofu 的远端 State 也会保存 Secret 数据，
 应按敏感凭据管理 State 的访问权限和版本历史。
 
+### 长期凭据加载
+
+发布 CI 的 ACR_USERNAME/ACR_PASSWORD 是推送凭据；ACK 使用独立只读账号。
+当前专用账号 `tokenvolt-ack-acr-pull` 只允许拉取控制面仓库，无长期 AccessKey。
+凭据来自该账号在 ACR 企业版设置的固定密码，不使用一小时临时Token。
+
+操作者可继续从安全存储注入两项 TF_VAR，也可设置私密 JSON 文件路径：
+
+```sh
+export TOKENVOLT_ACR_CREDENTIAL_FILE="$HOME/Library/Application Support/TokenVolt/acr-pull/credential.json"
+make plan
+```
+
+文件必须由当前用户持有、无组/其他用户访问权限（chmod 600），包含非空字符串
+`registry`、`username`、`password`。目录建议0700，文件不得为符号链接。不要把
+内容打印到终端、写入命令历史或提交；CI优先从独立拉取Secret直接注入两项
+TF_VAR，不在仓库生成凭据文件。
+
+`tofu.sh` 在OSS配置检查之后、plan/apply/destroy执行前安全读取文件并仅注入
+子进程；文件registry须与当前tfvars或显式TF_VAR registry一致。完整的两项
+进程凭据优先，只有一项则拒绝，避免混合身份。`init/output/show`与带-chdir的
+bootstrap不加载文件。GHCR token仍须单独安全注入，不能因控制面改用ACR而清空。
+
+启用tokenvolt_acr_registry时，控制面必须使用相同主机名下
+`tokenvolt/tokenvolt-control-plane@sha256:...`。fixture仍可使用GHCR；切换fixture
+需要另外授权和扩展只读账号权限，本次没有扩大该账号的仓库权限。
+
 切换窗口中先确认 `make config-status` 没有本地与 OSS 的并发修改，必要时查看
 `make config-history`；再执行 `make config-push`、`make plan`。获得单独部署
 授权后才执行 `make start`。应用后检查目标 Pod 的 image、imageID、Ready
 状态和近期事件，确认实际运行的是本次 ACR digest。回退时用此前已核对的
-GHCR digest 恢复镜像引用，再按同样流程同步配置和部署。
+GHCR digest 恢复镜像引用，并显式清空tokenvolt_acr_registry、取消文件加载环境变量
+及两项ACR TF_VAR，按同样流程同步配置和部署。回退也需单独授权；不要为绕过
+ACR校验而修改源码。当前部署仍锁定旧baseline，合并此PR不会自动改变线上源码，
+须在后续获授权的部署中更新baseline，并单独治理已暂缓的计费/ops漂移。
 
 `plan/start/stop` 执行前会比较本地、OSS 和上次同步版本：
 

@@ -496,6 +496,13 @@ resource "kubernetes_secret_v1" "tokenvolt_registry" {
       error_message = "Set tokenvolt_acr_registry, tokenvolt_acr_username, and tokenvolt_acr_password together."
     }
     precondition {
+      condition = var.tokenvolt_acr_registry == "" || startswith(
+        var.tokenvolt_control_plane_image,
+        "${var.tokenvolt_acr_registry}/tokenvolt/tokenvolt-control-plane@sha256:"
+      )
+      error_message = "ACR mode requires the controlplane image from the matching tokenvolt/tokenvolt-control-plane repository; use the Release ACK_CONTROL_PLANE_IMAGE.txt reference."
+    }
+    precondition {
       condition = alltrue([
         for image in concat([var.tokenvolt_control_plane_image], var.tokenvolt_mock_enabled ? [var.tokenvolt_mock_image] : []) :
         !can(regex("^[^/]+\\.cr\\.aliyuncs\\.com/", image)) || split("/", image)[0] == var.tokenvolt_acr_registry

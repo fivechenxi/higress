@@ -48,4 +48,9 @@ if test -z "${ALICLOUD_ACCESS_KEY_ID:-}" || test -z "${ALICLOUD_ACCESS_KEY_SECRE
   unset CREDENTIALS
 fi
 
+# Credential files are operator-local inputs, never OSS tfvars. Load only for
+# guarded deployment operations; bootstrap and read-only state commands bypass.
+if test "$NEEDS_CONFIG_GUARD" = true && test "$SKIP_CONFIG_GUARD" = false && test -n "${TOKENVOLT_ACR_CREDENTIAL_FILE:-}"; then
+  exec python3 "$(dirname -- "$0")/with-acr-credentials.py" "$TOFU_BIN" "$@"
+fi
 exec "$TOFU_BIN" "$@"

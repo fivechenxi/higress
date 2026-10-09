@@ -100,3 +100,7 @@ state are outside this migration. Rollback should retain the new graceful
 termination envelope; restoring the previous five-second policy recreates the
 original defect. Force deletion, OOM/node failure, and requests longer than the
 660-second Pod grace remain outside the graceful termination guarantee.
+
+## ACR credentials
+
+`python3 deploy/ack/tests/test_acr_credentials.py` verifies private-file loading, process-variable precedence, registry matching, malformed inputs, symlink/permission rejection and execution without logging credentials. Uses synthetic credentials only; no cloud API or deployment.
