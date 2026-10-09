@@ -25,8 +25,8 @@ def registry_in_file(path, required=False):
     contents = path.read_text()
     matches = re.findall(r'^[ \t]*tokenvolt_acr_registry[ \t]*=[ \t]*"([^"\n]*)"[ \t]*(?:(?:#|//).*)?$',
                          contents, re.MULTILINE)
-    if len(matches) > 1 or (required and len(matches) != 1):
-        raise ValueError("Require one explicit tokenvolt_acr_registry in the variable file")
+    if len(matches) > 1:
+        raise ValueError("Multiple tokenvolt_acr_registry values in the variable file")
     if not matches and re.search(r'^\s*tokenvolt_acr_registry\s*=', contents, re.MULTILINE):
         raise ValueError("tokenvolt_acr_registry must be one literal string")
     return matches[0] if matches else None

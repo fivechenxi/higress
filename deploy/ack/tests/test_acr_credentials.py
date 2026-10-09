@@ -97,6 +97,17 @@ class CredentialTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.credential_environment(self.env, self.folder, ['plan'])
 
+    def test_var_file_may_override_unrelated_variables(self):
+        (self.folder / 'runtime.tfvars').write_text('node_min_size = 2\n')
+        self.assertEqual(
+            module.effective_registry(self.env, self.folder, ['plan', '-var-file=runtime.tfvars']),
+            REGISTRY,
+        )
+        self.assertEqual(
+            module.credential_environment(self.env, self.folder, ['plan', '-var-file=runtime.tfvars'])['TF_VAR_tokenvolt_acr_username'],
+            'test-user',
+        )
+
     def test_executor_preserves_arguments_and_does_not_log_secrets(self):
         output = self.folder / 'result.json'
         child = self.folder / 'child.py'
