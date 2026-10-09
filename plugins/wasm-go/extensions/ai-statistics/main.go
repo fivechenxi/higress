@@ -935,6 +935,12 @@ func onHttpStreamingBody(ctx wrapper.HttpContext, config AIStatisticsConfig, dat
 		if !config.disableOpenaiUsage {
 			processTokenUsageEvent(ctx, event)
 			captureResponseMetadata(ctx, event)
+			// TokenVolt: protocol completion can precede HTTP EOS (or DC).
+			// Freeze duration at the first complete terminal event, excluding
+			// downstream connection teardown time from TPOT.
+			if completed, _ := ctx.GetUserAttribute(responseCompleted).(bool); completed && ctx.GetUserAttribute(LLMServiceDuration) == nil {
+				ctx.SetUserAttribute(LLMServiceDuration, time.Now().UnixMilli()-requestStartTime)
+			}
 		}
 		// Track streaming errors across events — SSE failures often appear as
 		// data: {"error":{...}} before data: [DONE], so the last chunk alone is
@@ -961,8 +967,9 @@ func onHttpStreamingBody(ctx wrapper.HttpContext, config AIStatisticsConfig, dat
 			log.Debugf("ai-statistics: sse framer discarded %d oversized incomplete event(s) during this request", overflowCount)
 		}
 
-		responseEndTime := time.Now().UnixMilli()
-		ctx.SetUserAttribute(LLMServiceDuration, responseEndTime-requestStartTime)
+		if ctx.GetUserAttribute(LLMServiceDuration) == nil {
+			ctx.SetUserAttribute(LLMServiceDuration, time.Now().UnixMilli()-requestStartTime)
+		}
 
 		// Set user defined log & span attributes from streaming body.
 		// Always call setAttributeBySource even if shouldBufferStreamingBody is false,
@@ -1789,7 +1796,7 @@ func writeMetric(ctx wrapper.HttpContext, config AIStatisticsConfig, body []byte
 	}
 	if usageAvailable {
 		if outputTokens, validOutput := convertToUInt(ctx.GetUserAttribute(tokenusage.CtxKeyOutputToken)); validOutput {
-			if tpot, valid := calculateTPOT(llmServiceDuration, llmFirstTokenDuration, outputTokens); valid && ctx.GetUserAttribute(LLMFirstTokenDuration) != nil {
+			if tpot, valid := calculateTPOT(llmServiceDuration, llmFirstTokenDuration, outputTokens); valid && ctx.GetUserAttribute(LLMFirstTokenDuration) != nil && ctx.GetUserAttribute(LLMServiceDuration) != nil {
 				config.ensureCounter(generateMetricName(route, cluster, model, consumer, LLMTPOTDuration))
 				config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMTPOTDuration), tpot)
 				config.incrementCounter(generateMetricName(route, cluster, model, consumer, LLMTPOTCount), 1)

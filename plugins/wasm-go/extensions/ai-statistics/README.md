@@ -168,7 +168,10 @@ irate(route_upstream_model_consumer_metric_llm_duration_count[2m])
 | `cache_hit_request_count` | Counter | 缓存读取 token 大于零的请求数 |
 
 TPOT 按 `(请求总时长 - TTFT) / (输出 token - 1)` 计算，只统计至少
-两个输出 token 的流式请求。缓存命中 token 兼容 OpenAI
+两个输出 token 的流式请求。TokenVolt 在首次识别 `[DONE]`、
+`response.completed` 或 `message_stop` 时固定结束耗时；即使随后 DC、
+没有 HTTP endOfStream，也可在 stream-done 记录 TPOT。正常 HTTP 收尾
+不会覆盖该时刻或重复计数；没有协议完成标记且没有 HTTP EOS 时不补造耗时。缓存命中 token 兼容 OpenAI
 `cached_tokens`、Anthropic `cache_read_input_tokens` 和 Gemini
 `cached_content_token_count`；Anthropic cache creation 不算命中。
 
