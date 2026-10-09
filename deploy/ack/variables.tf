@@ -349,7 +349,7 @@ variable "tokenvolt_rds_vswitch_id" {
 }
 
 variable "tokenvolt_rds_deletion_protection" {
-  description = "Protect the TokenVolt RDS instance from accidental deletion. Disable only for an explicitly reviewed data-destruction operation."
+  description = "Cloud deletion-protection setting for Postpaid/Serverless RDS only; the provider does not update it for Prepaid. Terraform prevent_destroy separately guards all billing modes."
   type        = bool
   default     = true
 }

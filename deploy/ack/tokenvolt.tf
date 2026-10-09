@@ -340,6 +340,11 @@ resource "alicloud_db_instance" "tokenvolt" {
   ssl_action               = "Open"
   tags                     = merge(var.tags, { Component = "tokenvolt-database" })
 
+  # The provider does not update deletion_protection for Prepaid instances.
+  # Also block a plan that would remove the subscription instance from State.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "alicloud_rds_account" "tokenvolt" {
