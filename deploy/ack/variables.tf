@@ -318,7 +318,7 @@ variable "tokenvolt_ghcr_token" {
 }
 
 variable "tokenvolt_acr_registry" {
-  description = "Exact Beijing ACR registry hostname used in TokenVolt image references; leave empty until switching ACK pulls to ACR."
+  description = "ACR hostname for TokenVolt controlplane pulls. Production uses Beijing ACR; empty selects explicit legacy GHCR mode."
   type        = string
   default     = ""
 

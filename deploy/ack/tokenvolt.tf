@@ -462,6 +462,36 @@ resource "kubernetes_secret_v1" "tokenvolt_app" {
   }
 }
 
+# Reuse the already deployed pull credential when the operator has not
+# supplied one. A new cluster or a new registry still needs explicit
+# credentials; never write an empty ACR auth entry over an existing Secret.
+data "kubernetes_secret_v1" "tokenvolt_registry_existing" {
+  count = var.tokenvolt_enabled && var.tokenvolt_acr_registry != "" && var.tokenvolt_acr_username == "" && var.tokenvolt_acr_password == "" ? 1 : 0
+
+  metadata {
+    name      = "tokenvolt-ghcr"
+    namespace = var.tokenvolt_namespace
+  }
+}
+
+locals {
+  tokenvolt_existing_acr_auth = try(
+    jsondecode(data.kubernetes_secret_v1.tokenvolt_registry_existing[0].data[".dockerconfigjson"]).auths[var.tokenvolt_acr_registry],
+    null
+  )
+  tokenvolt_acr_auths = var.tokenvolt_acr_registry == "" ? {} : (
+    var.tokenvolt_acr_username != "" && var.tokenvolt_acr_password != "" ? {
+      (var.tokenvolt_acr_registry) = {
+        username = var.tokenvolt_acr_username
+        password = var.tokenvolt_acr_password
+        auth     = base64encode("${var.tokenvolt_acr_username}:${var.tokenvolt_acr_password}")
+      }
+      } : local.tokenvolt_existing_acr_auth == null ? {} : {
+      (var.tokenvolt_acr_registry) = local.tokenvolt_existing_acr_auth
+    }
+  )
+}
+
 resource "kubernetes_secret_v1" "tokenvolt_registry" {
   count = var.tokenvolt_enabled ? 1 : 0
 
@@ -480,13 +510,7 @@ resource "kubernetes_secret_v1" "tokenvolt_registry" {
             auth     = base64encode("${var.tokenvolt_ghcr_username}:${var.tokenvolt_ghcr_token}")
           }
         },
-        var.tokenvolt_acr_registry == "" ? {} : {
-          (var.tokenvolt_acr_registry) = {
-            username = var.tokenvolt_acr_username
-            password = var.tokenvolt_acr_password
-            auth     = base64encode("${var.tokenvolt_acr_username}:${var.tokenvolt_acr_password}")
-          }
-        }
+        local.tokenvolt_acr_auths
       )
     })
   }
@@ -500,9 +524,24 @@ resource "kubernetes_secret_v1" "tokenvolt_registry" {
       condition = var.tokenvolt_acr_registry == "" ? (
         var.tokenvolt_acr_username == "" && var.tokenvolt_acr_password == ""
         ) : (
-        var.tokenvolt_acr_username != "" && var.tokenvolt_acr_password != ""
+        (var.tokenvolt_acr_username != "" && var.tokenvolt_acr_password != "") || (
+          var.tokenvolt_acr_username == "" && var.tokenvolt_acr_password == "" &&
+          try(
+            local.tokenvolt_existing_acr_auth.username != "" &&
+            local.tokenvolt_existing_acr_auth.password != "" &&
+            local.tokenvolt_existing_acr_auth.auth == base64encode("${local.tokenvolt_existing_acr_auth.username}:${local.tokenvolt_existing_acr_auth.password}"),
+            false
+          )
+        )
       )
-      error_message = "Set tokenvolt_acr_registry, tokenvolt_acr_username, and tokenvolt_acr_password together."
+      error_message = "ACR mode needs both process credentials or an existing tokenvolt-ghcr Secret with valid auth for tokenvolt_acr_registry."
+    }
+    precondition {
+      condition = var.tokenvolt_acr_registry == "" || startswith(
+        var.tokenvolt_control_plane_image,
+        "${var.tokenvolt_acr_registry}/tokenvolt/tokenvolt-control-plane@sha256:"
+      )
+      error_message = "ACR mode requires the controlplane image from the matching tokenvolt/tokenvolt-control-plane repository; use the Release ACK_CONTROL_PLANE_IMAGE.txt reference."
     }
     precondition {
       condition = alltrue([
