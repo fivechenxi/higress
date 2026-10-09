@@ -223,6 +223,22 @@ run "explicit_rotation" {
     error_message = "Explicit ACR auth was ignored"
   }
 }
+run "partial_credentials" {
+  command = plan
+  variables { tokenvolt_acr_username = "partial-user" }
+  expect_failures = [kubernetes_secret_v1.tokenvolt_registry]
+}
+run "legacy_ghcr" {
+  command = plan
+  variables {
+    tokenvolt_acr_registry = ""
+    tokenvolt_control_plane_image = "ghcr.io/tokenvolt-ai/tokenvolt-control-plane@sha256:''' + 'a' * 64 + '''"
+  }
+  assert {
+    condition = !contains(keys(jsondecode(kubernetes_secret_v1.tokenvolt_registry[0].data[".dockerconfigjson"]).auths), "''' + REGISTRY + '''")
+    error_message = "Legacy GHCR mode unexpectedly added ACR auth"
+  }
+}
 ''')
         env = {key: value for key, value in os.environ.items() if not key.startswith(('TF_VAR_', 'TF_CLI_ARGS'))}
         for args in [['tofu', 'init', '-backend=false', '-input=false', '-no-color'], ['tofu', 'test', '-no-color']]:
