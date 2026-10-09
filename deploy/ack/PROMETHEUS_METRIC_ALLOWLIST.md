@@ -58,6 +58,7 @@ Keep these metric families:
 - `route_upstream_model_consumer_metric_llm_request_count`
 - `route_upstream_model_consumer_metric_llm_failure_count`
 - `route_upstream_model_consumer_metric_llm_rate_limited_count`
+- `route_upstream_model_consumer_metric_llm_error_<class>_count` (14 fixed classes)
 - `route_upstream_model_consumer_metric_llm_aborted_count`
 - `route_upstream_model_consumer_metric_llm_inflight_request`
 - `route_upstream_model_consumer_metric_input_token`
@@ -104,11 +105,13 @@ ratio divides hit requests by
 `cache_reported_request_count`, not all requests, so a provider that does not
 report cache details is not silently treated as 0% hit rate.
 
-The allowlist now contains 19 logical AI families. Due to the two fixed
-histograms, this is 37 concrete exported series names per active
-route/provider/model/consumer/Pod tuple: 17 scalar series and 20 bucket series.
-The collector drops consumer before remote write. Cardinality must still be
-measured with the real model/provider catalog before production rollout.
+The allowlist now contains 33 logical AI families. Due to the two fixed
+histograms, this is 51 concrete exported series names per active
+route/provider/model/consumer/Pod tuple: 31 scalar series and 20 bucket series.
+Fourteen scalar series are the bounded error taxonomy. The collector
+drops consumer before remote write and records them as
+`tokenvolt:ai_errors_total{error_type=...}`. Cardinality must still be measured
+with the real model/provider catalog before production rollout.
 
 ### Data availability
 
@@ -116,6 +119,7 @@ measured with the real model/provider catalog before production rollout.
 | --- | --- | --- |
 | RPM, error ratio, aborted requests | Yes, independent of usage tokens | AI route must be bound to this plugin; response status/body or stream termination |
 | Model/provider HTTP 429 | Yes, independent of usage tokens | Forked plugin build containing `llm_rate_limited_count`; all 429 responses are reported without contractual RPM/TPM classification |
+| Error class | Yes, independent of usage tokens | HTTP status plus structured provider `type`/`code`/`message`; unknown values fall into bounded 4xx/5xx/provider categories |
 | LLM in-flight requests | Yes | Request body must reach the plugin so model can be extracted |
 | Input/output/total TPM | Yes, conditionally | Provider must return final usage fields; streaming APIs must include final usage |
 | TTFT P50/P90 | Yes | Streaming response; current semantic is first upstream chunk |

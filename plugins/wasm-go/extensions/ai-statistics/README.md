@@ -159,6 +159,7 @@ irate(route_upstream_model_consumer_metric_llm_duration_count[2m])
 | --- | --- | --- |
 | `llm_request_count` | Counter | 已结束或中断的 LLM 请求数；错误率和 RPM 的分母 |
 | `llm_failure_count` / `llm_aborted_count` | Counter | 失败请求 / 未正常完成的流式请求数 |
+| `llm_error_<class>_count` | Counter | 按固定低基数错误类别统计的上游失败数；不会把厂商自由文本放入指标标签 |
 | `llm_inflight_request` | Gauge | 当前进行中的 LLM 请求数 |
 | `llm_tpot_duration` / `llm_tpot_count` | Counter | 请求级平均 TPOT（毫秒）的累计值 / 样本数 |
 | `llm_first_token_duration_bucket_le_*` | Counter | TTFT 固定累计桶 |
@@ -179,6 +180,12 @@ TPOT 按 `(请求总时长 - TTFT) / (输出 token - 1)` 计算，只统计至�
   "ai_log": "{\"model\":\"qwen-turbo\",\"input_token\":\"10\",\"output_token\":\"69\",\"llm_first_token_duration\":\"309\",\"llm_service_duration\":\"1955\"}"
 }
 ```
+
+HTTP 4xx/5xx 和流式错误事件还会记录 `upstream_error_class`、厂商原始
+`upstream_error_type` / `upstream_error_code` / `upstream_error_message`、
+脱敏限长后的 `upstream_error_body`，以及可用的 `upstream_request_id`。
+错误类别固定为 invalid request、认证、权限、限流、额度、上下文、内容安全、
+模型不可用、超时和有限的兜底类别；错误正文不会成为 Prometheus label。
 
 如果请求中携带了 session ID header，日志中会自动添加 `session_id` 字段：
 

@@ -157,6 +157,7 @@ This version also exposes the following metrics, aggregatable by `ai_route`,
 | --- | --- | --- |
 | `llm_request_count` | Counter | Completed or aborted LLM requests; denominator for error rate and RPM |
 | `llm_failure_count` / `llm_aborted_count` | Counter | Failed requests / streams that did not complete normally |
+| `llm_error_<class>_count` | Counter | Upstream failures split into a fixed, low-cardinality error taxonomy; provider free text is never used as a metric label |
 | `llm_inflight_request` | Gauge | LLM requests currently in progress |
 | `llm_tpot_duration` / `llm_tpot_count` | Counter | Sum and sample count of request-level mean TPOT in milliseconds |
 | `llm_first_token_duration_bucket_le_*` | Counter | Fixed cumulative TTFT buckets |
@@ -177,6 +178,12 @@ OpenAI `cached_tokens`, Anthropic `cache_read_input_tokens`, and Gemini
   "ai_log": "{\"model\":\"qwen-turbo\",\"input_token\":\"10\",\"output_token\":\"69\",\"llm_first_token_duration\":\"309\",\"llm_service_duration\":\"1955\"}"
 }
 ```
+
+HTTP 4xx/5xx responses and streaming error events also record
+`upstream_error_class`, the provider's `upstream_error_type`,
+`upstream_error_code`, and `upstream_error_message`, a redacted and bounded
+`upstream_error_body`, and `upstream_request_id` when available. The metric
+taxonomy is fixed; error bodies and provider-defined strings are never labels.
 
 If the request contains a session ID header, the log will automatically include a `session_id` field:
 
