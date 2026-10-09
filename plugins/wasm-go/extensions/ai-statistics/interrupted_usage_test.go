@@ -15,9 +15,11 @@
 package main
 
 import (
+	"fmt"
 	"github.com/higress-group/wasm-go/pkg/test"
 	"github.com/stretchr/testify/require"
 	"testing"
+	"time"
 )
 
 func TestInterruptedRequestKeepsRequestedModel(t *testing.T) {
@@ -79,5 +81,59 @@ func TestUsageThenDoneDoesNotCountAsAbort(t *testing.T) {
 		n, e := h.GetCounterMetric(streamingMetricName("gpt-4", LLMFailureCount))
 		require.NoError(t, e)
 		require.Zero(t, n)
+	})
+}
+
+// Exercise the actual host callback path: protocol completion without HTTP EOS
+// must preserve both the duration in ai_log and one TPOT histogram observation.
+func TestProtocolCompletionPreservesTPOT(t *testing.T) {
+	for _, terminal := range []string{`[DONE]`, `{"type":"response.completed"}`, `{"type":"message_stop"}`} {
+		for _, eos := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/eos=%t", terminal, eos), func(t *testing.T) {
+				test.RunTest(t, func(t *testing.T) {
+					h := setupStreamingHost(t, []byte(`{"use_default_response_attributes":true}`))
+					defer h.Reset()
+					deliverStreamChunk(t, h, sseEvent(`{"model":"gpt-4","usage":{"prompt_tokens":12,"completion_tokens":3,"total_tokens":15}}`), false)
+					time.Sleep(15 * time.Millisecond)
+					end := sseEvent(terminal)
+					deliverStreamChunk(t, h, end[:len(end)/2], false)
+					require.NotContains(t, getAILogAttributes(t, h), LLMServiceDuration)
+					deliverStreamChunk(t, h, end[len(end)/2:], false)
+					attrs := getAILogAttributes(t, h)
+					duration, ok := aiLogInt64(attrs, LLMServiceDuration)
+					require.True(t, ok)
+					ttft, ok := aiLogInt64(attrs, LLMFirstTokenDuration)
+					require.True(t, ok)
+					require.Greater(t, duration, ttft)
+					time.Sleep(15 * time.Millisecond)
+					deliverStreamChunk(t, h, end, eos)
+					h.CompleteHttp()
+					final := getAILogAttributes(t, h)
+					require.Equal(t, attrs[LLMServiceDuration], final[LLMServiceDuration])
+					assertTokenMetrics(t, h, "gpt-4", 12, 3, 15)
+					for _, metric := range []string{LLMTPOTCount, LLMTPOTDuration + "_bucket_le_inf", LLMRequestCount} {
+						n, err := h.GetCounterMetric(streamingMetricName("gpt-4", metric))
+						require.NoError(t, err)
+						require.Equal(t, uint64(1), n)
+					}
+					n, err := h.GetCounterMetric(streamingMetricName("gpt-4", LLMTPOTDuration))
+					require.NoError(t, err)
+					require.Equal(t, uint64((duration-ttft)/2), n)
+				})
+			})
+		}
+	}
+}
+
+func TestUsageWithoutProtocolCompletionDoesNotInventTPOT(t *testing.T) {
+	test.RunTest(t, func(t *testing.T) {
+		h := setupStreamingHost(t, []byte(`{"use_default_response_attributes":true}`))
+		defer h.Reset()
+		deliverStreamChunk(t, h, sseEvent(`{"model":"gpt-4","usage":{"prompt_tokens":12,"completion_tokens":3,"total_tokens":15}}`), false)
+		h.CompleteHttp()
+		require.NotContains(t, getAILogAttributes(t, h), LLMServiceDuration)
+		n, _ := h.GetCounterMetric(streamingMetricName("gpt-4", LLMTPOTCount))
+		require.Zero(t, n)
+		assertTokenMetrics(t, h, "gpt-4", 12, 3, 15)
 	})
 }

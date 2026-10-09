@@ -165,6 +165,11 @@ This version also exposes the following metrics, aggregatable by `ai_route`,
 | `cache_reported_request_count` | Counter | Requests for which the provider explicitly reported cache details |
 | `cache_hit_request_count` | Counter | Requests with at least one cache-read token |
 
+TokenVolt freezes duration at the first `[DONE]`, `response.completed`, or
+`message_stop` event. Stream-done can therefore record TPOT after DC without
+HTTP EOS. Later HTTP EOS preserves that timestamp and records no duplicate
+sample. With neither protocol completion nor HTTP EOS, no duration is invented.
+
 TPOT is `(request duration - TTFT) / (output tokens - 1)` and is emitted only
 for streaming requests with at least two output tokens. Cache-hit tokens cover
 OpenAI `cached_tokens`, Anthropic `cache_read_input_tokens`, and Gemini
