@@ -100,3 +100,7 @@ state are outside this migration. Rollback should retain the new graceful
 termination envelope; restoring the previous five-second policy recreates the
 original defect. Force deletion, OOM/node failure, and requests longer than the
 660-second Pod grace remain outside the graceful termination guarantee.
+
+## Billing declaration validation
+
+`python3 tests/test_billing_config.py` executes the actual OpenTofu variable validation for prepaid monthly renewal, legacy defaults, invalid billing types and renewal combinations. It needs `tofu` but no provider, cloud credentials or network access. The full live read-only plan is a separate deployment check; this test never applies or purchases resources.
