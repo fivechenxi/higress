@@ -1010,6 +1010,8 @@ var inputTokenDetailsProbePaths = []string{
 	tokenusage.UsageMetadataToolUsePromptTokenCountPathGemini,
 	tokenusage.UsageCacheCreationInputTokensPathAnthropicMessages,
 	tokenusage.UsageCacheReadInputTokensPathAnthropicMessages,
+	"message.usage.cache_creation_input_tokens",
+	"message.usage.cache_read_input_tokens",
 }
 
 var outputTokenDetailsProbePaths = []string{
@@ -1043,6 +1045,19 @@ func processTokenUsageEvent(ctx wrapper.HttpContext, event []byte) {
 	previousOutput := ctx.GetUserAttribute(tokenusage.CtxKeyOutputToken)
 	previousTotal := ctx.GetUserAttribute(tokenusage.CtxKeyTotalToken)
 	usage := getTokenUsage(ctx, event)
+	// The SDK coerces null cache counts to zero and only checks top-level
+	// usage. Keep unknown counts unknown and also read message_start usage.
+	for _, key := range []string{tokenusage.InputTokenDetailsKeyAnthropicMessagesUsageCacheReadInputTokens, tokenusage.InputTokenDetailsKeyAnthropicMessagesUsageCacheCreationInputTokens} {
+		if value := wrapper.GetValueFromBody(event, []string{"usage." + key, "message.usage." + key}); value != nil {
+			if value.Type == gjson.Number && value.Float() >= 0 && value.Float() == float64(value.Int()) {
+				usage.InputTokenDetails[key] = value.Int()
+			} else if previous, known := prevInputDetails[key]; known {
+				usage.InputTokenDetails[key] = previous
+			} else {
+				delete(usage.InputTokenDetails, key)
+			}
+		}
+	}
 	inputChanged := restoreScalar(ctx, tokenusage.CtxKeyInputToken, previousInput, event, inputScalarPaths)
 	outputChanged := restoreScalar(ctx, tokenusage.CtxKeyOutputToken, previousOutput, event, outputScalarPaths)
 	totalChanged := restoreScalar(ctx, tokenusage.CtxKeyTotalToken, previousTotal, event, totalScalarPaths)
@@ -1368,6 +1383,11 @@ func getBuiltinAttributeFallback(ctx wrapper.HttpContext, config AIStatisticsCon
 		if source == ResponseBody || source == ResponseStreamingBody {
 			if inputTokenDetails, ok := ctx.GetContext(tokenusage.CtxKeyInputTokenDetails).(map[string]int64); ok {
 				if cachedTokens, exists := inputTokenDetails["cached_tokens"]; exists {
+					return cachedTokens
+				}
+				// Messages reports cache reads outside input_tokens. Preserve
+				// explicit zero without treating absent cache statistics as zero.
+				if cachedTokens, exists := inputTokenDetails[tokenusage.InputTokenDetailsKeyAnthropicMessagesUsageCacheReadInputTokens]; exists {
 					return cachedTokens
 				}
 			}

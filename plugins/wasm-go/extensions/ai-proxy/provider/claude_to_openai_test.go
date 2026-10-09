@@ -1130,7 +1130,8 @@ func TestClaudeToOpenAIConverter_ConvertOpenAIResponseToClaude(t *testing.T) {
 		// input_tokens should exclude cache: 100 - 60 = 40
 		assert.Equal(t, 40, claudeResp.Usage.InputTokens)
 		assert.Equal(t, 20, claudeResp.Usage.OutputTokens)
-		assert.Equal(t, 60, claudeResp.Usage.CacheReadInputTokens)
+		require.NotNil(t, claudeResp.Usage.CacheReadInputTokens)
+		assert.Equal(t, 60, *claudeResp.Usage.CacheReadInputTokens)
 	})
 
 	t.Run("bedrock_style_usage_with_cached_tokens", func(t *testing.T) {
@@ -1163,7 +1164,8 @@ func TestClaudeToOpenAIConverter_ConvertOpenAIResponseToClaude(t *testing.T) {
 		// input_tokens should NOT be adjusted: 100 (prompt_tokens already excludes cache)
 		assert.Equal(t, 100, claudeResp.Usage.InputTokens)
 		assert.Equal(t, 20, claudeResp.Usage.OutputTokens)
-		assert.Equal(t, 60, claudeResp.Usage.CacheReadInputTokens)
+		require.NotNil(t, claudeResp.Usage.CacheReadInputTokens)
+		assert.Equal(t, 60, *claudeResp.Usage.CacheReadInputTokens)
 	})
 }
 

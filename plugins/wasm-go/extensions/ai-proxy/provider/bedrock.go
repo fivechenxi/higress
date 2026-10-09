@@ -1287,7 +1287,7 @@ func buildPromptTokensDetails(cacheReadInputTokens int, cacheWriteInputTokens in
 		return nil
 	}
 	return &promptTokensDetails{
-		CachedTokens: totalCachedTokens,
+		CachedTokens: &totalCachedTokens,
 	}
 }
 

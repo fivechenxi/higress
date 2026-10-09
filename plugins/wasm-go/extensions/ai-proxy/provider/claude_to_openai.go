@@ -369,9 +369,9 @@ func computeClaudeInputTokens(u *usage) int {
 		return 0
 	}
 	promptTokens := u.PromptTokens
-	if u.PromptTokensDetails != nil && u.PromptTokensDetails.CachedTokens > 0 {
+	if u.PromptTokensDetails != nil && u.PromptTokensDetails.CachedTokens != nil && *u.PromptTokensDetails.CachedTokens > 0 {
 		if u.TotalTokens > 0 && u.TotalTokens == promptTokens+u.CompletionTokens {
-			return promptTokens - u.PromptTokensDetails.CachedTokens
+			return promptTokens - *u.PromptTokensDetails.CachedTokens
 		}
 	}
 	return promptTokens
