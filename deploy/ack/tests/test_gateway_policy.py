@@ -241,6 +241,17 @@ class GatewayPolicyTest(unittest.TestCase):
         self.assertIn('tokenvolt:provider_model_identity:info', dashboard_json)
         self.assertIn('@ end()', dashboard_json)
 
+        requests = json.loads(dashboard_data['tokenvolt-request-details.json'])
+        recent = next(panel for panel in requests['panels'] if panel['id'] == 1)
+        query = recent['targets'][0]['query']
+        self.assertIn('cache_read_input_tokens', query)
+        self.assertIn('AS cache_source', query)
+        self.assertIn("'not_reported'", query)
+        self.assertIn("'inferred_zero'", query)
+        self.assertIn("usage_status\" = 'complete'", query)
+        self.assertIn('cached_tokens,cache_source', recent['targets'][0]['ycol'])
+        self.assertNotIn('coalesce("ai_log.cached_tokens", 0)', query)
+
         runtime = json.loads(dashboard_data['tokenvolt-runtime.json'])
         runtime_table = runtime['panels'][0]
         self.assertEqual(runtime_table['transformations'][0]['options']['join'],
