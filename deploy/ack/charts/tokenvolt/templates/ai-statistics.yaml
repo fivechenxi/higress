@@ -30,6 +30,9 @@ spec:
   imagePullSecret: {{ . | quote }}
   {{- end }}
   phase: UNSPECIFIED_PHASE
+  # ai-statistics runs in UNSPECIFIED_PHASE; tokenvolt-policy runs in AUTHN.
+  # Priority orders plugins only within one phase. Verify the response filter
+  # chain and an upstream ai_log row before promoting raw cache evidence.
   priority: 200
   # The AUTHN policy adds the trusted model header and causes an Envoy route
   # re-selection. A route-scoped statistics config is not re-instantiated after
