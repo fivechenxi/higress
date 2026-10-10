@@ -151,6 +151,7 @@ resource "alicloud_log_store_index" "tokenvolt" {
       "ai_log.response_completed"         = "text"
       "ai_log.response_error"             = "text"
       "ai_log.usage_status"               = "text"
+      "ai_log.input_token_details"        = "text"
       "ai_log.provider_rate_limit_event"  = "text"
       "ai_log.rate_limit_evaluation"      = "text"
       "ai_log.response_type"              = "text"
