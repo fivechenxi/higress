@@ -1236,6 +1236,14 @@ data:
             annotations:
               summary: Successful requests are missing token usage
               description: A request the customer consumed completed without token counts, so it cannot be priced. Find the hour, tenant and model in usage_hourly.token_unknown_success_count and repair or credit that period. The count is a 48-hour window, so the alert also clears simply because the row aged out; that is not proof the gap was resolved.
+          - alert: TokenVoltUsageTokenAnomaly
+            expr: tokenvolt_usage_anomaly_records_2m > 0
+            labels:
+              severity: warning
+              component: billing-usage
+            annotations:
+              summary: Contradictory token usage was quarantined
+              description: Normal requests continue billing, but at least one response reported inconsistent input/output/cache/total tokens. Search control-plane logs for event=usage_token_anomaly to find the request, provider, model and original scalar usage fields, then reconcile the quarantined request.
       {{- end }}
 
       - name: tokenvolt-gateway-capacity
