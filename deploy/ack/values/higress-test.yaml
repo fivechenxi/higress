@@ -101,7 +101,7 @@ gateway:
     # Managed by the higress-ack-ops Helm chart so both workloads share one
     # explicit scaling policy and observability contract.
     enabled: false
-    minReplicas: 4
+    minReplicas: 2
     maxReplicas: 4
     targetCPUUtilizationPercentage: 65
   affinity:
