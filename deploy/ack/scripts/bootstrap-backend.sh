@@ -15,6 +15,8 @@
 
 set -eu
 
+sh "$(dirname -- "$0")/legacy-deployment-guard.sh"
+
 BOOTSTRAP_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/../backend-bootstrap" && pwd)
 TOFU=${TOFU:-./scripts/tofu.sh}
 

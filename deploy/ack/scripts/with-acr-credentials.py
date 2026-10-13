@@ -96,6 +96,11 @@ def credential_environment(env, cwd, command_args=()):
 
 
 def main():
+    # Guard direct use as well as calls through tofu.sh, before reading secrets.
+    import subprocess
+    status = subprocess.call(["sh", str(Path(__file__).with_name("legacy-deployment-guard.sh"))])
+    if status:
+        raise SystemExit(status)
     if len(sys.argv) < 2:
         raise ValueError("usage: with-acr-credentials.py COMMAND [ARG ...]")
     env = credential_environment(os.environ, Path.cwd(), sys.argv[2:])

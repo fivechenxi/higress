@@ -15,6 +15,8 @@
 
 set -euo pipefail
 
+sh "$(dirname -- "$0")/legacy-deployment-guard.sh"
+
 if [[ ${1:-} != "--execute" ]]; then
   echo "Usage: KUBECONFIG=/path/to/config $0 --execute" >&2
   echo "This cordons and drains every node in the elastic pool." >&2

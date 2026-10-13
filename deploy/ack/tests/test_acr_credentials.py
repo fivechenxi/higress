@@ -24,7 +24,8 @@ class CredentialTests(unittest.TestCase):
         self.file.write_text(json.dumps(dict(registry=REGISTRY, username='test-user', password='test-password')))
         self.file.chmod(0o600)
         (self.folder / 'terraform.tfvars').write_text('tokenvolt_acr_registry = "' + REGISTRY + '"\n')
-        self.env = {'TOKENVOLT_ACR_CREDENTIAL_FILE': str(self.file)}
+        self.env = {'TOKENVOLT_ACR_CREDENTIAL_FILE': str(self.file),
+                    'TOKENVOLT_LEGACY_DEPLOYMENT': 'approved-emergency'}
 
     def tearDown(self):
         self.temp.cleanup()
@@ -123,6 +124,7 @@ class CredentialTests(unittest.TestCase):
         wrapper = scripts / 'tofu.sh'
         wrapper.write_text((ROOT / 'scripts/tofu.sh').read_text())
         (scripts / 'with-acr-credentials.py').write_text((ROOT / 'scripts/with-acr-credentials.py').read_text())
+        shutil.copyfile(ROOT / 'scripts/legacy-deployment-guard.sh', scripts / 'legacy-deployment-guard.sh')
         guard = scripts / 'remote-config.sh'
         marker = self.folder / 'guard-called'
         guard.write_text('#!/bin/sh\n: > "' + str(marker) + '"\n')

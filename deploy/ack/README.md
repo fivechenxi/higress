@@ -16,6 +16,11 @@
 
 # Higress on ACK (disposable test stack)
 
+**旧部署已默认禁用（2026-10-13）。** 生产已交接到
+[TokenVolt-ai/tokenvolt-deploy](https://github.com/TokenVolt-ai/tokenvolt-deploy)。
+下文保留作历史参考，不要直接执行。默认关闭的范围、限制和单次应急启用方法见
+[LEGACY_DISABLED.md](LEGACY_DISABLED.md)。代码、制品、OSS 和凭据未删除。
+
 This directory creates a low-cost, single-zone ACK test environment and installs
 the repository's `helm/core` chart. It deliberately does not install Higress
 Console.
