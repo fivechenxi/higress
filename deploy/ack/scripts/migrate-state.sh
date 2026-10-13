@@ -15,6 +15,8 @@
 
 set -eu
 
+sh "$(dirname -- "$0")/legacy-deployment-guard.sh"
+
 ACK_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 TOFU=${TOFU:-./scripts/tofu.sh}
 cd "$ACK_DIR"

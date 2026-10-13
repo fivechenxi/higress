@@ -15,6 +15,8 @@
 
 set -euo pipefail
 
+sh "$(dirname -- "$0")/legacy-deployment-guard.sh"
+
 publish=false
 if [[ ${1:-} == "--publish" ]]; then
   publish=true

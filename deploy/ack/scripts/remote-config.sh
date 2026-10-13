@@ -22,6 +22,10 @@ REMOTE_FILE="$ACK_DIR/remote-config.hcl"
 ACTION=${1:-status}
 FORCE=${2:-}
 
+case "$ACTION" in
+  push|prepare) sh "$ACK_DIR/scripts/legacy-deployment-guard.sh" ;;
+esac
+
 test -f "$REMOTE_FILE" || {
   printf 'Missing remote-config.hcl.\n' >&2
   exit 1

@@ -15,6 +15,8 @@
 
 set -euo pipefail
 
+sh "$(dirname -- "$0")/legacy-deployment-guard.sh"
+
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ack_dir=$(cd -- "$script_dir/.." && pwd)
 manifest="$ack_dir/artifacts/grafana-sls-plugin.sh"

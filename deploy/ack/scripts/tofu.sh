@@ -15,6 +15,8 @@
 
 set -eu
 
+sh "$(dirname -- "$0")/legacy-deployment-guard.sh"
+
 TOFU_BIN=${TOFU_BIN:-tofu}
 PROFILE=${ALICLOUD_PROFILE:-tokenvolt}
 
