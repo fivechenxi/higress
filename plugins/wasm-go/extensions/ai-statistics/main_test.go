@@ -2537,8 +2537,12 @@ func TestStreamingFailureCountMetric(t *testing.T) {
 // request headers + body (model gpt-4) + text/event-stream response headers,
 // with route api-v1 / cluster cluster-1 / consumer user1 for metric labels.
 // The caller must defer host.Reset().
-func setupStreamingHost(t *testing.T, config json.RawMessage) test.TestHost {
+func setupStreamingHost(t *testing.T, config json.RawMessage, requestPath ...string) test.TestHost {
 	t.Helper()
+	path := "/v1/chat/completions"
+	if len(requestPath) > 0 {
+		path = requestPath[0]
+	}
 	host, status := test.NewTestHost(config)
 	require.Equal(t, types.OnPluginStartStatusOK, status)
 
@@ -2547,7 +2551,7 @@ func setupStreamingHost(t *testing.T, config json.RawMessage) test.TestHost {
 
 	action := host.CallOnHttpRequestHeaders([][2]string{
 		{":authority", "example.com"},
-		{":path", "/v1/chat/completions"},
+		{":path", path},
 		{":method", "POST"},
 		{"x-mse-consumer", "user1"},
 	})
